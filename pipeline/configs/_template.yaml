@@ -1,0 +1,74 @@
+# GRPO Pipeline — Config Template
+# All fields shown; most have defaults. Copy + modify for each experiment.
+
+experiment_id: e0-baseline-math-1.5b
+description: "accuracy-only GRPO baseline, math domain, 1.5B"
+
+model:
+  slug: qwen-1.5b               # key into training/registry.py
+  lora_r: 16
+  lora_alpha: 32                # auto-set to lora_r * 2 if omitted
+  load_in_4bit: true
+  max_seq_length: 2048
+  use_vllm: false
+  gpu_memory_utilization: 0.6   # only used if use_vllm: true
+
+training:
+  domain: math                  # math | coding
+  dataset: openai/gsm8k         # HuggingFace dataset id
+  split: train
+  prompt_length_quantile: 0.9   # filter top 10% longest prompts
+  n_rollouts: 8                 # GRPO group size (DIET default)
+  max_steps: 500
+  save_steps: 100
+  learning_rate: 5e-6
+  weight_decay: 0.1
+  warmup_ratio: 0.1
+  kl_beta: 0.001
+  batch_size: 1
+  gradient_accumulation_steps: 1
+
+rewards:
+  compose_method: advantage_weighted   # advantage_weighted | naive_sum
+
+  format_exact:
+    enabled: true
+    weight: 1.0
+
+  format_approx:
+    enabled: true
+    weight: 0.5
+
+  accuracy:
+    enabled: true
+    weight: 1.0
+
+  numeric:
+    enabled: true
+    weight: 1.0
+
+  token_length:
+    enabled: false
+    weight: 1.0
+    alpha: 0.001                # penalty scale per token
+    schedule: constant          # constant | cosine
+
+  token_entropy:
+    enabled: false
+    weight: 1.0
+    reward_scale: 0.1
+    fork_mask_top_pct: 0.0      # 0.0 = all tokens; 0.2 = top-20% by entropy
+
+  effort_proxy:
+    enabled: false
+    weight: 1.0
+    metric: token_count         # token_count | flops | gpu_time
+    alpha: 0.001
+
+eval:
+  id_split: openai/gsm8k        # dataset name for ID held-out eval
+  id_split_hf_split: test
+  ood_probes:
+    near: hendrycks/competition_math   # near-OOD (same domain, different dist)
+    far: MMLU                          # far-OOD
+    capability_floor: simple           # fixed 5-question sanity check
