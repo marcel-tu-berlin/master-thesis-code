@@ -1,5 +1,6 @@
 experiment_id: e2-multi-signal
 description: "E2 multi-signal: accuracy + token_length + token_entropy (advantage-weighted)"
+seed: 42
 
 model:
   slug: qwen-1.5b
@@ -45,6 +46,8 @@ rewards:
     weight: 0.0
 
 eval:
+  temperature: 0.0
+  do_sample: false
   id_split: openai/gsm8k
   id_split_hf_split: test
   ood_probes:

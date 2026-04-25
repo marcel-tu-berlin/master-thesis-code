@@ -13,18 +13,26 @@ class OODResults:
     capability_floor: EvalMetrics | None = None
 
 
-def _run_split(model, tokenizer, domain, dataset, max_new_tokens: int = 512) -> EvalMetrics:
+def _gen_kwargs(eval_cfg: dict) -> dict:
+    return {
+        "do_sample": eval_cfg.get("do_sample", False),
+        "temperature": eval_cfg.get("temperature", 0.0) if eval_cfg.get("do_sample", False) else None,
+    }
+
+
+def _run_split(model, tokenizer, domain, dataset, max_new_tokens: int = 512, gen_kwargs: dict | None = None) -> EvalMetrics:
     """Generate completions for a dataset split and score them."""
     from unsloth import FastLanguageModel
     FastLanguageModel.for_inference(model)
 
+    gen_kwargs = gen_kwargs or {"do_sample": False}
     results = []
     for sample in dataset:
         prompt_text = tokenizer.apply_chat_template(
             sample["prompt"], add_generation_prompt=True, tokenize=False
         )
         inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
-        output_ids = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+        output_ids = model.generate(**inputs, max_new_tokens=max_new_tokens, **gen_kwargs)
         completion_ids = output_ids[0][inputs["input_ids"].shape[1]:]
         completion_text = tokenizer.decode(completion_ids, skip_special_tokens=True)
 
@@ -48,55 +56,57 @@ def run_ood_probes(
     Run all OOD probe splits and return structured results.
 
     Probe hierarchy (from config eval.ood_probes):
-      id_split     — held-out portion of the training dataset
-      near_ood     — same domain, different distribution (e.g. GSM-8K if trained on MATH)
-      far_ood      — MMLU subset (5-shot multiple-choice)
-      capability   — simple instruction-following floor (fixed 50-item set)
+    id_split — held-out portion of the training dataset
+    near_ood — same domain, different distribution (e.g. GSM-8K if trained on MATH)
+    far_ood — MMLU subset (5-shot multiple-choice)
+    capability — simple instruction-following floor (fixed 50-item set)
     """
     from domains.math.loader import MathDomain
 
     probes_cfg = eval_cfg.get("ood_probes", {})
+    gk = _gen_kwargs(eval_cfg)
     results = OODResults()
 
-    # ID split ─────────────────────────────────────────────────────────────────
+    # ID split
     id_name = eval_cfg.get("id_split")
     if id_name:
-        print(f"  Running ID split: {id_name}")
+        print(f" Running ID split: {id_name}")
         id_ds = domain.load_dataset(
             config["training"]["dataset"],
             split=eval_cfg.get("id_split_hf_split", "test"),
         )
         id_ds = id_ds.select(range(min(200, len(id_ds))))
-        results.id_split = _run_split(model, tokenizer, domain, id_ds, max_new_tokens)
+        results.id_split = _run_split(model, tokenizer, domain, id_ds, max_new_tokens, gen_kwargs=gk)
 
-    # Near-OOD ─────────────────────────────────────────────────────────────────
+    # Near-OOD
     near_name = probes_cfg.get("near")
     if near_name:
-        print(f"  Running near-OOD: {near_name}")
+        print(f" Running near-OOD: {near_name}")
         near_ds = domain.load_dataset(near_name, split="test")
         near_ds = near_ds.select(range(min(200, len(near_ds))))
-        results.near_ood = _run_split(model, tokenizer, domain, near_ds, max_new_tokens)
+        results.near_ood = _run_split(model, tokenizer, domain, near_ds, max_new_tokens, gen_kwargs=gk)
 
-    # Far-OOD: MMLU ────────────────────────────────────────────────────────────
+    # Far-OOD: MMLU
     far_name = probes_cfg.get("far")
     if far_name == "MMLU":
-        print("  Running far-OOD: MMLU")
-        results.far_ood = _run_mmlu(model, tokenizer, max_new_tokens)
+        print(" Running far-OOD: MMLU")
+        results.far_ood = _run_mmlu(model, tokenizer, max_new_tokens, gen_kwargs=gk)
 
-    # Capability floor ─────────────────────────────────────────────────────────
+    # Capability floor
     cap_name = probes_cfg.get("capability_floor")
     if cap_name:
-        print(f"  Running capability floor: {cap_name}")
-        results.capability_floor = _run_capability_floor(model, tokenizer, cap_name, max_new_tokens)
+        print(f" Running capability floor: {cap_name}")
+        results.capability_floor = _run_capability_floor(model, tokenizer, cap_name, max_new_tokens, gen_kwargs=gk)
 
     return results
 
 
-def _run_mmlu(model, tokenizer, max_new_tokens: int, n_samples: int = 100) -> EvalMetrics:
+def _run_mmlu(model, tokenizer, max_new_tokens: int, n_samples: int = 100, gen_kwargs: dict | None = None) -> EvalMetrics:
     from datasets import load_dataset as hf_load
     ds = hf_load("lukaemon/mmlu", "all", split="test")
     ds = ds.shuffle(seed=42).select(range(min(n_samples, len(ds))))
 
+    gen_kwargs = gen_kwargs or {"do_sample": False}
     results = []
     for sample in ds:
         question = sample["input"]
@@ -107,7 +117,7 @@ def _run_mmlu(model, tokenizer, max_new_tokens: int, n_samples: int = 100) -> Ev
             + "\nAnswer with the letter only."
         )
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-        out = model.generate(**inputs, max_new_tokens=5, do_sample=False)
+        out = model.generate(**inputs, max_new_tokens=5, **gen_kwargs)
         pred = tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
         correct = pred.upper().startswith(sample["target"].upper())
         results.append(SampleResult(correct=correct, n_tokens=len(out[0]) - inputs["input_ids"].shape[1]))
@@ -115,7 +125,7 @@ def _run_mmlu(model, tokenizer, max_new_tokens: int, n_samples: int = 100) -> Ev
     return compute_metrics(results)
 
 
-def _run_capability_floor(model, tokenizer, name: str, max_new_tokens: int) -> EvalMetrics:
+def _run_capability_floor(model, tokenizer, name: str, max_new_tokens: int, gen_kwargs: dict | None = None) -> EvalMetrics:
     """Simple yes/no instruction following — checks the model hasn't catastrophically forgotten."""
     FIXED_PROMPTS = [
         ("What is 2+2?", "4"),
@@ -124,10 +134,11 @@ def _run_capability_floor(model, tokenizer, name: str, max_new_tokens: int) -> E
         ("What is 10 * 10?", "100"),
         ("What color is the sky on a clear day?", "blue"),
     ]
+    gen_kwargs = gen_kwargs or {"do_sample": False}
     results = []
     for prompt, expected in FIXED_PROMPTS:
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-        out = model.generate(**inputs, max_new_tokens=20, do_sample=False)
+        out = model.generate(**inputs, max_new_tokens=20, **gen_kwargs)
         pred = tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip().lower()
         correct = expected.lower() in pred
         results.append(SampleResult(correct=correct, n_tokens=len(out[0]) - inputs["input_ids"].shape[1]))

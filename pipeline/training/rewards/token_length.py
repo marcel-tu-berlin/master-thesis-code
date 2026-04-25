@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import math
 
+from training.rewards.utils import extract_content
+
 
 class TokenLengthReward:
     """
@@ -39,7 +41,7 @@ class TokenLengthReward:
         alpha = self._current_alpha()
         scores = []
         for completion in completions:
-            text = completion[0]["content"]
+            text = extract_content(completion)
             n_tokens = len(self.tokenizer.encode(text))
             scores.append(-alpha * n_tokens)
         return scores

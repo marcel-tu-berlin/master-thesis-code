@@ -3,12 +3,14 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
+from training.rewards.utils import extract_content
+
 
 class TokenEntropyReward:
     """
-    Mean per-token Shannon entropy H_t = -∑ p log p from model logits.
+    Mean per-token Shannon entropy H_t = -sum p log p from model logits.
 
-    Requires a forward pass on the completion (one extra inference step per batch).
+    Batched forward pass over all completions in one call.
     Rewards completions where the model faced high-uncertainty "fork" tokens,
     incentivising genuine deliberation over low-entropy pattern matching.
 
@@ -29,26 +31,34 @@ class TokenEntropyReward:
         self.fork_mask_top_pct = fork_mask_top_pct
 
     def __call__(self, prompts, completions, **kwargs) -> list[float]:
-        scores = []
-        for completion in completions:
-            text = completion[0]["content"]
-            entropy = self._compute_mean_entropy(text)
-            scores.append(self.reward_scale * entropy)
-        return scores
+        texts = [extract_content(c) for c in completions]
+        if not texts:
+            return []
 
-    @torch.no_grad()
-    def _compute_mean_entropy(self, text: str) -> float:
-        inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
+        inputs = self.tokenizer(
+            texts, return_tensors="pt", padding=True, truncation=True
+        ).to(self.model.device)
+
         if inputs["input_ids"].shape[1] < 2:
-            return 0.0
+            return [0.0] * len(completions)
 
-        logits = self.model(**inputs).logits  # (1, T, V)
-        probs = F.softmax(logits[0], dim=-1)  # (T, V)
-        # H_t = -∑ p * log(p+ε)
-        H = -(probs * torch.log(probs + 1e-10)).sum(dim=-1)  # (T,)
+        with torch.no_grad():
+            logits = self.model(**inputs).logits  # (B, T, V)
 
-        if self.fork_mask_top_pct > 0.0:
-            threshold = torch.quantile(H, 1.0 - self.fork_mask_top_pct)
-            H = H[H >= threshold]
+        probs = F.softmax(logits, dim=-1)  # (B, T, V)
+        H = -(probs * torch.log(probs + 1e-10)).sum(dim=-1)  # (B, T)
 
-        return H.mean().item() if H.numel() > 0 else 0.0
+        pad_mask = inputs["attention_mask"].bool()  # (B, T)
+
+        scores = []
+        for i in range(len(completions)):
+            h_i = H[i][pad_mask[i]]  # only real tokens
+
+            if self.fork_mask_top_pct > 0.0 and h_i.numel() > 0:
+                threshold = torch.quantile(h_i, 1.0 - self.fork_mask_top_pct)
+                h_i = h_i[h_i >= threshold]
+
+            mean_entropy = h_i.mean().item() if h_i.numel() > 0 else 0.0
+            scores.append(self.reward_scale * mean_entropy)
+
+        return scores

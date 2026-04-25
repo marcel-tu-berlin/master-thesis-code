@@ -93,7 +93,7 @@ class Domain(ABC):
             b = float(truth.strip())
             return 3.5 if a == b else -1.5
         except (ValueError, AttributeError):
-            return 0.0
+            return -1.5
 
     def is_correct(self, completion: str, ground_truth: str) -> bool:
         """Binary correctness for evaluation (not training)."""
@@ -104,7 +104,7 @@ class Domain(ABC):
 
     def build_chat_template(self, tokenizer) -> None:
         """Inject domain-specific Jinja2 chat template into tokenizer."""
-        sp = self.system_prompt.replace("'", "\\'")
+        sp = self.system_prompt
         rs = self.reasoning_start
         chat_template = (
             "{% if messages[0]['role'] == 'system' %}"

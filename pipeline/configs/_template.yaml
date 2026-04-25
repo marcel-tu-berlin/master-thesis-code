@@ -3,6 +3,8 @@
 
 experiment_id: e0-baseline-math-1.5b
 description: "accuracy-only GRPO baseline, math domain, 1.5B"
+seed: 42
+baseline_id: null  # explicit baseline experiment_id for eval comparison (e.g. e0-baseline-math-1.5b)
 
 model:
   slug: qwen-1.5b               # key into training/registry.py
@@ -66,7 +68,9 @@ rewards:
     alpha: 0.001
 
 eval:
-  id_split: openai/gsm8k        # dataset name for ID held-out eval
+  temperature: 0.0
+  do_sample: false
+  id_split: openai/gsm8k # dataset name for ID held-out eval
   id_split_hf_split: test
   ood_probes:
     near: hendrycks/competition_math   # near-OOD (same domain, different dist)

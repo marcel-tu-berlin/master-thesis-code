@@ -41,14 +41,14 @@ class GRPORunner:
             target_modules=LORA_TARGET_MODULES,
             lora_alpha=lora_rank * 2,
             use_gradient_checkpointing="unsloth",
-            random_state=config.get("seed", 3407),
+            random_state=config.get("seed", 42),
         )
 
         self._lora_rank = lora_rank
         self._max_seq = max_seq
         self._use_vllm = use_vllm
 
-    def train(self, dataset, reward_fn: Callable, output_dir: str) -> None:
+    def train(self, dataset, reward_fn: Callable, output_dir: str, callbacks: list | None = None) -> None:
         t = self.config["training"]
         max_prompt_len = t.get("max_prompt_length", self._max_seq // 2)
         max_completion_len = self._max_seq - max_prompt_len
@@ -84,6 +84,7 @@ class GRPORunner:
             reward_funcs=[reward_fn],
             args=grpo_args,
             train_dataset=dataset,
+            callbacks=callbacks or [],
         )
         trainer.train()
 

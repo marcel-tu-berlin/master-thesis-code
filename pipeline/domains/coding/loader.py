@@ -13,7 +13,7 @@ SYSTEM_PROMPT = (
 
 
 class CodingDomain(Domain):
-    """Scaffold — HumanEval / MBPP loader. Full execution-based verifier is in coding/verifier.py."""
+    """HumanEval / MBPP loader. Execution-based verification not yet implemented."""
 
     system_prompt = SYSTEM_PROMPT
     _SUPPORTED = {"openai/openai_humaneval", "google-research-datasets/mbpp"}
@@ -62,6 +62,18 @@ class CodingDomain(Domain):
     def extract_answer(self, text: str) -> str | None:
         m = self._solution_re.search(text)
         return m.group(1).strip() if m else None
+
+    def is_correct(self, completion: str, ground_truth: str) -> bool:
+        raise NotImplementedError(
+            "CodingDomain.is_correct requires execution-based verification — not yet implemented. "
+            "Use MathDomain for string/numeric correctness, or implement a sandboxed verifier."
+        )
+
+    def score_answer(self, extracted: str | None, truth: str) -> float:
+        raise NotImplementedError(
+            "CodingDomain.score_answer requires execution-based verification — not yet implemented. "
+            "Use MathDomain for string/numeric scoring, or implement a sandboxed verifier."
+        )
 
     def difficulty(self, sample: dict) -> float | None:
         return None

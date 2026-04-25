@@ -10,11 +10,16 @@ def _metrics_dict(metrics) -> dict:
         return {}
     return {
         "accuracy": round(metrics.accuracy, 4),
+        "accuracy_ci": [round(metrics.accuracy_ci_low, 4), round(metrics.accuracy_ci_high, 4)],
         "mean_token_count": round(metrics.mean_token_count, 1),
         "underthinking_rate": round(metrics.underthinking_rate, 4),
         "pearson_difficulty_length": (
             round(metrics.pearson_difficulty_length, 4)
             if metrics.pearson_difficulty_length is not None else None
+        ),
+        "pearson_p_value": (
+            round(metrics.pearson_p_value, 6)
+            if metrics.pearson_p_value is not None else None
         ),
         "n_samples": metrics.n_samples,
         "n_correct": metrics.n_correct,
@@ -44,7 +49,7 @@ def generate_report(config: dict, ood_results, run_dir: str) -> dict:
     }
 
     # Compare against E0 baseline if it exists
-    baseline_path = _find_baseline(run_dir)
+    baseline_path = _find_baseline(run_dir, config)
     if baseline_path:
         with open(baseline_path) as f:
             baseline = json.load(f)
@@ -62,10 +67,18 @@ def generate_report(config: dict, ood_results, run_dir: str) -> dict:
     return report
 
 
-def _find_baseline(run_dir: str) -> str | None:
+def _find_baseline(run_dir: str, config: dict | None = None) -> str | None:
     runs_root = os.path.dirname(run_dir)
+
+    # Explicit baseline_id from config takes priority
+    if config and config.get("baseline_id"):
+        candidate = os.path.join(runs_root, config["baseline_id"], "eval_report.json")
+        if os.path.exists(candidate) and candidate != os.path.join(run_dir, "eval_report.json"):
+            return candidate
+
+    # Fallback heuristic: match entries starting with "e0-" or containing "-baseline-"
     for entry in sorted(os.listdir(runs_root)):
-        if "e0" in entry or "baseline" in entry:
+        if entry.startswith("e0-") or "-baseline-" in entry:
             candidate = os.path.join(runs_root, entry, "eval_report.json")
             if os.path.exists(candidate) and candidate != os.path.join(run_dir, "eval_report.json"):
                 return candidate
@@ -89,12 +102,13 @@ def _write_markdown(report: dict, run_dir: str) -> None:
             continue
         lines += [
             f"### {split.replace('_', ' ').title()}",
-            f"- Accuracy: **{metrics.get('accuracy', '—')}**",
-            f"- Mean tokens: {metrics.get('mean_token_count', '—')}",
-            f"- Underthinking rate: {metrics.get('underthinking_rate', '—')}",
+            f"- Accuracy: **{metrics.get('accuracy', '-')}** [{metrics.get('accuracy_ci', ['-', '-'])[0]}, {metrics.get('accuracy_ci', ['-', '-'])[1]}]",
+            f"- Mean tokens: {metrics.get('mean_token_count', '-')}",
+            f"- Underthinking rate: {metrics.get('underthinking_rate', '-')}",
         ]
         if metrics.get("pearson_difficulty_length") is not None:
-            lines.append(f"- Pearson(difficulty, length): {metrics['pearson_difficulty_length']}")
+            p_str = f" (p={metrics.get('pearson_p_value', '-')})" if metrics.get("pearson_p_value") is not None else ""
+            lines.append(f"- Pearson(difficulty, length): {metrics['pearson_difficulty_length']}{p_str}")
         lines.append("")
 
     if "vs_baseline" in report:

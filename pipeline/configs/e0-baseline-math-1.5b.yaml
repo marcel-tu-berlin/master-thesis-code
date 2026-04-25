@@ -1,5 +1,6 @@
 experiment_id: e0-baseline-math-1.5b
 description: "accuracy-only GRPO baseline — reference for all delta_accuracy comparisons"
+seed: 42
 
 model:
   slug: qwen-1.5b
@@ -41,6 +42,8 @@ rewards:
     weight: 0.0
 
 eval:
+  temperature: 0.0
+  do_sample: false
   id_split: openai/gsm8k
   id_split_hf_split: test
   ood_probes:

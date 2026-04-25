@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from training.rewards.utils import extract_content
+
 
 class EffortProxyReward:
     """
@@ -7,8 +9,9 @@ class EffortProxyReward:
 
     token_count — count completion tokens; most reliable, directly proportional
                   to decoding cost.
-    flops       — heuristic: 2 * T * L * D²  (T=tokens, L=layers, D=hidden_dim).
-                  Scales same as token_count but models architecture differences.
+    flops — heuristic: 2 * T * L * D² (T=tokens, L=layers, D=hidden_dim).
+    Returns effort in GFLOPs (divided by 1e9) so the magnitude is comparable
+    to token_count but reflects architecture differences.
     gpu_time    — wall-clock timing is not available inside the reward function
                   (generation already finished); falls back to token_count.
 
@@ -41,15 +44,12 @@ class EffortProxyReward:
     def __call__(self, prompts, completions, **kwargs) -> list[float]:
         scores = []
         for completion in completions:
-            text = completion[0]["content"]
+            text = extract_content(completion)
             n_tokens = len(self.tokenizer.encode(text))
 
             if self.metric == "flops":
-                effort = n_tokens * self._flop_scale
-                # Normalise to same order of magnitude as token_count
-                effort = effort / (self._flop_scale + 1e-12)
+                effort = n_tokens * self._flop_scale / 1e9
             else:
-                # token_count and gpu_time (fallback) both use token count
                 effort = float(n_tokens)
 
             scores.append(-self.alpha * effort)

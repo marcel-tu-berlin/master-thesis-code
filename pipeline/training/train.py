@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import sys
 
+import numpy as np
 import yaml
 
 # Allow running as: python -m training.train
@@ -19,6 +21,18 @@ from training.rewards.effort_proxy import EffortProxyReward
 from training.rewards.format import FormatApproxReward, FormatExactReward
 from training.rewards.token_entropy import TokenEntropyReward
 from training.rewards.token_length import TokenLengthReward
+from training.config_schema import validate_config
+
+
+class _RewardStepCallback:
+    """TRL TrainerCallback that advances reward schedulers after each step."""
+
+    def __init__(self, step_fns: list) -> None:
+        self.step_fns = step_fns
+
+    def on_step_end(self, args, state, control, **kwargs):
+        for fn in self.step_fns:
+            fn()
 
 
 def load_config(path: str) -> dict:
@@ -103,6 +117,11 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(args.config)
+    validate_config(config)
+    seed = config.get("seed", 42)
+    random.seed(seed)
+    np.random.seed(seed)
+
     exp_id = config["experiment_id"]
     run_dir = os.path.join("runs", exp_id)
     os.makedirs(run_dir, exist_ok=True)
@@ -134,13 +153,16 @@ def main() -> None:
     method = config.get("rewards", {}).get("compose_method", "advantage_weighted")
     reward_fn = build_composer(components, method)
 
+    step_fns = [fn.step for fn, _ in components if hasattr(fn, "step") and callable(fn.step)]
+    callbacks = [_RewardStepCallback(step_fns)] if step_fns else None
+
     print(f"Experiment: {exp_id}")
     print(f"Reward components: {[type(fn).__name__ for fn, _ in components]}")
     print(f"Compose method: {method}")
     print(f"Dataset size: {len(dataset)}")
 
     checkpoint_dir = os.path.join(run_dir, "checkpoint-final")
-    runner.train(dataset, reward_fn, output_dir=run_dir)
+    runner.train(dataset, reward_fn, output_dir=run_dir, callbacks=callbacks)
     runner.save_lora(checkpoint_dir)
 
     if args.eval:
