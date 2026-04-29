@@ -7,10 +7,10 @@ Reinforcement learning pipeline for training reasoning models with Group Relativ
 ### Prerequisites
 
 - Python 3.12, CUDA 13.0, NVIDIA GPU (tested on RTX 4090)
-- Install dependencies:
+- Setup environment and install dependencies:
 
 ```bash
-pip install -r requirements.txt
+[./setup.sh](../setup.sh)
 ```
 
 ### Train
