@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from domains.base import Domain
 from training.rewards.utils import extract_content
 

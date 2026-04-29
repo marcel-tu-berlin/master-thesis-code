@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 
 def extract_content(completion) -> str:
     try:

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datasets import Dataset, load_dataset
 
 from domains.base import Domain

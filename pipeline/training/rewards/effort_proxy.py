@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from training.rewards.utils import extract_content
 
 

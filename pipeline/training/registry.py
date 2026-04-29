@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 # slug → kwargs for FastLanguageModel.from_pretrained
 MODEL_REGISTRY: dict[str, dict] = {
     "qwen3-4b": {
@@ -9,19 +7,19 @@ MODEL_REGISTRY: dict[str, dict] = {
         "max_lora_rank": 32,
     },
     "qwen-1.5b": {
-        "model_name": "Qwen/QwQ-1.5B",
+        "model_name": "Qwen/Qwen2.5-1.5B",
         "load_in_4bit": True,
         "max_seq_length": 2048,
         "max_lora_rank": 32,
     },
     "qwen-7b": {
-        "model_name": "Qwen/QwQ-7B",
+        "model_name": "Qwen/Qwen2-7B",
         "load_in_4bit": True,
         "max_seq_length": 2048,
         "max_lora_rank": 64,
     },
     "llama-8b": {
-        "model_name": "meta-llama/meta-Llama-3.1-8B-Instruct",
+        "model_name": "meta-llama/Llama-3.1-8B-Instruct",
         "load_in_4bit": True,
         "max_seq_length": 512,
         "max_lora_rank": 32,

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Callable
 
 import torch
@@ -18,6 +16,7 @@ class AdvantageWeightedComposer:
 
     def __init__(self, components: list[tuple[Callable, float]]) -> None:
         self.components = components
+        self.__name__ = "advantage_weighted_composer"
 
     def __call__(self, prompts, completions, **kwargs) -> list[float]:
         n = len(completions)
@@ -35,13 +34,13 @@ class AdvantageWeightedComposer:
 
 
 class NaiveSumComposer:
-    """
-    Plain weighted sum — ablation baseline for E3.
+    """Plain weighted sum — ablation baseline for E3.
     Contrast with AdvantageWeightedComposer to measure DIET advantage-weighting effect.
     """
 
     def __init__(self, components: list[tuple[Callable, float]]) -> None:
         self.components = components
+        self.__name__ = "naive_sum_composer"
 
     def __call__(self, prompts, completions, **kwargs) -> list[float]:
         n = len(completions)
