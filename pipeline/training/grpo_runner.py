@@ -87,6 +87,6 @@ class GRPORunner:
         trainer.train()
 
     def save_lora(self, path: str) -> None:
-        self.model.save_lora(path)
+        self.model.save_pretrained(path)
         self.tokenizer.save_pretrained(path)
         print(f"LoRA saved to {path}")
