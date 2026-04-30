@@ -1,7 +1,7 @@
 import re
 
 import numpy as np
-from datasets import Dataset, load_dataset
+from datasets import Dataset, concatenate_datasets, load_dataset
 
 from domains.base import Domain
 
@@ -66,8 +66,19 @@ class MathDomain(Domain):
             remove_columns=data.column_names,
         )
 
+    _MATH_CONFIGS = [
+        "algebra",
+        "counting_and_probability",
+        "geometry",
+        "intermediate_algebra",
+        "number_theory",
+        "prealgebra",
+        "precalculus",
+    ]
+
     def _load_math(self, split: str) -> Dataset:
-        data = load_dataset("EleutherAI/hendrycks_math")[split]
+        subsets = [load_dataset("EleutherAI/hendrycks_math", c)[split] for c in self._MATH_CONFIGS]
+        data = concatenate_datasets(subsets)
         return data.map(
             lambda x: {
                 "prompt": [

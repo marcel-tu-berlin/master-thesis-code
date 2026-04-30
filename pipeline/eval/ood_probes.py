@@ -106,14 +106,15 @@ def run_ood_probes(
 
 def _run_mmlu(model, tokenizer, max_new_tokens: int, n_samples: int = 100, gen_kwargs: dict | None = None) -> EvalMetrics:
     from datasets import load_dataset as hf_load
-    ds = hf_load("lukaemon/mmlu", "all", split="test")
+    ds = hf_load("cais/mmlu", "all", split="test")
     ds = ds.shuffle(seed=42).select(range(min(n_samples, len(ds))))
 
     gen_kwargs = gen_kwargs or {"do_sample": False}
     results = []
     for sample in ds:
-        question = sample["input"]
-        choices = [sample.get(k, "") for k in ["A", "B", "C", "D"]]
+        question = sample["question"]
+        choices = sample["choices"]
+        answer_letter = "ABCD"[sample["answer"]]
         prompt = (
             f"{question}\n"
             + "\n".join(f"{k}. {v}" for k, v in zip("ABCD", choices))
@@ -122,7 +123,7 @@ def _run_mmlu(model, tokenizer, max_new_tokens: int, n_samples: int = 100, gen_k
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
         out = model.generate(**inputs, max_new_tokens=5, **gen_kwargs)
         pred = tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
-        correct = pred.upper().startswith(sample["target"].upper())
+        correct = pred.upper().startswith(answer_letter)
         results.append(SampleResult(correct=correct, n_tokens=len(out[0]) - inputs["input_ids"].shape[1]))
 
     return compute_metrics(results)
