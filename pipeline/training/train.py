@@ -108,13 +108,29 @@ def build_reward_components(config: dict, domain, runner: GRPORunner) -> list:
     return components
 
 
+def apply_smoke_overrides(config: dict) -> dict:
+    """Patch config for fast smoke testing: 3 steps, 2 rollouts, short seq."""
+    config.setdefault("model", {})
+    config.setdefault("training", {})
+    config["model"]["max_seq_length"] = 512
+    config["training"]["max_steps"] = 3
+    config["training"]["save_steps"] = 3
+    config["training"]["n_rollouts"] = 2
+    config["training"]["dataset_size_limit"] = 64
+    print("⚠  Smoke mode: max_steps=3, n_rollouts=2, max_seq_length=512, dataset_size_limit=64")
+    return config
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--eval", action="store_true", help="Run eval after training")
+    parser.add_argument("--smoke", action="store_true", help="Override config for fast smoke test (3 steps, 2 rollouts, 512 seq)")
     args = parser.parse_args()
 
     config = load_config(args.config)
+    if args.smoke:
+        apply_smoke_overrides(config)
     validate_config(config)
     seed = config.get("seed", 42)
     random.seed(seed)
@@ -142,6 +158,12 @@ def main() -> None:
         dataset = domain.filter_by_prompt_length(
             dataset, runner.tokenizer, quantile=config["training"].get("prompt_length_quantile", 0.9)
         )
+
+    size_limit = config["training"].get("dataset_size_limit")
+    if size_limit is not None and len(dataset) > size_limit:
+        size_limit = int(size_limit)
+        dataset = dataset.select(range(size_limit))
+        print(f"Dataset truncated to {size_limit} samples (dataset_size_limit)")
 
     # Build composed reward function
     components = build_reward_components(config, domain, runner)

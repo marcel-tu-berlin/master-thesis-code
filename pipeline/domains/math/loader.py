@@ -40,12 +40,12 @@ def _extract_hash_answer(text: str) -> str | None:
 
 class MathDomain(Domain):
     system_prompt = SYSTEM_PROMPT
-    _SUPPORTED = {"openai/gsm8k", "hendrycks/competition_math", "open-r1/DAPO-Math-17k-Processed"}
+    _SUPPORTED = {"openai/gsm8k", "EleutherAI/hendrycks_math", "open-r1/DAPO-Math-17k-Processed"}
 
     def load_dataset(self, name: str, split: str = "train") -> Dataset:
         if name == "openai/gsm8k":
             return self._load_gsm8k(split)
-        if name == "hendrycks/competition_math":
+        if name == "EleutherAI/hendrycks_math":
             return self._load_math(split)
         if name == "open-r1/DAPO-Math-17k-Processed":
             return self._load_dapo(split)
@@ -67,7 +67,7 @@ class MathDomain(Domain):
         )
 
     def _load_math(self, split: str) -> Dataset:
-        data = load_dataset("hendrycks/competition_math")[split]
+        data = load_dataset("EleutherAI/hendrycks_math")[split]
         return data.map(
             lambda x: {
                 "prompt": [

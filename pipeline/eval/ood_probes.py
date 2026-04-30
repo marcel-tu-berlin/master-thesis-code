@@ -49,6 +49,7 @@ def run_ood_probes(
     config: dict,
     eval_cfg: dict,
     max_new_tokens: int = 512,
+    smoke: bool = False,
 ) -> OODResults:
     """
     Run all OOD probe splits and return structured results.
@@ -65,35 +66,39 @@ def run_ood_probes(
     gk = _gen_kwargs(eval_cfg)
     results = OODResults()
 
+    id_limit = 10 if smoke else eval_cfg.get("id_split_limit", 200)
+    near_limit = 10 if smoke else eval_cfg.get("near_ood_limit", 200)
+    mmlu_limit = 10 if smoke else eval_cfg.get("far_ood_limit", 100)
+
     # ID split
     id_name = eval_cfg.get("id_split")
     if id_name:
-        print(f" Running ID split: {id_name}")
+        print(f"  Running ID split: {id_name}")
         id_ds = domain.load_dataset(
             config["training"]["dataset"],
             split=eval_cfg.get("id_split_hf_split", "test"),
         )
-        id_ds = id_ds.select(range(min(200, len(id_ds))))
+        id_ds = id_ds.select(range(min(id_limit, len(id_ds))))
         results.id_split = _run_split(model, tokenizer, domain, id_ds, max_new_tokens, gen_kwargs=gk)
 
     # Near-OOD
     near_name = probes_cfg.get("near")
     if near_name:
-        print(f" Running near-OOD: {near_name}")
+        print(f"  Running near-OOD: {near_name}")
         near_ds = domain.load_dataset(near_name, split="test")
-        near_ds = near_ds.select(range(min(200, len(near_ds))))
+        near_ds = near_ds.select(range(min(near_limit, len(near_ds))))
         results.near_ood = _run_split(model, tokenizer, domain, near_ds, max_new_tokens, gen_kwargs=gk)
 
     # Far-OOD: MMLU
     far_name = probes_cfg.get("far")
     if far_name == "MMLU":
-        print(" Running far-OOD: MMLU")
-        results.far_ood = _run_mmlu(model, tokenizer, max_new_tokens, gen_kwargs=gk)
+        print("  Running far-OOD: MMLU")
+        results.far_ood = _run_mmlu(model, tokenizer, max_new_tokens, n_samples=mmlu_limit, gen_kwargs=gk)
 
     # Capability floor
     cap_name = probes_cfg.get("capability_floor")
     if cap_name:
-        print(f" Running capability floor: {cap_name}")
+        print(f"  Running capability floor: {cap_name}")
         results.capability_floor = _run_capability_floor(model, tokenizer, cap_name, max_new_tokens, gen_kwargs=gk)
 
     return results

@@ -22,6 +22,12 @@ python -m training.train --config configs/e0-baseline-math-1.5b.yaml
 
 Add `--eval` to run evaluation automatically after training finishes.
 
+Add `--smoke` to override the config for a fast sanity check (3 steps, 2 rollouts, 512 seq length, 64-sample dataset limit):
+
+```bash
+python -m training.train --config configs/e0-baseline-math-1.5b.yaml --smoke
+```
+
 ### Evaluate a trained checkpoint
 
 ```bash
@@ -32,6 +38,12 @@ Optionally override the checkpoint path:
 
 ```bash
 python -m eval.runner --config configs/e0-baseline-math-1.5b.yaml --checkpoint runs/e0-baseline-math-1.5b/checkpoint-final
+```
+
+Add `--smoke` to limit eval to 10 samples per split for quick sanity checks:
+
+```bash
+python -m eval.runner --config configs/e0-baseline-math-1.5b.yaml --smoke
 ```
 
 ### Run a new experiment
@@ -225,10 +237,12 @@ Loads a trained LoRA checkpoint, runs all OOD probes, and writes the evaluation 
 **`ood_probes.py`**
 
 Runs four evaluation splits:
-- **ID split** - held-out portion of the training dataset (200 samples)
-- **Near-OOD** - same domain, harder distribution (e.g. Competition Math if trained on GSM8K)
-- **Far-OOD** - MMLU (100 samples, 4-way multiple choice)
+- **ID split** - held-out portion of the training dataset (200 samples default, configurable via `eval.id_split_limit`)
+- **Near-OOD** - same domain, harder distribution (200 samples default, configurable via `eval.near_ood_limit`)
+- **Far-OOD** - MMLU (100 samples default, configurable via `eval.far_ood_limit`)
 - **Capability floor** - 5 fixed instruction-following questions (sanity check for catastrophic forgetting)
+
+Use `--smoke` to cap all splits to 10 samples for quick sanity checks.
 
 Decoding is configurable per config (`eval.temperature`, `eval.do_sample`). Defaults to greedy (temperature=0).
 

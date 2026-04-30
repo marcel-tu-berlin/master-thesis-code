@@ -47,6 +47,6 @@ eval:
   id_split: openai/gsm8k
   id_split_hf_split: test
   ood_probes:
-    near: hendrycks/competition_math
+    near: EleutherAI/hendrycks_math
     far: MMLU
     capability_floor: simple

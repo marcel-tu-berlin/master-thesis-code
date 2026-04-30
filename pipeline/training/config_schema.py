@@ -18,6 +18,7 @@ _NUMERIC_COERCIONS = {
     "training.n_rollouts": (1, 256),
     "training.save_steps": (1, 100_000),
     "training.max_prompt_length": (1, 131072),
+    "training.dataset_size_limit": (1, 1_000_000),
 }
 
 

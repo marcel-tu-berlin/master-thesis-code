@@ -20,11 +20,10 @@ def run_eval(
     Returns the report dict.
     """
     from unsloth import FastLanguageModel
-    from training.registry import get_model_config, LORA_TARGET_MODULES
+    from training.registry import get_model_config
 
     print(f"Loading checkpoint: {checkpoint_dir}")
     model_cfg = get_model_config(config["model"]["slug"])
-    lora_rank = config["model"].get("lora_r", model_cfg["max_lora_rank"])
     max_seq = config["model"].get("max_seq_length", model_cfg["max_seq_length"])
 
     model, tokenizer = FastLanguageModel.from_pretrained(
@@ -32,20 +31,15 @@ def run_eval(
         max_seq_length=max_seq,
         load_in_4bit=config["model"].get("load_in_4bit", model_cfg["load_in_4bit"]),
     )
-    model = FastLanguageModel.get_peft_model(
-        model,
-        r=lora_rank,
-        target_modules=LORA_TARGET_MODULES,
-        lora_alpha=lora_rank * 2,
-        use_gradient_checkpointing=False,
-    )
-    model.load_lora(checkpoint_dir)
+    from peft import PeftModel
+    model = PeftModel.from_pretrained(model, checkpoint_dir)
     domain.build_chat_template(tokenizer)
 
     FastLanguageModel.for_inference(model)
 
     eval_cfg = config.get("eval", {})
-    ood_results = run_ood_probes(model, tokenizer, domain, config, eval_cfg, max_new_tokens)
+    smoke = config.get("_smoke", False)
+    ood_results = run_ood_probes(model, tokenizer, domain, config, eval_cfg, max_new_tokens, smoke=smoke)
 
     report = generate_report(config, ood_results, run_dir)
 
@@ -67,10 +61,15 @@ def main() -> None:
     parser.add_argument("--config", required=True)
     parser.add_argument("--checkpoint", default=None, help="Override checkpoint path")
     parser.add_argument("--max_new_tokens", type=int, default=512)
+    parser.add_argument("--smoke", action="store_true", help="Limit eval to 10 samples per split for quick sanity checks")
     args = parser.parse_args()
 
     with open(args.config) as f:
         config = yaml.safe_load(f)
+
+    if args.smoke:
+        config["_smoke"] = True
+        print("⚠ Smoke mode: eval limited to 10 samples per split")
 
     from domains.math.loader import MathDomain
     from domains.coding.loader import CodingDomain

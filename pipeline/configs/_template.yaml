@@ -19,7 +19,8 @@ training:
   domain: math                  # math | coding
   dataset: openai/gsm8k         # HuggingFace dataset id
   split: train
-  prompt_length_quantile: 0.9   # filter top 10% longest prompts
+  prompt_length_quantile: 0.9 # filter top 10% longest prompts
+  dataset_size_limit: null # null = full dataset; set int to truncate (useful for smoke tests)
   n_rollouts: 8                 # GRPO group size (DIET default)
   max_steps: 500
   save_steps: 100
@@ -73,6 +74,6 @@ eval:
   id_split: openai/gsm8k # dataset name for ID held-out eval
   id_split_hf_split: test
   ood_probes:
-    near: hendrycks/competition_math   # near-OOD (same domain, different dist)
+    near: EleutherAI/hendrycks_math   # near-OOD (same domain, different dist)
     far: MMLU                          # far-OOD
     capability_floor: simple           # fixed 5-question sanity check
