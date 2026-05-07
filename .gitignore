@@ -1,4 +1,5 @@
 unsloth_compiled_cache
 unsloth_training_checkpoints
+grpo_trainer_lora_model
 .venv
 __pycache__

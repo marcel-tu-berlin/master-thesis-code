@@ -1,0 +1,55 @@
+experiment_id: e0-baseline-math-1.5b-vllm
+description: "accuracy-only GRPO baseline with vLLM fast inference — reference for vLLM throughput comparison"
+seed: 42
+
+model:
+  slug: qwen-1.5b
+  lora_r: 16
+  load_in_4bit: true
+  max_seq_length: 2048
+  use_vllm: true
+  gpu_memory_utilization: 0.6
+  enforce_eager: true
+
+training:
+  domain: math
+  dataset: openai/gsm8k
+  split: train
+  n_rollouts: 8
+  max_steps: 500
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  format_exact:
+    enabled: true
+    weight: 1.0
+  format_approx:
+    enabled: true
+    weight: 0.5
+  accuracy:
+    enabled: true
+    weight: 1.0
+  numeric:
+    enabled: true
+    weight: 1.0
+  token_length:
+    enabled: false
+    weight: 0.0
+  token_entropy:
+    enabled: false
+    weight: 0.0
+  effort_proxy:
+    enabled: false
+    weight: 0.0
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  id_split: openai/gsm8k
+  id_split_hf_split: test
+  ood_probes:
+    near: EleutherAI/hendrycks_math
+    far: MMLU
+    capability_floor: simple

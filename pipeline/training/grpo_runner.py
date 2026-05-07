@@ -23,6 +23,7 @@ class GRPORunner:
         load_4bit = config["model"].get("load_in_4bit", model_cfg["load_in_4bit"])
         max_seq = int(config["model"].get("max_seq_length", model_cfg["max_seq_length"]))
         use_vllm = config["model"].get("use_vllm", False)
+        enforce_eager = config["model"].get("enforce_eager", False)
 
         self.model, self.tokenizer = FastLanguageModel.from_pretrained(
             model_name=model_cfg["model_name"],
@@ -31,6 +32,7 @@ class GRPORunner:
             fast_inference=use_vllm,
             max_lora_rank=lora_rank,
             gpu_memory_utilization=float(config["model"].get("gpu_memory_utilization", 0.6)) if use_vllm else None,
+            enforce_eager=enforce_eager,
         )
 
         self.model = FastLanguageModel.get_peft_model(
