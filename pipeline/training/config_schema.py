@@ -4,6 +4,17 @@ _REQUIRED_KEYS = {
     "training.dataset": "training.dataset (str) — HuggingFace dataset id",
 }
 
+_KNOWN_REWARD_KEYS = {
+    "compose_method",
+    "format_exact",
+    "format_approx",
+    "accuracy",
+    "numeric",
+    "token_length",
+    "token_entropy",
+    "effort_proxy",
+}
+
 _NUMERIC_COERCIONS = {
     "model.lora_r": (1, 256),
     "model.max_seq_length": (64, 131072),
@@ -71,6 +82,13 @@ def validate_config(config: dict) -> None:
     if compose is not None and compose not in ("advantage_weighted", "naive_sum"):
         errors.append(
             f"rewards.compose_method={compose!r} must be 'advantage_weighted' or 'naive_sum'"
+        )
+
+    rewards = config.get("rewards") or {}
+    unknown = set(rewards.keys()) - _KNOWN_REWARD_KEYS
+    if unknown:
+        errors.append(
+            f"Unknown rewards keys: {sorted(unknown)}. Known: {sorted(_KNOWN_REWARD_KEYS)}"
         )
 
     if errors:

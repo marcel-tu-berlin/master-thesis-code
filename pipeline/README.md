@@ -215,10 +215,12 @@ Checks required keys (`experiment_id`, `model.slug`, `training.dataset`), numeri
 
 Each reward is a callable class with signature `(prompts, completions, **kwargs) -> list[float]`. All use `extract_content(completion)` from `utils.py` for safe access to completion text.
 
+`__init__.py` exposes `REWARD_REGISTRY: key → (default_enabled, default_weight, builder)`. `train.build_reward_components` iterates the registry instead of hard-coding branches; `config_schema._KNOWN_REWARD_KEYS` rejects unknown keys (catches typos like `enaabled: true`).
+
 **`format.py`**
 
 - `FormatExactReward` - +3.0 if the full `<end_working_out>...<SOLUTION>...</SOLUTION>` structure is present (regex match). 0.0 otherwise.
-- `FormatApproxReward` - Per-tag partial credit: +0.5 for exactly one occurrence of each structural tag, -1.0 for zero or multiple. Only counts tags after `reasoning_end` to avoid false positives from the model discussing tags in its reasoning.
+- `FormatApproxReward` - Per-tag partial credit: +0.5 if the tag occurs exactly once, -1.0 for zero or multiple occurrences. `reasoning_end` is counted on the full text; `solution_start` and `solution_end` are counted on the suffix after `reasoning_end` so the model can't earn credit by quoting tag names inside its CoT.
 
 **`accuracy.py`**
 
@@ -239,7 +241,7 @@ Mean per-token Shannon entropy from model logits. Batched forward pass over all 
 
 Penalizes compute effort per rollout. Three metrics:
 - `token_count` - raw token count (most reliable)
-- `flops` - estimated FLOPs per token (2 x D^2 x L), normalized to GFLOPs (/ 1e9) so magnitude is comparable to token_count but reflects architecture differences
+- `flops` - estimated forward FLOPs per token (~12 · D² · L: 4·D² for QKVO matmul + 8·D² for FFN), normalized to GFLOPs (/ 1e9) so magnitude stays comparable to token_count while reflecting architecture differences
 - `gpu_time` - falls back to token_count (wall-clock timing unavailable during reward computation)
 
 **`compose.py`**
@@ -272,9 +274,11 @@ Runs four evaluation splits:
 - **Far-OOD** - MMLU (100 samples default, configurable via `eval.far_ood_limit`)
 - **Capability floor** - 5 fixed instruction-following questions (sanity check for catastrophic forgetting)
 
-Use `--smoke` to cap all splits to 10 samples for quick sanity checks.
+Use `--smoke` to cap all splits to 10 samples for quick sanity checks. `--smoke` on `training.train --eval` propagates the cap into eval automatically.
 
-Decoding is configurable per config (`eval.temperature`, `eval.do_sample`). Defaults to greedy (temperature=0).
+Decoding is configurable per config (`eval.temperature`, `eval.do_sample`). Defaults to greedy (`do_sample=false`; `temperature` is dropped from generation kwargs to silence HF warnings).
+
+Generation is batched. Set `eval.batch_size` (default 8) per config. Tokenizer is forced to left-padding during generation so completions slice cleanly out of the batched output. MMLU and capability-floor probes go through the same chat template as ID/near-OOD so the trained model can still emit `<start_working_out>...<SOLUTION>...</SOLUTION>`; answer extraction prefers the SOLUTION block before falling back to raw text scanning.
 
 **`report.py`**
 
@@ -322,8 +326,8 @@ Outputs:
 | Slug | Model | Quantization | Max seq | Max LoRA rank |
 |------|-------|-------------|---------|---------------|
 | `qwen3-4b` | unsloth/Qwen3-4B-Base | 16-bit | 2048 | 32 |
-| `qwen-1.5b` | Qwen/QwQ-1.5B | 4-bit | 2048 | 32 |
-| `qwen-7b` | Qwen/QwQ-7B | 4-bit | 2048 | 64 |
+| `qwen-1.5b` | Qwen/Qwen2.5-1.5B | 4-bit | 2048 | 32 |
+| `qwen-7b` | Qwen/Qwen2-7B | 4-bit | 2048 | 64 |
 
 To add a new model, add an entry to `MODEL_REGISTRY` in `training/registry.py`.
 

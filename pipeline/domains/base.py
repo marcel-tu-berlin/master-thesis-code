@@ -12,17 +12,16 @@ class Domain(ABC):
     solution_end: str = "</SOLUTION>"
 
     def __init__(self) -> None:
-        eos_pat = r"(?:<\|endoftext\|>|<\|im_end\|>|</s>)?"
+        # Match <reasoning_end> ... <SOLUTION>(group)<\/SOLUTION>. Trailing
+        # tokens after </SOLUTION> are tolerated so the model is not penalized
+        # for emitting EOS markers, whitespace, or stray noise after the close.
         self._solution_re = re.compile(
             re.escape(self.reasoning_end)
             + r".*?"
             + re.escape(self.solution_start)
             + r"(.+?)"
-            + re.escape(self.solution_end)
-            + r"[\s]{0,}"
-            + eos_pat
-            + r"[\s]{0,}$",
-            re.MULTILINE | re.DOTALL,
+            + re.escape(self.solution_end),
+            re.DOTALL,
         )
         self._number_re = re.compile(
             re.escape(self.solution_start) + r".*?[\s]{0,}([-]?[\d\.,]{1,})",
@@ -73,7 +72,9 @@ class Domain(ABC):
         if extracted.strip() == truth.strip():
             return 3.5
         try:
-            ratio = float(extracted) / float(truth)
+            ext_num = float(extracted.strip().replace(",", ""))
+            truth_num = float(truth.strip().replace(",", ""))
+            ratio = ext_num / truth_num
             if 0.9 <= ratio <= 1.1:
                 return 2.0
             if 0.8 <= ratio <= 1.2:

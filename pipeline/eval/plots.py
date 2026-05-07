@@ -49,6 +49,8 @@ def plot_training_curves(run_dir: str, out_dir: str) -> None:
 
     steps = [e["step"] for e in entries]
     rewards = [e.get("reward") for e in entries]
+    # 0.0 default is safe: orphaned std entries are filtered downstream by zip
+    # against `y_vals` (skipped when reward is None).
     reward_stds = [e.get("reward_std", 0.0) for e in entries]
     kls = [e.get("kl") for e in entries]
     lengths = [e.get("completion_length") for e in entries]

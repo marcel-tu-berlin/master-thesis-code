@@ -1,5 +1,3 @@
-import re
-
 import numpy as np
 from datasets import Dataset, concatenate_datasets, load_dataset
 
@@ -12,15 +10,19 @@ SYSTEM_PROMPT = (
     "Then, provide your solution between <SOLUTION></SOLUTION>"
 )
 
-_BOXED_RE = re.compile(r"\\boxed\{")
+_BOXED_TOKEN = r"\boxed{"
 
 
 def _extract_boxed(text: str) -> str | None:
-    """Extract content from \\boxed{...}, handling nested braces."""
-    match = _BOXED_RE.search(text)
-    if match is None:
+    """Extract content from the *last* \\boxed{...}, handling nested braces.
+
+    Hendrycks MATH solutions sometimes contain multiple \\boxed expressions
+    (intermediate steps); the final answer is the last one.
+    """
+    idx = text.rfind(_BOXED_TOKEN)
+    if idx < 0:
         return None
-    start = match.end()
+    start = idx + len(_BOXED_TOKEN)
     depth = 1
     for i in range(start, len(text)):
         if text[i] == "{":

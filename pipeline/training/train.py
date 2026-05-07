@@ -1,5 +1,4 @@
 import argparse
-import json
 import os
 import random
 import sys
@@ -13,14 +12,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from domains.math.loader import MathDomain
 from domains.coding.loader import CodingDomain
 from training.grpo_runner import GRPORunner
-from training.rewards.accuracy import AnswerReward, NumericReward
+from training.rewards import REWARD_REGISTRY
 from training.rewards.compose import build_composer
-from training.rewards.effort_proxy import EffortProxyReward
-from training.rewards.format import FormatApproxReward, FormatExactReward
-from training.rewards.token_entropy import TokenEntropyReward
-from training.rewards.token_length import TokenLengthReward
 from training.config_schema import validate_config
-from transformers import TrainerCallback
+from transformers import TrainerCallback, set_seed
 
 
 class _RewardStepCallback(TrainerCallback):
@@ -49,68 +44,26 @@ def build_domain(config: dict):
 
 
 def build_reward_components(config: dict, domain, runner: GRPORunner) -> list:
-    """Build (reward_fn, weight) pairs from config."""
-    rewards_cfg = config.get("rewards", {})
+    """Build (reward_fn, weight) pairs from config using REWARD_REGISTRY."""
+    rewards_cfg = config.get("rewards", {}) or {}
+    training_cfg = config.get("training", {}) or {}
     components = []
 
-    def enabled(key: str) -> bool:
-        return rewards_cfg.get(key, {}).get("enabled", True)
-
-    def weight(key: str, default: float = 1.0) -> float:
-        return rewards_cfg.get(key, {}).get("weight", default)
-
-    if enabled("format_exact"):
-        components.append((FormatExactReward(domain), weight("format_exact", 1.0)))
-
-    if enabled("format_approx"):
-        components.append((FormatApproxReward(domain), weight("format_approx", 0.5)))
-
-    if enabled("accuracy"):
-        components.append((AnswerReward(domain), weight("accuracy", 1.0)))
-
-    if enabled("numeric"):
-        components.append((NumericReward(domain), weight("numeric", 1.0)))
-
-    if enabled("token_length"):
-        cfg = rewards_cfg.get("token_length", {})
-        components.append((
-            TokenLengthReward(
-                runner.tokenizer,
-                alpha=cfg.get("alpha", 0.001),
-                mode=cfg.get("schedule", "constant"),
-                total_steps=config["training"].get("max_steps", 500),
-            ),
-            weight("token_length", 1.0),
-        ))
-
-    if enabled("token_entropy"):
-        cfg = rewards_cfg.get("token_entropy", {})
-        components.append((
-            TokenEntropyReward(
-                runner.model,
-                runner.tokenizer,
-                reward_scale=cfg.get("reward_scale", 0.1),
-                fork_mask_top_pct=cfg.get("fork_mask_top_pct", 0.0),
-            ),
-            weight("token_entropy", 1.0),
-        ))
-
-    if enabled("effort_proxy"):
-        cfg = rewards_cfg.get("effort_proxy", {})
-        components.append((
-            EffortProxyReward(
-                runner.tokenizer,
-                metric=cfg.get("metric", "token_count"),
-                alpha=cfg.get("alpha", 0.001),
-            ),
-            weight("effort_proxy", 1.0),
-        ))
+    for key, (default_enabled, default_weight, builder) in REWARD_REGISTRY.items():
+        cfg = rewards_cfg.get(key) or {}
+        if not cfg.get("enabled", default_enabled):
+            continue
+        weight = float(cfg.get("weight", default_weight))
+        components.append((builder(domain, runner, training_cfg, cfg), weight))
 
     return components
 
 
 def apply_smoke_overrides(config: dict) -> dict:
-    """Patch config for fast smoke testing: 3 steps, 2 rollouts, short seq."""
+    """Patch config for fast smoke testing: 3 steps, 2 rollouts, short seq.
+
+    Sets `_smoke=True` so downstream eval also caps to 10 samples per split.
+    """
     config.setdefault("model", {})
     config.setdefault("training", {})
     config["model"]["max_seq_length"] = 512
@@ -118,7 +71,8 @@ def apply_smoke_overrides(config: dict) -> dict:
     config["training"]["save_steps"] = 3
     config["training"]["n_rollouts"] = 2
     config["training"]["dataset_size_limit"] = 64
-    print("⚠  Smoke mode: max_steps=3, n_rollouts=2, max_seq_length=512, dataset_size_limit=64")
+    config["_smoke"] = True
+    print("⚠  Smoke mode: max_steps=3, n_rollouts=2, max_seq_length=512, dataset_size_limit=64, eval=10/split")
     return config
 
 
@@ -136,6 +90,7 @@ def main() -> None:
     seed = config.get("seed", 42)
     random.seed(seed)
     np.random.seed(seed)
+    set_seed(seed)  # covers torch + cuda RNGs
 
     exp_id = config["experiment_id"]
     run_dir = os.path.join("runs", exp_id)
@@ -151,20 +106,22 @@ def main() -> None:
     # Apply domain chat template to tokenizer
     domain.build_chat_template(runner.tokenizer)
 
-    # Load + preprocess dataset
+    # Load + preprocess dataset.
+    # Truncate FIRST so the (slow) prompt-length filter runs only over the kept slice —
+    # matters for smoke runs against datasets like DAPO-17k.
     ds_cfg = config["training"].get("dataset", "openai/gsm8k")
     dataset = domain.load_dataset(ds_cfg, split=config["training"].get("split", "train"))
-
-    if hasattr(domain, "filter_by_prompt_length"):
-        dataset = domain.filter_by_prompt_length(
-            dataset, runner.tokenizer, quantile=config["training"].get("prompt_length_quantile", 0.9)
-        )
 
     size_limit = config["training"].get("dataset_size_limit")
     if size_limit is not None and len(dataset) > size_limit:
         size_limit = int(size_limit)
         dataset = dataset.select(range(size_limit))
         print(f"Dataset truncated to {size_limit} samples (dataset_size_limit)")
+
+    if hasattr(domain, "filter_by_prompt_length"):
+        dataset = domain.filter_by_prompt_length(
+            dataset, runner.tokenizer, quantile=config["training"].get("prompt_length_quantile", 0.9)
+        )
 
     # Build composed reward function
     components = build_reward_components(config, domain, runner)

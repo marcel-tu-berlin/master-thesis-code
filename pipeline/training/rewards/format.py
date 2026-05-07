@@ -23,25 +23,33 @@ class FormatExactReward:
 
 class FormatApproxReward:
     """
-    Partial credit per tag: +0.5 if exactly one occurrence, -1.0 if zero or multiple.
+    Partial credit per tag: +per_tag if exactly one occurrence, -penalty if zero or multiple.
     Penalizes repetition (model hallucinating extra tags) and rewards partial progress.
     reasoning_start excluded — it is always prepended by add_generation_prompt=True.
+
+    reasoning_end is counted on the full text. solution_start / solution_end are counted
+    on the suffix following the first reasoning_end so prose mentioning the tags inside
+    the reasoning chain doesn't inflate the score.
     """
 
     def __init__(self, domain: Domain, per_tag: float = 0.5, penalty: float = -1.0) -> None:
         self.domain = domain
         self.per_tag = per_tag
         self.penalty = penalty
-        self._tags = [domain.reasoning_end, domain.solution_start, domain.solution_end]
+
+    def _score_tag(self, count: int) -> float:
+        return self.per_tag if count == 1 else self.penalty
 
     def __call__(self, prompts, completions, **kwargs) -> list[float]:
+        re_end = self.domain.reasoning_end
+        sol_start = self.domain.solution_start
+        sol_end = self.domain.solution_end
         scores = []
         for completion in completions:
             text = extract_content(completion)
-            after_reasoning = text.split(self.domain.reasoning_end, 1)[-1] if self.domain.reasoning_end in text else text
-            score = sum(
-                self.per_tag if after_reasoning.count(tag) == 1 else self.penalty
-                for tag in self._tags
-            )
+            score = self._score_tag(text.count(re_end))
+            suffix = text.split(re_end, 1)[1] if re_end in text else ""
+            score += self._score_tag(suffix.count(sol_start))
+            score += self._score_tag(suffix.count(sol_end))
             scores.append(score)
         return scores

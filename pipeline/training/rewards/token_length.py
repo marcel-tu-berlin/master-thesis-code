@@ -40,6 +40,6 @@ class TokenLengthReward:
         scores = []
         for completion in completions:
             text = extract_content(completion)
-            n_tokens = len(self.tokenizer.encode(text))
+            n_tokens = len(self.tokenizer.encode(text, add_special_tokens=False))
             scores.append(-alpha * n_tokens)
         return scores

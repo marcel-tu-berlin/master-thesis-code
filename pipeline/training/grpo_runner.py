@@ -20,6 +20,7 @@ class GRPORunner:
         model_cfg = get_model_config(config["model"]["slug"])
 
         lora_rank = int(config["model"].get("lora_r", model_cfg["max_lora_rank"]))
+        lora_alpha = int(config["model"].get("lora_alpha", lora_rank * 2))
         load_4bit = config["model"].get("load_in_4bit", model_cfg["load_in_4bit"])
         max_seq = int(config["model"].get("max_seq_length", model_cfg["max_seq_length"]))
         use_vllm = config["model"].get("use_vllm", False)
@@ -39,7 +40,7 @@ class GRPORunner:
             self.model,
             r=lora_rank,
             target_modules=LORA_TARGET_MODULES,
-            lora_alpha=lora_rank * 2,
+            lora_alpha=lora_alpha,
             use_gradient_checkpointing="unsloth",
             random_state=config.get("seed", 42),
         )

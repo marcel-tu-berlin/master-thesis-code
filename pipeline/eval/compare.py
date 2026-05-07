@@ -28,9 +28,16 @@ def _load_reports(run_dirs: list[str]) -> list[dict]:
 
 
 def _baseline_acc(reports: list[dict]) -> float | None:
-    for r in reports:
-        if r.get("experiment_id", "").startswith("e0"):
-            return (r.get("results", {}).get("id_split") or {}).get("accuracy")
+    """Pick a baseline ID accuracy. If exactly one e0-* report is present, use it.
+    With multiple e0-* reports, return None and warn — caller should set
+    `baseline_id` upstream to make the choice explicit.
+    """
+    candidates = [r for r in reports if r.get("experiment_id", "").startswith("e0")]
+    if len(candidates) == 1:
+        return (candidates[0].get("results", {}).get("id_split") or {}).get("accuracy")
+    if len(candidates) > 1:
+        ids = [r.get("experiment_id") for r in candidates]
+        print(f"Warning: multiple baseline (e0-*) reports {ids}; baseline line/delta omitted from comparison.")
     return None
 
 

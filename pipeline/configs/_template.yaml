@@ -9,7 +9,7 @@ baseline_id: null  # explicit baseline experiment_id for eval comparison (e.g. e
 model:
   slug: qwen-1.5b               # key into training/registry.py
   lora_r: 16
-  lora_alpha: 32                # auto-set to lora_r * 2 if omitted
+  lora_alpha: 32                # optional override; defaults to lora_r * 2
   load_in_4bit: true
   max_seq_length: 2048
   use_vllm: false
@@ -71,9 +71,13 @@ rewards:
 eval:
   temperature: 0.0
   do_sample: false
-  id_split: openai/gsm8k # dataset name for ID held-out eval
+  batch_size: 8                       # generation batch size for OOD probes
+  id_split: openai/gsm8k              # dataset name for ID held-out eval
   id_split_hf_split: test
+  id_split_limit: 200                 # samples for ID split (--smoke caps to 10)
+  near_ood_limit: 200
+  far_ood_limit: 100
   ood_probes:
     near: EleutherAI/hendrycks_math   # near-OOD (same domain, different dist)
-    far: MMLU                          # far-OOD
-    capability_floor: simple           # fixed 5-question sanity check
+    far: MMLU                         # far-OOD (hardcoded; see eval/ood_probes.py)
+    capability_floor: simple          # fixed 5-question sanity check

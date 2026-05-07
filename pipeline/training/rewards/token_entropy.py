@@ -12,6 +12,13 @@ class TokenEntropyReward:
     Rewards completions where the model faced high-uncertainty "fork" tokens,
     incentivising genuine deliberation over low-entropy pattern matching.
 
+    Approximation note: completions are re-tokenized from decoded text and
+    re-forwarded through the *current* (post-update) policy. Subword
+    boundaries may differ slightly from generation-time tokenization, and
+    the entropy reflects the latest model rather than the policy that
+    produced the rollout. Both effects are small in practice but worth
+    keeping in mind when comparing against on-policy entropy estimators.
+
     fork_mask_top_pct: if >0, average only over tokens in the top-X% by entropy
     (wang-2025-high-entropy-tokens). Focuses reward on actual decision points.
     """
@@ -40,7 +47,7 @@ class TokenEntropyReward:
         if inputs["input_ids"].shape[1] < 2:
             return [0.0] * len(completions)
 
-        with torch.no_grad():
+        with torch.inference_mode():
             logits = self.model(**inputs).logits  # (B, T, V)
 
         probs = F.softmax(logits, dim=-1)  # (B, T, V)

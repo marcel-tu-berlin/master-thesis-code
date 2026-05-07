@@ -59,6 +59,13 @@ Four functions composed additively per completion:
 3. `check_answer` (up to +5.0) — exact/stripped/ratio match against ground truth string
 4. `check_numbers` (±3.5) — `float()` conversion and numeric equality
 
+The pipeline (`pipeline/training/rewards/`) reimplements these as classes
+(`FormatExactReward`, `FormatApproxReward`, `AnswerReward`, `NumericReward`)
+plus opt-in efficiency signals (`TokenLengthReward`, `TokenEntropyReward`,
+`EffortProxyReward`). Pipeline `FormatApproxReward` counts `reasoning_end`
+on the full text and the solution tags on the suffix to avoid CoT false
+positives — semantics differ from the notebook version.
+
 ### Custom Chat Template
 
 Reasoning tags are injected into a Jinja2 template assigned to `tokenizer.chat_template`. `add_generation_prompt=True` prepends `<start_working_out>` to force the model into reasoning mode before decoding begins.

@@ -26,9 +26,12 @@ class AdvantageWeightedComposer:
             raw = fn(prompts, completions, **kwargs)
             r = torch.tensor(raw, dtype=torch.float32)
             std = r.std()
-            normalized = (r - r.mean()) / (std + 1e-8)
-            for i in range(n):
-                total[i] += weight * normalized[i].item()
+            if std < 1e-6:
+                normalized = torch.zeros_like(r)
+            else:
+                normalized = (r - r.mean()) / std
+            for i, v in enumerate(normalized.tolist()):
+                total[i] += weight * v
 
         return total
 

@@ -3,8 +3,7 @@ import os
 
 import yaml
 
-from eval.metrics import EvalMetrics, SampleResult, compute_metrics
-from eval.ood_probes import OODResults, run_ood_probes
+from eval.ood_probes import run_ood_probes
 from eval.report import generate_report
 
 

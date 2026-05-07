@@ -36,13 +36,10 @@ rewards:
     weight: 1.0
   token_length:
     enabled: false
-    weight: 0.0
   token_entropy:
     enabled: false
-    weight: 0.0
   effort_proxy:
     enabled: false
-    weight: 0.0
 
 eval:
   temperature: 0.0

@@ -43,7 +43,6 @@ rewards:
     fork_mask_top_pct: 0.2
   effort_proxy:
     enabled: false
-    weight: 0.0
 
 eval:
   temperature: 0.0

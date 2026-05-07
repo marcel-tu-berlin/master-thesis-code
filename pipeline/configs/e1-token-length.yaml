@@ -38,10 +38,8 @@ rewards:
     schedule: cosine
   token_entropy:
     enabled: false
-    weight: 0.0
   effort_proxy:
     enabled: false
-    weight: 0.0
 
 eval:
   temperature: 0.0

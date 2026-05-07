@@ -1,6 +1,5 @@
 import json
 import os
-from dataclasses import asdict
 
 
 def _metrics_dict(metrics) -> dict:
@@ -66,20 +65,39 @@ def generate_report(config: dict, ood_results, run_dir: str) -> dict:
 
 
 def _find_baseline(run_dir: str, config: dict | None = None) -> str | None:
+    """Locate baseline eval_report.json. Explicit `baseline_id` in config wins.
+    Heuristic fallback only fires when exactly one e0-* candidate exists; with
+    multiple, the function returns None and logs a warning rather than guessing.
+    """
     runs_root = os.path.dirname(run_dir)
+    self_report = os.path.join(run_dir, "eval_report.json")
 
-    # Explicit baseline_id from config takes priority
     if config and config.get("baseline_id"):
         candidate = os.path.join(runs_root, config["baseline_id"], "eval_report.json")
-        if os.path.exists(candidate) and candidate != os.path.join(run_dir, "eval_report.json"):
+        if candidate == self_report:
+            return None
+        if os.path.exists(candidate):
             return candidate
+        print(f"Warning: baseline_id={config['baseline_id']!r} given but {candidate} not found")
+        return None
 
-    # Fallback heuristic: match entries starting with "e0-" or containing "-baseline-"
+    if not os.path.isdir(runs_root):
+        return None
+
+    candidates = []
     for entry in sorted(os.listdir(runs_root)):
         if entry.startswith("e0-") or "-baseline-" in entry:
-            candidate = os.path.join(runs_root, entry, "eval_report.json")
-            if os.path.exists(candidate) and candidate != os.path.join(run_dir, "eval_report.json"):
-                return candidate
+            path = os.path.join(runs_root, entry, "eval_report.json")
+            if path != self_report and os.path.exists(path):
+                candidates.append(path)
+
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        print(
+            f"Warning: multiple baseline candidates found {[os.path.basename(os.path.dirname(c)) for c in candidates]}; "
+            "set `baseline_id` in config to disambiguate. Skipping baseline section."
+        )
     return None
 
 

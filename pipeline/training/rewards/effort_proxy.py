@@ -7,9 +7,10 @@ class EffortProxyReward:
 
     token_count — count completion tokens; most reliable, directly proportional
                   to decoding cost.
-    flops — heuristic: 2 * T * L * D² (T=tokens, L=layers, D=hidden_dim).
-    Returns effort in GFLOPs (divided by 1e9) so the magnitude is comparable
-    to token_count but reflects architecture differences.
+    flops       — heuristic: 12 * D² * L per token (≈ 4·D² for QKVO matmuls
+                  plus 8·D² for FFN with 4·D intermediate). Reported in GFLOPs
+                  (divided by 1e9) so magnitudes stay comparable to token_count
+                  while reflecting architecture differences.
     gpu_time    — wall-clock timing is not available inside the reward function
                   (generation already finished); falls back to token_count.
 
@@ -34,16 +35,16 @@ class EffortProxyReward:
     def _build_flop_scale(self, cfg: dict | None) -> float:
         if cfg is None:
             return 1.0
-        hidden = cfg.get("hidden_size", 4096)
-        layers = cfg.get("num_hidden_layers", 32)
-        # Approximate FLOPs per token: 2 * D² * L (dominant attention + FFN term)
-        return 2.0 * (hidden ** 2) * layers
+        hidden = cfg.get("hidden_size") or 4096
+        layers = cfg.get("num_hidden_layers") or 32
+        # FLOPs per token ≈ 12 · D² · L (4·D² QKVO matmul + 8·D² FFN matmul).
+        return 12.0 * (hidden ** 2) * layers
 
     def __call__(self, prompts, completions, **kwargs) -> list[float]:
         scores = []
         for completion in completions:
             text = extract_content(completion)
-            n_tokens = len(self.tokenizer.encode(text))
+            n_tokens = len(self.tokenizer.encode(text, add_special_tokens=False))
 
             if self.metric == "flops":
                 effort = n_tokens * self._flop_scale / 1e9

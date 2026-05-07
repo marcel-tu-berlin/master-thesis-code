@@ -35,7 +35,7 @@ New experiment: `cp configs/_template.yaml configs/e4-my-experiment.yaml`, edit,
 
 - **Config-driven**: every experiment is a YAML file. Training script is a thin orchestrator.
 - **Domain abstraction** (`domains/base.py`): `Domain` ABC — subclass to add new problem domains. Implements `load_dataset`, `extract_answer`, `difficulty`, `score_answer`, `score_numbers`, `is_correct`, `build_chat_template`.
-- **Composable rewards** (`training/rewards/`): each reward is a callable `(prompts, completions, **kwargs) -> list[float]`. Add new signal by writing a class + adding config entry.
+- **Composable rewards** (`training/rewards/`): each reward is a callable `(prompts, completions, **kwargs) -> list[float]`. Register in `REWARD_REGISTRY` (`training/rewards/__init__.py`) with default enabled/weight + builder, and add the config key to `_KNOWN_REWARD_KEYS` in `training/config_schema.py` so typos fail validation.
 - **Composer** (`training/rewards/compose.py`): `AdvantageWeightedComposer` (default, normalizes per-batch) or `NaiveSumComposer` (ablation).
 - **Model registry** (`training/registry.py`): slug → model config. Add models there, not in configs.
 - **Config validation** (`training/config_schema.py`): runs before model loading — fail-fast on bad config.
@@ -44,7 +44,7 @@ New experiment: `cp configs/_template.yaml configs/e4-my-experiment.yaml`, edit,
 ## Key conventions
 
 - `model.slug` in config references `training/registry.py`, not a HuggingFace name directly.
-- `lora_alpha` is always `lora_rank * 2` (hardcoded in `grpo_runner.py:42`).
+- `lora_alpha` defaults to `lora_rank * 2`; override per-config via `model.lora_alpha` (read in `grpo_runner.py`).
 - LoRA target modules are fixed in `registry.py:LORA_TARGET_MODULES` — not configurable per-experiment.
 - Chat template is injected at runtime by `domain.build_chat_template(tokenizer)`, not stored in the model repo.
 - `add_generation_prompt=True` prepends `<start_working_out>` to force reasoning mode.
