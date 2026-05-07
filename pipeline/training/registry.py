@@ -18,18 +18,6 @@ MODEL_REGISTRY: dict[str, dict] = {
         "max_seq_length": 2048,
         "max_lora_rank": 64,
     },
-    "llama-8b": {
-        "model_name": "meta-llama/Llama-3.1-8B-Instruct",
-        "load_in_4bit": True,
-        "max_seq_length": 512,
-        "max_lora_rank": 32,
-    },
-    "llama-1b": {
-        "model_name": "meta-llama/Llama-3.2-1B-Instruct",
-        "load_in_4bit": True,
-        "max_seq_length": 2048,
-        "max_lora_rank": 16,
-    },
 }
 
 LORA_TARGET_MODULES = [

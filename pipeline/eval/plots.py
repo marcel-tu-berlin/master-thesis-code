@@ -12,6 +12,10 @@ try:
     _MPL_AVAILABLE = True
 except ImportError:
     _MPL_AVAILABLE = False
+    _MPL_MISSING_MSG = (
+        "Warning: matplotlib not installed — eval plots will be skipped. "
+        "Install with: pip install matplotlib"
+    )
 
 
 def _find_latest_trainer_state(run_dir: str) -> str | None:
@@ -204,6 +208,9 @@ def plot_difficulty_scatter(ood_results, out_dir: str) -> None:
 
 
 def plot_all(run_dir: str, ood_results, report_dict: dict, out_dir: str) -> None:
+    if not _MPL_AVAILABLE:
+        print(_MPL_MISSING_MSG)
+        return
     os.makedirs(out_dir, exist_ok=True)
     for fn, args in [
         (plot_training_curves, (run_dir, out_dir)),

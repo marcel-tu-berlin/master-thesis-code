@@ -324,8 +324,6 @@ Outputs:
 | `qwen3-4b` | unsloth/Qwen3-4B-Base | 16-bit | 2048 | 32 |
 | `qwen-1.5b` | Qwen/QwQ-1.5B | 4-bit | 2048 | 32 |
 | `qwen-7b` | Qwen/QwQ-7B | 4-bit | 2048 | 64 |
-| `llama-8b` | meta-llama/meta-Llama-3.1-8B-Instruct | 4-bit | 512 | 32 |
-| `llama-1b` | meta-llama/Llama-3.2-1B-Instruct | 4-bit | 2048 | 16 |
 
 To add a new model, add an entry to `MODEL_REGISTRY` in `training/registry.py`.
 
