@@ -53,7 +53,7 @@ class TokenEntropyReward:
             h_i = H[i][pad_mask[i]]  # only real tokens
 
             if self.fork_mask_top_pct > 0.0 and h_i.numel() > 0:
-                threshold = torch.quantile(h_i, 1.0 - self.fork_mask_top_pct)
+                threshold = torch.quantile(h_i.float(), 1.0 - self.fork_mask_top_pct)
                 h_i = h_i[h_i >= threshold]
 
             mean_entropy = h_i.mean().item() if h_i.numel() > 0 else 0.0

@@ -20,9 +20,10 @@ from training.rewards.format import FormatApproxReward, FormatExactReward
 from training.rewards.token_entropy import TokenEntropyReward
 from training.rewards.token_length import TokenLengthReward
 from training.config_schema import validate_config
+from transformers import TrainerCallback
 
 
-class _RewardStepCallback:
+class _RewardStepCallback(TrainerCallback):
     """TRL TrainerCallback that advances reward schedulers after each step."""
 
     def __init__(self, step_fns: list) -> None:
