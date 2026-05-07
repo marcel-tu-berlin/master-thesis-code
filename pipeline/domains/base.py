@@ -101,10 +101,16 @@ class Domain(ABC):
             return False
         return self.check_exact(extracted, ground_truth) or self.check_numeric(extracted, ground_truth)
 
+    @staticmethod
+    def _jinja_escape(s: str) -> str:
+        # Escape backslashes and single quotes so the value can be embedded in
+        # a Jinja single-quoted literal without breaking the template parser.
+        return s.replace("\\", "\\\\").replace("'", "\\'")
+
     def build_chat_template(self, tokenizer) -> None:
         """Inject domain-specific Jinja2 chat template into tokenizer."""
-        sp = self.system_prompt
-        rs = self.reasoning_start
+        sp = self._jinja_escape(self.system_prompt)
+        rs = self._jinja_escape(self.reasoning_start)
         chat_template = (
             "{% if messages[0]['role'] == 'system' %}"
             "{{ messages[0]['content'] + eos_token }}"

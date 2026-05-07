@@ -37,7 +37,7 @@ rewards:
     enabled: true
     weight: 1.0
     reward_scale: 0.1
-    fork_mask_top_pct: 0.0
+    fork_mask_top_frac: 0.0
   effort_proxy:
     enabled: false
 

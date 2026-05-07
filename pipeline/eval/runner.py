@@ -14,6 +14,7 @@ def run_eval(
     run_dir: str,
     max_new_tokens: int = 512,
 ) -> dict:
+    """max_new_tokens: default budget; eval.max_new_tokens in config overrides."""
     """
     Load trained LoRA checkpoint, run all eval splits, write eval_report.json.
     Returns the report dict.
@@ -38,6 +39,11 @@ def run_eval(
 
     eval_cfg = config.get("eval", {})
     smoke = config.get("_smoke", False)
+    # Config wins over the run_eval default; CLI override (--max_new_tokens
+    # not equal to default) is handled by the caller in main().
+    cfg_budget = eval_cfg.get("max_new_tokens")
+    if cfg_budget is not None:
+        max_new_tokens = int(cfg_budget)
     ood_results = run_ood_probes(model, tokenizer, domain, config, eval_cfg, max_new_tokens, smoke=smoke)
 
     report = generate_report(config, ood_results, run_dir)
@@ -65,7 +71,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--checkpoint", default=None, help="Override checkpoint path")
-    parser.add_argument("--max_new_tokens", type=int, default=512)
+    parser.add_argument("--max_new_tokens", type=int, default=None,
+                        help="Override eval.max_new_tokens from the config (default: config value or 512)")
     parser.add_argument("--smoke", action="store_true", help="Limit eval to 10 samples per split for quick sanity checks")
     args = parser.parse_args()
 
@@ -86,7 +93,10 @@ def main() -> None:
     run_dir = os.path.join("runs", exp_id)
     checkpoint = args.checkpoint or os.path.join(run_dir, "checkpoint-final")
 
-    run_eval(config, checkpoint, domain, run_dir, args.max_new_tokens)
+    # CLI > config > 512 default. CLI explicit overrides config.
+    if args.max_new_tokens is not None:
+        config.setdefault("eval", {})["max_new_tokens"] = args.max_new_tokens
+    run_eval(config, checkpoint, domain, run_dir)
 
 
 if __name__ == "__main__":

@@ -94,15 +94,40 @@ class MathDomain(Domain):
             remove_columns=data.column_names,
         )
 
+    @staticmethod
+    def _dapo_answer(raw: str) -> str:
+        """DAPO's `solution` field is sometimes a bare string, sometimes a
+        LaTeX expression wrapping a final \\boxed{...}. Prefer the boxed
+        contents when present so reward functions compare clean values."""
+        if not raw:
+            return ""
+        boxed = _extract_boxed(raw)
+        return boxed if boxed is not None else raw.strip()
+
+    # DAPO ships only a `train` split on HuggingFace. When eval requests
+    # `test` (or anything non-train), carve a deterministic held-out tail
+    # from train so ID-split eval doesn't crash and never overlaps with the
+    # training prefix used under `dataset_size_limit`.
+    _DAPO_HELDOUT_TAIL = 1000
+
     def _load_dapo(self, split: str = "train") -> Dataset:
-        data = load_dataset("open-r1/DAPO-Math-17k-Processed", "en")[split]
+        all_splits = load_dataset("open-r1/DAPO-Math-17k-Processed", "en")
+        if split in all_splits:
+            data = all_splits[split]
+        elif split == "train":
+            raise KeyError(f"DAPO dataset missing required split: train. Available: {list(all_splits)}")
+        else:
+            train = all_splits["train"]
+            tail = min(self._DAPO_HELDOUT_TAIL, max(len(train) // 10, 1))
+            data = train.select(range(len(train) - tail, len(train)))
+            print(f"  DAPO: synthesising '{split}' from last {tail} train rows (no native split)")
         return data.map(
             lambda x: {
                 "prompt": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": x["prompt"]},
                 ],
-                "answer": x.get("solution", ""),
+                "answer": self._dapo_answer(x.get("solution", "")),
                 "difficulty": None,
                 "dataset": "dapo",
             },

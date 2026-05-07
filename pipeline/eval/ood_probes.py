@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 
 from eval.metrics import EvalMetrics, SampleResult, compute_metrics
@@ -48,13 +49,22 @@ def _generate_batch(model, tokenizer, prompt_texts: list[str], max_new_tokens: i
     prompt_len = inputs["input_ids"].shape[1]
     completions_ids = out[:, prompt_len:]
     texts = tokenizer.batch_decode(completions_ids, skip_special_tokens=True)
-    # n_tokens excludes pad on the right (special tokens already stripped via skip_special_tokens for text;
-    # for n_tokens we want generated length excluding pad).
+    # When pad_token == eos_token (the common HF fallback we set above), a
+    # naive non-pad count strips the natural-termination EOS too, biasing
+    # n_tokens by -1 on every completed row. Detect natural termination by
+    # checking whether the first pad position holds an EOS token, and add
+    # it back to the count.
     n_tokens_per_row = []
     pad_id = tokenizer.pad_token_id
+    eos_id = tokenizer.eos_token_id
+    pad_eq_eos = pad_id == eos_id and eos_id is not None
     for row in completions_ids:
-        nz = (row != pad_id).sum().item()
-        n_tokens_per_row.append(int(nz))
+        nz = int((row != pad_id).sum().item())
+        if pad_eq_eos and nz < row.shape[0]:
+            # First pad slot holds the natural EOS; count it as one generated token.
+            if int(row[nz].item()) == eos_id:
+                nz += 1
+        n_tokens_per_row.append(nz)
     return n_tokens_per_row, texts
 
 
@@ -134,20 +144,27 @@ def run_ood_probes(
         near_ds = near_ds.select(range(min(near_limit, len(near_ds))))
         results.near_ood = _run_split(model, tokenizer, domain, near_ds, max_new_tokens, gen_kwargs=gk, batch_size=batch_size)
 
-    # Far-OOD: MMLU
+    # Far-OOD: MMLU. Match case-insensitively so configs may use 'mmlu',
+    # 'MMLU', or 'cais/mmlu' interchangeably; warn rather than silently skip
+    # so a typo doesn't quietly drop the probe from the report.
     far_name = probes_cfg.get("far")
-    if far_name == "MMLU":
-        print("  Running far-OOD: MMLU")
-        results.far_ood = _run_mmlu(
-            model, tokenizer, domain, max_new_tokens, n_samples=mmlu_limit, gen_kwargs=gk, batch_size=batch_size
-        )
+    if far_name:
+        if "mmlu" in str(far_name).lower():
+            print(f"  Running far-OOD: MMLU (config: {far_name})")
+            results.far_ood = _run_mmlu(
+                model, tokenizer, domain, max_new_tokens, n_samples=mmlu_limit, gen_kwargs=gk, batch_size=batch_size
+            )
+        else:
+            print(f"  Warning: unrecognized far-OOD probe {far_name!r}; only MMLU is implemented. Skipping.")
 
     # Capability floor
     cap_name = probes_cfg.get("capability_floor")
     if cap_name:
         print(f"  Running capability floor: {cap_name}")
         results.capability_floor = _run_capability_floor(
-            model, tokenizer, domain, max_new_tokens, gen_kwargs=gk, batch_size=batch_size
+            model, tokenizer, domain, max_new_tokens,
+            gen_kwargs=gk, batch_size=batch_size,
+            prompts=eval_cfg.get("capability_floor_prompts"),
         )
 
     return results
@@ -161,16 +178,26 @@ def _format_letter_answer(question: str, choices: list[str]) -> str:
     )
 
 
+_LETTER_RE = re.compile(r"\b([ABCD])\b")
+
+
 def _extract_letter(domain, completion_text: str) -> str | None:
-    """Pull a single A/B/C/D answer from a completion. Prefers the SOLUTION
-    block emitted by the trained model; falls back to first uppercase letter
-    in the text."""
+    """Pull a single A/B/C/D answer from a completion.
+
+    Strategy:
+      1. Prefer the SOLUTION block. Match the first whole-word A/B/C/D inside it.
+      2. Fall back to the first whole-word A/B/C/D in the raw completion.
+    Whole-word match avoids picking up letters embedded in tokens like 'Asia'
+    or model prose like 'Option A is wrong, the answer is B' (still picks A
+    from raw completion fallback, but SOLUTION-block hits take priority).
+    """
     extracted = domain.extract_answer(completion_text)
-    candidate = (extracted or completion_text).strip()
-    for ch in candidate:
-        if ch.upper() in "ABCD":
-            return ch.upper()
-    return None
+    if extracted:
+        m = _LETTER_RE.search(extracted)
+        if m:
+            return m.group(1)
+    m = _LETTER_RE.search(completion_text)
+    return m.group(1) if m else None
 
 
 def _run_mmlu(
@@ -196,8 +223,10 @@ def _run_mmlu(
     expected = ["ABCD"[s["answer"]] for s in rows]
 
     results = []
-    # MMLU answers may live behind the SOLUTION tag, so allow enough budget.
-    budget = max(max_new_tokens, 256)
+    # MMLU answers live behind the SOLUTION tag, after a CoT chain. 256 tokens
+    # truncates many runs, producing false negatives. Use the configured
+    # budget as a floor; bump default to 512.
+    budget = max(max_new_tokens, 512)
     for i in range(0, len(rows), batch_size):
         chunk_prompts = prompts[i : i + batch_size]
         chunk_expected = expected[i : i + batch_size]
@@ -214,6 +243,31 @@ def _run_mmlu(
     return compute_metrics(results)
 
 
+_DEFAULT_CAPABILITY_PROMPTS = [
+    ("What is 2+2?", "4"),
+    ("What is the capital of France?", "Paris"),
+    ("Name the first planet from the Sun.", "Mercury"),
+    ("What is 10 * 10?", "100"),
+    ("What color is the sky on a clear day?", "blue"),
+]
+
+
+def _capability_match(expected: str, extracted: str) -> bool:
+    """Whole-word, case-insensitive match. Avoids substring false positives
+    such as expected='4' matching '14', or expected='blue' matching 'bluefin'.
+    Falls back to numeric equality so '4' matches '4.0'.
+    """
+    exp = expected.strip()
+    text = extracted.strip()
+    pattern = r"(?<![\w\d.])" + re.escape(exp) + r"(?![\w\d.])"
+    if re.search(pattern, text, flags=re.IGNORECASE):
+        return True
+    try:
+        return float(exp) == float(text.split()[0].rstrip(".,"))
+    except (ValueError, IndexError):
+        return False
+
+
 def _run_capability_floor(
     model,
     tokenizer,
@@ -221,24 +275,26 @@ def _run_capability_floor(
     max_new_tokens: int,
     gen_kwargs: dict | None = None,
     batch_size: int = 8,
+    prompts: list | None = None,
 ) -> EvalMetrics:
-    """Simple instruction following — checks the model hasn't catastrophically forgotten."""
-    FIXED_PROMPTS = [
-        ("What is 2+2?", "4"),
-        ("What is the capital of France?", "Paris"),
-        ("Name the first planet from the Sun.", "Mercury"),
-        ("What is 10 * 10?", "100"),
-        ("What color is the sky on a clear day?", "blue"),
-    ]
+    """Simple instruction following — checks the model hasn't catastrophically forgotten.
+
+    `prompts` may be a list of `[question, expected]` pairs from config. Falls
+    back to a fixed 5-question default set.
+    """
+    if prompts:
+        pair_iter = [(p[0], p[1]) for p in prompts]
+    else:
+        pair_iter = _DEFAULT_CAPABILITY_PROMPTS
     gen_kwargs = gen_kwargs or {"do_sample": False}
 
-    prompts = [[{"role": "user", "content": q}] for q, _ in FIXED_PROMPTS]
-    expected = [a for _, a in FIXED_PROMPTS]
+    prompt_msgs = [[{"role": "user", "content": q}] for q, _ in pair_iter]
+    expected = [a for _, a in pair_iter]
 
     results = []
     budget = max(max_new_tokens, 256)
-    for i in range(0, len(prompts), batch_size):
-        chunk = prompts[i : i + batch_size]
+    for i in range(0, len(prompt_msgs), batch_size):
+        chunk = prompt_msgs[i : i + batch_size]
         chunk_expected = expected[i : i + batch_size]
         prompt_texts = [
             tokenizer.apply_chat_template(p, add_generation_prompt=True, tokenize=False)
@@ -247,6 +303,6 @@ def _run_capability_floor(
         n_tokens_list, texts = _generate_batch(model, tokenizer, prompt_texts, budget, gen_kwargs)
         for n_tokens, text, exp in zip(n_tokens_list, texts, chunk_expected):
             extracted = domain.extract_answer(text) or text
-            correct = exp.lower() in extracted.lower()
+            correct = _capability_match(exp, extracted)
             results.append(SampleResult(correct=correct, n_tokens=n_tokens))
     return compute_metrics(results)

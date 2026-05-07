@@ -26,15 +26,22 @@ class GRPORunner:
         use_vllm = config["model"].get("use_vllm", False)
         enforce_eager = config["model"].get("enforce_eager", False)
 
-        self.model, self.tokenizer = FastLanguageModel.from_pretrained(
+        load_kwargs = dict(
             model_name=model_cfg["model_name"],
             max_seq_length=max_seq,
             load_in_4bit=load_4bit,
             fast_inference=use_vllm,
             max_lora_rank=lora_rank,
-            gpu_memory_utilization=float(config["model"].get("gpu_memory_utilization", 0.6)) if use_vllm else None,
-            enforce_eager=enforce_eager,
         )
+        # Only forward vLLM-specific kwargs when fast inference is on; passing
+        # gpu_memory_utilization=None to the non-vLLM path can confuse Unsloth.
+        if use_vllm:
+            load_kwargs["gpu_memory_utilization"] = float(
+                config["model"].get("gpu_memory_utilization", 0.6)
+            )
+            load_kwargs["enforce_eager"] = enforce_eager
+
+        self.model, self.tokenizer = FastLanguageModel.from_pretrained(**load_kwargs)
 
         self.model = FastLanguageModel.get_peft_model(
             self.model,

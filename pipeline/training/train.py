@@ -81,6 +81,7 @@ def main() -> None:
     parser.add_argument("--config", required=True)
     parser.add_argument("--eval", action="store_true", help="Run eval after training")
     parser.add_argument("--smoke", action="store_true", help="Override config for fast smoke test (3 steps, 2 rollouts, 512 seq)")
+    parser.add_argument("--overwrite", action="store_true", help="Allow overwriting an existing run directory")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -94,11 +95,24 @@ def main() -> None:
 
     exp_id = config["experiment_id"]
     run_dir = os.path.join("runs", exp_id)
+    # Refuse to clobber an existing run unless --overwrite is given. Without
+    # this guard, a re-invocation with the same experiment_id silently
+    # overwrites the prior frozen config and (later) trampling checkpoints.
+    existing_config = os.path.join(run_dir, "config.yaml")
+    existing_final = os.path.join(run_dir, "checkpoint-final")
+    if (os.path.exists(existing_config) or os.path.isdir(existing_final)) and not args.overwrite:
+        raise FileExistsError(
+            f"Run directory {run_dir!r} already contains artifacts. "
+            "Pass --overwrite to replace, or change experiment_id."
+        )
     os.makedirs(run_dir, exist_ok=True)
 
-    # Persist config alongside run artifacts
+    # Persist config alongside run artifacts. Strip the runtime-only `_smoke`
+    # marker so re-running eval against the frozen config does not silently
+    # cap each split to 10 samples.
+    frozen = {k: v for k, v in config.items() if k != "_smoke"}
     with open(os.path.join(run_dir, "config.yaml"), "w") as f:
-        yaml.dump(config, f)
+        yaml.dump(frozen, f)
 
     domain = build_domain(config)
     runner = GRPORunner(config)
@@ -115,8 +129,12 @@ def main() -> None:
     size_limit = config["training"].get("dataset_size_limit")
     if size_limit is not None and len(dataset) > size_limit:
         size_limit = int(size_limit)
-        dataset = dataset.select(range(size_limit))
-        print(f"Dataset truncated to {size_limit} samples (dataset_size_limit)")
+        # Shuffle before truncation so subset is representative across the
+        # source distribution. DAPO and Hendrycks MATH are clustered by
+        # difficulty/category — taking range(0, N) would systematically
+        # exclude later categories. Seeded for reproducibility.
+        dataset = dataset.shuffle(seed=seed).select(range(size_limit))
+        print(f"Dataset shuffled and truncated to {size_limit} samples (dataset_size_limit, seed={seed})")
 
     if hasattr(domain, "filter_by_prompt_length"):
         dataset = domain.filter_by_prompt_length(

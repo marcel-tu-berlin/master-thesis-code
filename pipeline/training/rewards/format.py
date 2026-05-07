@@ -32,13 +32,28 @@ class FormatApproxReward:
     the reasoning chain doesn't inflate the score.
     """
 
-    def __init__(self, domain: Domain, per_tag: float = 0.5, penalty: float = -1.0) -> None:
+    def __init__(
+        self,
+        domain: Domain,
+        per_tag: float = 0.5,
+        penalty: float = -1.0,
+        missing_penalty: float | None = None,
+    ) -> None:
         self.domain = domain
         self.per_tag = per_tag
         self.penalty = penalty
+        # Missing tag is a stronger failure than duplicated tag (no
+        # answer at all vs. malformed-but-attempted). Default the
+        # missing penalty to 1.5x the duplicate penalty so the gradient
+        # signal can distinguish the two failure modes.
+        self.missing_penalty = missing_penalty if missing_penalty is not None else penalty * 1.5
 
     def _score_tag(self, count: int) -> float:
-        return self.per_tag if count == 1 else self.penalty
+        if count == 1:
+            return self.per_tag
+        if count == 0:
+            return self.missing_penalty
+        return self.penalty
 
     def __call__(self, prompts, completions, **kwargs) -> list[float]:
         re_end = self.domain.reasoning_end

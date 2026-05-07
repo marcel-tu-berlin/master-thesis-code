@@ -17,7 +17,10 @@ class EvalMetrics:
     accuracy_ci_low: float = 0.0
     accuracy_ci_high: float = 0.0
     mean_token_count: float = 0.0
-    underthinking_rate: float = 0.0
+    # None when no correct samples — distinguishes "0% underthinking" (real
+    # signal) from "no correct answers to measure" (no signal). Treat 0.0
+    # only as a genuinely measured rate.
+    underthinking_rate: float | None = None
     pearson_difficulty_length: float | None = None
     pearson_p_value: float | None = None
     n_samples: int = 0
@@ -64,10 +67,13 @@ def compute_metrics(
     mean_tokens = sum(r.n_tokens for r in results) / n
 
     correct_results = [r for r in results if r.correct]
-    underthinking_rate = (
-        sum(1 for r in correct_results if r.n_tokens <= underthinking_threshold)
-        / max(len(correct_results), 1)
-    )
+    if correct_results:
+        underthinking_rate = (
+            sum(1 for r in correct_results if r.n_tokens <= underthinking_threshold)
+            / len(correct_results)
+        )
+    else:
+        underthinking_rate = None
 
     corrects = np.array([r.correct for r in results], dtype=float)
     ci_low, ci_high = _bootstrap_ci(corrects, n_bootstrap=n_bootstrap)
@@ -78,9 +84,12 @@ def compute_metrics(
     if len(with_difficulty) >= 10:
         difficulties = [d for d, _ in with_difficulty]
         lengths = [l for _, l in with_difficulty]
-        r_val, p_val = pearsonr(difficulties, lengths)
-        pearson_val = r_val
-        pearson_p = p_val
+        # pearsonr returns NaN with a warning when either input is constant.
+        # Skip the call entirely so the report stays free of NaNs.
+        if len(set(difficulties)) > 1 and len(set(lengths)) > 1:
+            r_val, p_val = pearsonr(difficulties, lengths)
+            pearson_val = float(r_val)
+            pearson_p = float(p_val)
 
     return EvalMetrics(
         accuracy=accuracy,

@@ -59,6 +59,9 @@ def _plot_compare_accuracy(reports: list[dict], out_dir: str) -> None:
     fig, ax = plt.subplots(figsize=(max(8, len(reports) * 1.8), 5))
 
     for i, (split_key, split_label) in enumerate(splits):
+        # NaN signals "data unavailable" to matplotlib so the bar is omitted
+        # rather than rendered as 0% — the latter falsely reads as "model
+        # got 0/N" instead of "this experiment didn't run that probe".
         accs, err_lo, err_hi = [], [], []
         for r in reports:
             split = (r.get("results") or {}).get(split_key)
@@ -69,7 +72,7 @@ def _plot_compare_accuracy(reports: list[dict], out_dir: str) -> None:
                 err_lo.append(acc - ci[0])
                 err_hi.append(ci[1] - acc)
             else:
-                accs.append(0.0)
+                accs.append(np.nan)
                 err_lo.append(0.0)
                 err_hi.append(0.0)
 

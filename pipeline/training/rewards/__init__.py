@@ -20,7 +20,12 @@ def _build_format_exact(domain, runner, training_cfg, cfg):
 
 
 def _build_format_approx(domain, runner, training_cfg, cfg):
-    return FormatApproxReward(domain)
+    return FormatApproxReward(
+        domain,
+        per_tag=cfg.get("per_tag", 0.5),
+        penalty=cfg.get("penalty", -1.0),
+        missing_penalty=cfg.get("missing_penalty"),
+    )
 
 
 def _build_accuracy(domain, runner, training_cfg, cfg):
@@ -41,11 +46,25 @@ def _build_token_length(domain, runner, training_cfg, cfg):
 
 
 def _build_token_entropy(domain, runner, training_cfg, cfg):
+    # `fork_mask_top_pct` is deprecated; prefer `fork_mask_top_frac`. Keep
+    # the old key working for now so existing configs don't break, but
+    # emit a one-line warning so they get migrated.
+    if "fork_mask_top_pct" in cfg and "fork_mask_top_frac" not in cfg:
+        print(
+            "Warning: rewards.token_entropy.fork_mask_top_pct is deprecated; "
+            "rename to fork_mask_top_frac (value range [0, 1])."
+        )
+    frac = cfg.get("fork_mask_top_frac", cfg.get("fork_mask_top_pct", 0.0))
+    # Honour explicit max_seq_length on the model config so the entropy
+    # forward pass doesn't silently exceed the configured context.
+    model_cfg = getattr(runner, "config", {}).get("model", {}) if hasattr(runner, "config") else {}
+    max_seq = model_cfg.get("max_seq_length") or training_cfg.get("max_seq_length")
     return TokenEntropyReward(
         runner.model,
         runner.tokenizer,
         reward_scale=cfg.get("reward_scale", 0.1),
-        fork_mask_top_pct=cfg.get("fork_mask_top_pct", 0.0),
+        fork_mask_top_frac=frac,
+        max_seq_length=int(max_seq) if max_seq is not None else None,
     )
 
 

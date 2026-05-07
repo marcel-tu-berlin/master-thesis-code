@@ -60,7 +60,7 @@ rewards:
     enabled: false
     weight: 1.0
     reward_scale: 0.1
-    fork_mask_top_pct: 0.0      # 0.0 = all tokens; 0.2 = top-20% by entropy
+    fork_mask_top_frac: 0.0     # 0.0 = all tokens; 0.2 = top-20% by entropy (range [0, 1])
 
   effort_proxy:
     enabled: false
@@ -72,6 +72,7 @@ eval:
   temperature: 0.0
   do_sample: false
   batch_size: 8                       # generation batch size for OOD probes
+  max_new_tokens: 512                 # generation budget per sample (CLI --max_new_tokens overrides)
   id_split: openai/gsm8k              # dataset name for ID held-out eval
   id_split_hf_split: test
   id_split_limit: 200                 # samples for ID split (--smoke caps to 10)
@@ -81,3 +82,9 @@ eval:
     near: EleutherAI/hendrycks_math   # near-OOD (same domain, different dist)
     far: MMLU                         # far-OOD (hardcoded; see eval/ood_probes.py)
     capability_floor: simple          # fixed 5-question sanity check
+  # Optional override of the capability-floor prompts. Each entry is
+  # [question, expected]. Expected matched by whole-word case-insensitive
+  # regex (numeric fallback). Defaults used when omitted.
+  # capability_floor_prompts:
+  #   - ["What is 2+2?", "4"]
+  #   - ["Capital of France?", "Paris"]

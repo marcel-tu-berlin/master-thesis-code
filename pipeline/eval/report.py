@@ -9,7 +9,10 @@ def _metrics_dict(metrics) -> dict:
         "accuracy": round(metrics.accuracy, 4),
         "accuracy_ci": [round(metrics.accuracy_ci_low, 4), round(metrics.accuracy_ci_high, 4)],
         "mean_token_count": round(metrics.mean_token_count, 1),
-        "underthinking_rate": round(metrics.underthinking_rate, 4),
+        "underthinking_rate": (
+            round(metrics.underthinking_rate, 4)
+            if metrics.underthinking_rate is not None else None
+        ),
         "pearson_difficulty_length": (
             round(metrics.pearson_difficulty_length, 4)
             if metrics.pearson_difficulty_length is not None else None
@@ -120,7 +123,7 @@ def _write_markdown(report: dict, run_dir: str) -> None:
             f"### {split.replace('_', ' ').title()}",
             f"- Accuracy: **{metrics.get('accuracy', '-')}** [{metrics.get('accuracy_ci', ['-', '-'])[0]}, {metrics.get('accuracy_ci', ['-', '-'])[1]}]",
             f"- Mean tokens: {metrics.get('mean_token_count', '-')}",
-            f"- Underthinking rate: {metrics.get('underthinking_rate', '-')}",
+            f"- Underthinking rate: {metrics.get('underthinking_rate') if metrics.get('underthinking_rate') is not None else '-'}",
         ]
         if metrics.get("pearson_difficulty_length") is not None:
             p_str = f" (p={metrics.get('pearson_p_value', '-')})" if metrics.get("pearson_p_value") is not None else ""

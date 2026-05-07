@@ -61,17 +61,29 @@ class CodingDomain(Domain):
         m = self._solution_re.search(text)
         return m.group(1).strip() if m else None
 
+    _warned_is_correct = False
+    _warned_score_answer = False
+
     def is_correct(self, completion: str, ground_truth: str) -> bool:
-        raise NotImplementedError(
-            "CodingDomain.is_correct requires execution-based verification — not yet implemented. "
-            "Use MathDomain for string/numeric correctness, or implement a sandboxed verifier."
-        )
+        # Eval calls this once per sample; raising here would crash the run
+        # mid-eval after model + dataset load. Warn once and return False
+        # so the report surfaces 0% accuracy rather than silently aborting.
+        if not CodingDomain._warned_is_correct:
+            print(
+                "Warning: CodingDomain.is_correct has no execution-based verifier — "
+                "all samples will score False. Implement a sandboxed runner before reporting."
+            )
+            CodingDomain._warned_is_correct = True
+        return False
 
     def score_answer(self, extracted: str | None, truth: str) -> float:
-        raise NotImplementedError(
-            "CodingDomain.score_answer requires execution-based verification — not yet implemented. "
-            "Use MathDomain for string/numeric scoring, or implement a sandboxed verifier."
-        )
+        if not CodingDomain._warned_score_answer:
+            print(
+                "Warning: CodingDomain.score_answer has no execution-based verifier — "
+                "all samples will score 0.0."
+            )
+            CodingDomain._warned_score_answer = True
+        return 0.0
 
     def difficulty(self, sample: dict) -> float | None:
         return None
