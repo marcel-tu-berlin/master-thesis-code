@@ -46,6 +46,31 @@ Add `--smoke` to limit eval to 10 samples per split for quick sanity checks:
 python -m eval.runner --config configs/e0-baseline-math-1.5b.yaml --smoke
 ```
 
+### Compare experiments
+
+After running eval on multiple experiments, generate cross-experiment comparison plots:
+
+```bash
+cd pipeline
+python -m eval.compare \
+  --runs runs/e0-baseline-math-1.5b runs/e1-token-entropy runs/e2-multi-signal
+```
+
+Outputs land in `runs/comparison/`:
+
+```
+runs/comparison/
+  compare_accuracy.png     # grouped bar chart: accuracy per split per experiment
+  compare_efficiency.png   # scatter: accuracy vs mean token count (efficiency frontier)
+  compare_summary.md       # markdown table with Δ-accuracy and token counts
+```
+
+Override the output directory with `--out`:
+
+```bash
+python -m eval.compare --runs runs/e0-baseline runs/e1-token-length --out runs/length-ablation
+```
+
 ### Run a new experiment
 
 1. Copy the template config:
@@ -65,10 +90,14 @@ python -m training.train --config configs/e4-my-experiment.yaml --eval
 
 ```
 runs/e4-my-experiment/
-  config.yaml            # frozen copy of the config used
-  checkpoint-final/      # LoRA adapter + tokenizer
-  eval_report.json       # structured metrics
-  eval_report.md         # human-readable summary
+  config.yaml              # frozen copy of the config used
+  checkpoint-final/        # LoRA adapter + tokenizer
+  eval_report.json         # structured metrics
+  eval_report.md           # human-readable summary
+  training_curves.png      # reward, KL, completion length, loss over steps
+  eval_accuracy.png        # accuracy with 95% CI across all eval splits
+  token_distribution.png   # token count histogram: correct vs incorrect
+  difficulty_scatter.png   # difficulty vs token count (MATH datasets only)
 ```
 
 ### Experiment matrix
@@ -114,6 +143,7 @@ train.py:main()
 eval/runner.py:run_eval()
     +-- run_ood_probes()             # ID + near-OOD + far-OOD + capability floor
     +-- generate_report()            # JSON + Markdown
+    +-- plots.plot_all()             # PNGs: training_curves, accuracy_bars, token_dist, difficulty
 ```
 
 ### Design choices
@@ -249,6 +279,31 @@ Decoding is configurable per config (`eval.temperature`, `eval.do_sample`). Defa
 **`report.py`**
 
 Generates structured JSON and Markdown reports. Compares against a baseline experiment if found. Baseline discovery uses explicit `baseline_id` from config first, then falls back to heuristic matching (entries starting with `e0-` or containing `-baseline-`). Reports include accuracy with 95% CI, Pearson r with p-value, and delta-accuracy vs baseline.
+
+**`plots.py`**
+
+Generates per-experiment PNG figures automatically at the end of each eval run:
+
+- `plot_training_curves` — 2×2 panel: reward (±1 std band), KL divergence, completion length, policy loss. Reads `trainer_state.json` from the most recent checkpoint.
+- `plot_accuracy_bars` — horizontal bar chart with 95% CI error bars, one bar per eval split.
+- `plot_token_distribution` — overlapping histograms of token counts for correct vs incorrect completions (ID split).
+- `plot_difficulty_scatter` — scatter of difficulty vs token count, coloured by correctness, annotated with Pearson r (MATH datasets only; skipped silently otherwise).
+- `plot_all` — top-level entry point that calls all four; individual failures are caught and logged without aborting eval.
+
+Requires `matplotlib`. Degrades gracefully (no crash) if not installed.
+
+**`compare.py`**
+
+Standalone CLI for cross-experiment comparison. Reads only `eval_report.json` files — no model loading required.
+
+```bash
+python -m eval.compare --runs runs/e0-baseline runs/e1-token-entropy [--out runs/comparison]
+```
+
+Outputs:
+- `compare_accuracy.png` — grouped bar chart per experiment and split, with baseline dashed line.
+- `compare_efficiency.png` — scatter of accuracy vs mean token count (efficiency frontier).
+- `compare_summary.md` — markdown table: experiment, accuracy, Δ vs baseline, mean tokens, underthinking rate.
 
 ## Reward signal reference
 

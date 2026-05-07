@@ -21,7 +21,22 @@ jupyter notebook
 
 Both notebooks are self-contained and must be run top-to-bottom. They are not unit-testable — correctness is validated by inspecting reward curves and model outputs inline.
 
-## Architecture
+## Pipeline (`pipeline/`)
+
+A separate, config-driven training and evaluation pipeline lives in `pipeline/`. It is the primary surface for systematic experimentation. Full documentation in `pipeline/README.md`.
+
+Key entry points (run from `pipeline/`):
+```bash
+python -m training.train --config configs/e0-baseline-math-1.5b.yaml --eval
+python -m eval.runner --config configs/e0-baseline-math-1.5b.yaml
+python -m eval.compare --runs runs/e0-baseline runs/e1-token-entropy
+```
+
+Add `--smoke` to any command for a fast sanity check (3 steps, 10 eval samples).
+
+Outputs land in `runs/<experiment_id>/`: frozen config, LoRA checkpoint, eval JSON/Markdown, and PNG plots (training curves, accuracy bars, token distribution, difficulty scatter).
+
+## Architecture (Notebooks)
 
 ### Notebooks
 
@@ -52,8 +67,16 @@ Reasoning tags are injected into a Jinja2 template assigned to `tokenizer.chat_t
 
 Target modules across all notebooks: `q_proj`, `k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, `down_proj`. `lora_alpha = lora_rank * 2`. Gradient checkpointing via `use_gradient_checkpointing="unsloth"`.
 
-### Outputs
+### Outputs (Notebooks)
 
 - Training checkpoints: `unsloth_training_checkpoints/` (gitignored)
 - LoRA adapters: saved with `model.save_lora("grpo_saved_lora")`
 - Merged exports / GGUF: generated on demand via `model.save_pretrained_merged()` / `model.save_pretrained_gguf()`
+
+### Outputs (Pipeline)
+
+- `runs/<experiment_id>/config.yaml` — frozen experiment config
+- `runs/<experiment_id>/checkpoint-final/` — LoRA adapter + tokenizer
+- `runs/<experiment_id>/eval_report.json` / `eval_report.md` — structured metrics and human-readable summary
+- `runs/<experiment_id>/training_curves.png`, `eval_accuracy.png`, `token_distribution.png`, `difficulty_scatter.png` — auto-generated eval figures
+- `runs/comparison/` — cross-experiment comparison plots from `eval.compare`

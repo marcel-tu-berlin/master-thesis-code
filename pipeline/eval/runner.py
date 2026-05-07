@@ -43,6 +43,12 @@ def run_eval(
 
     report = generate_report(config, ood_results, run_dir)
 
+    try:
+        from eval.plots import plot_all
+        plot_all(run_dir, ood_results, report, run_dir)
+    except Exception as exc:
+        print(f"Warning: plot generation failed: {exc}")
+
     report_path = os.path.join(run_dir, "eval_report.json")
     with open(report_path, "w") as f:
         json.dump(report, f, indent=2)

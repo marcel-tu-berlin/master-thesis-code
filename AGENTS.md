@@ -26,6 +26,7 @@ python -m training.train --config configs/e0-baseline-math-1.5b.yaml
 python -m training.train --config configs/e0-baseline-math-1.5b.yaml --eval
 python -m eval.runner --config configs/e0-baseline-math-1.5b.yaml
 python -m eval.runner --config configs/e0-baseline-math-1.5b.yaml --checkpoint runs/e0-baseline-math-1.5b/checkpoint-final
+python -m eval.compare --runs runs/e0-baseline-math-1.5b runs/e1-token-entropy   # cross-experiment plots
 ```
 
 New experiment: `cp configs/_template.yaml configs/e4-my-experiment.yaml`, edit, run.
@@ -47,7 +48,7 @@ New experiment: `cp configs/_template.yaml configs/e4-my-experiment.yaml`, edit,
 - LoRA target modules are fixed in `registry.py:LORA_TARGET_MODULES` — not configurable per-experiment.
 - Chat template is injected at runtime by `domain.build_chat_template(tokenizer)`, not stored in the model repo.
 - `add_generation_prompt=True` prepends `<start_working_out>` to force reasoning mode.
-- Output structure: `runs/<experiment_id>/` contains `config.yaml`, `checkpoint-final/`, `eval_report.json`, `eval_report.md`.
+- Output structure: `runs/<experiment_id>/` contains `config.yaml`, `checkpoint-final/`, `eval_report.json`, `eval_report.md`, and four PNGs — `training_curves.png`, `eval_accuracy.png`, `token_distribution.png`, `difficulty_scatter.png` (last one only for datasets with difficulty labels).
 - `pipeline/runs/` and `unsloth_training_checkpoints/` are gitignored.
 
 ## Model output format
