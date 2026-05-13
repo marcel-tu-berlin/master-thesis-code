@@ -34,7 +34,11 @@ python -m eval.compare --runs runs/e0-baseline runs/e1-token-entropy
 
 Add `--smoke` to any command for a fast sanity check (3 steps, 10 eval samples).
 
+`training.train` refuses to clobber an existing `runs/<experiment_id>/` directory — pass `--overwrite` to replace, or change `experiment_id` in the config. The frozen `config.yaml` and `checkpoint-final/` are the trigger artifacts.
+
 Outputs land in `runs/<experiment_id>/`: frozen config, LoRA checkpoint, eval JSON/Markdown, and PNG plots (training curves, accuracy bars, token distribution, difficulty scatter).
+
+**Domains:** `MathDomain` is fully implemented (GSM8K, Hendrycks MATH, DAPO). `CodingDomain` is a **stub** — it loads HumanEval/MBPP but `is_correct`/`score_answer` warn and return `False`/`0.0` (no sandboxed execution). Coding experiments will train against an all-zero reward signal until execution-based verification is added.
 
 ## Architecture (Notebooks)
 
@@ -65,6 +69,32 @@ plus opt-in efficiency signals (`TokenLengthReward`, `TokenEntropyReward`,
 `EffortProxyReward`). Pipeline `FormatApproxReward` counts `reasoning_end`
 on the full text and the solution tags on the suffix to avoid CoT false
 positives — semantics differ from the notebook version.
+
+### Reward Registry (Pipeline)
+
+Rewards are wired via `REWARD_REGISTRY` in `pipeline/training/rewards/__init__.py`. Each entry maps a config key (under `rewards:`) to `(default_enabled, default_weight, builder)`. Adding a new reward requires both:
+1. A builder + entry in `REWARD_REGISTRY`
+2. The matching key in `_KNOWN_REWARD_KEYS` in `pipeline/training/config_schema.py` (otherwise validation rejects it as an unknown key)
+
+`train.build_reward_components` iterates the registry — no per-reward branches in `train.py`.
+
+### Reward Composition (Pipeline)
+
+Multiple reward components are combined via a composer selected by `rewards.compose_method` in the config:
+
+- **`advantage_weighted`** (default) — `AdvantageWeightedComposer` in `pipeline/training/rewards/compose.py`. Per-prompt-group z-scoring of each component's raw rewards *before* the weighted sum. Motivated by DIET §3.2: raw variance σ²≈C(1-C) differs across components (high-variance binary accuracy would dominate a naive sum regardless of weight). Normalising per group preserves GRPO's within-group advantage semantics. A component with zero within-group variance contributes 0 — by design, since a constant signal carries no advantage information.
+- **`naive_sum`** — `NaiveSumComposer`. Plain weighted sum, no normalisation. Used as the E3 ablation baseline (`configs/e3-ablation-naive-sum.yaml`) to isolate the advantage-weighting effect.
+
+### Pipeline Evaluation
+
+`eval.runner` loads the trained LoRA checkpoint and dispatches `run_ood_probes` (in `pipeline/eval/ood_probes.py`), which runs up to four probes — all keyed in `eval_report.json["results"]`:
+
+- **`id_split`** — held-out portion of the training dataset (HF split set by `eval.id_split_hf_split`, default `test`)
+- **`near_ood`** — same domain, different distribution (e.g. GSM-8K when trained on MATH); set via `eval.ood_probes.near`
+- **`far_ood`** — currently hardcoded to MMLU (`cais/mmlu`, 5-shot multiple-choice). Config string only needs to contain "mmlu" (case-insensitive); other values trigger a warning and skip
+- **`capability_floor`** — 5-question instruction-following sanity check; default prompts in `_DEFAULT_CAPABILITY_PROMPTS`, overrideable via `eval.capability_floor_prompts: [[q, a], ...]`
+
+Metrics per split: accuracy, 95 % bootstrap CI, mean token count, underthinking rate (fraction of *correct* completions with ≤50 tokens), Pearson(difficulty, length) when difficulty labels exist (Hendrycks MATH levels). See `pipeline/eval/metrics.py`.
 
 ### Custom Chat Template
 

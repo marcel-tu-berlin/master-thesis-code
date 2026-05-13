@@ -74,7 +74,7 @@ def _build_effort_proxy(domain, runner, training_cfg, cfg):
     if inner is not None and hasattr(inner, "to_dict"):
         try:
             model_cfg = inner.to_dict()
-        except Exception:
+        except (AttributeError, TypeError):
             model_cfg = None
     return EffortProxyReward(
         runner.tokenizer,

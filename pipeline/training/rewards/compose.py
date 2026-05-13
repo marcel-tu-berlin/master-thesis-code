@@ -65,7 +65,15 @@ class AdvantageWeightedComposer:
                 sub = r[slice_idx]
                 std = sub.std()
                 if std < 1e-6:
-                    continue  # leave normalized[idx] = 0
+                    # Constant signal across the group carries no advantage
+                    # information (every rollout gets the same value), so it
+                    # contributes 0 to the composed reward regardless of its
+                    # assigned weight. This is by design — there is no GRPO
+                    # gradient to extract from a zero-variance signal — but
+                    # it can surprise ablations where a saturated component
+                    # (e.g. format_exact at 100% match) appears to have its
+                    # weight ignored.
+                    continue
                 normalized[slice_idx] = (sub - sub.mean()) / std
             for i, v in enumerate(normalized.tolist()):
                 total[i] += weight * v

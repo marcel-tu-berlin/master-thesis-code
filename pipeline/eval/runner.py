@@ -52,7 +52,10 @@ def run_eval(
         from eval.plots import plot_all
         plot_all(run_dir, ood_results, report, run_dir)
     except Exception as exc:
-        print(f"Warning: plot generation failed: {exc}")
+        # Per-plot failures inside plot_all are already named by plots.py;
+        # this outer catch only fires on top-level failures (import, mkdir,
+        # etc.), so include the exception type to make those easier to triage.
+        print(f"Warning: plot_all failed before per-plot dispatch: {type(exc).__name__}: {exc}")
 
     report_path = os.path.join(run_dir, "eval_report.json")
     with open(report_path, "w") as f:

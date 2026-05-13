@@ -67,10 +67,18 @@ def _plot_compare_accuracy(reports: list[dict], out_dir: str) -> None:
             split = (r.get("results") or {}).get(split_key)
             if split and split.get("accuracy") is not None:
                 acc = split["accuracy"]
-                ci = split.get("accuracy_ci", [acc, acc])
+                # Explicit None check: a missing accuracy_ci means "no CI was
+                # measured", which is different from "CI is zero-width". The
+                # old default of [acc, acc] silently rendered zero-width error
+                # bars that visually read as a tightly-measured estimate.
+                ci = split.get("accuracy_ci")
                 accs.append(acc)
-                err_lo.append(acc - ci[0])
-                err_hi.append(ci[1] - acc)
+                if ci is None:
+                    err_lo.append(0.0)
+                    err_hi.append(0.0)
+                else:
+                    err_lo.append(acc - ci[0])
+                    err_hi.append(ci[1] - acc)
             else:
                 accs.append(np.nan)
                 err_lo.append(0.0)
