@@ -1,6 +1,6 @@
 # GRPO Training Pipeline
 
-Reinforcement learning pipeline for training reasoning models with Group Relative Policy Optimization (GRPO). Built for systematic experimentation with different reward signals.
+A GRPO training and evaluation pipeline for reasoning models. Experiments are YAML configs, so swapping reward signals does not need a code change.
 
 ## Usage
 
@@ -148,15 +148,25 @@ eval/runner.py:run_eval()
 
 ### Design choices
 
-**Config-driven, not code-driven.** Every experiment is a YAML file. The training script is a thin orchestrator that reads the config and wires together the domain, reward components, and training loop. This eliminates code divergence between experiment runs and makes the experiment matrix reproducible.
+#### Why YAML configs
 
-**Domain abstraction.** The `Domain` base class decouples dataset loading, answer extraction, and scoring from the reward functions and training loop. Adding a new domain (e.g. theorem proving, multilingual math) requires subclassing `Domain` and implementing three abstract methods. The reward functions stay unchanged.
+Each experiment is a YAML file. `train.py` reads the config and wires up the domain, reward components, and training loop. There is no per-experiment branching in code; E0 vs E3 is a config diff.
 
-**Composable reward signals.** Each reward signal is an independent callable `(prompts, completions, **kwargs) -> list[float]`. The composer combines them. This means you can add a new signal by writing a single class and adding an entry to the config, without touching any other code.
+#### The Domain class
 
-**Advantage-weighted composition.** By default, each reward component is normalized to zero-mean unit-variance per batch before being weighted and summed (following DIET section 3.2). This prevents high-variance signals like binary accuracy from dominating regardless of their assigned weight. The `naive_sum` composer is kept as an ablation baseline.
+`Domain` separates dataset loading, answer extraction, and scoring from the rest of the pipeline. To add theorem proving or a new math source, subclass `Domain` and implement the abstract methods. Reward functions do not change, because they call back into the domain for scoring.
 
-**Callback-driven schedulers.** Reward signals with time-dependent behavior (e.g. cosine-annealed length penalty) expose a `step()` method. A `TrainerCallback` calls all step-able rewards after each training step, so the training loop doesn't need to know about individual reward internals.
+#### Reward signals as callables
+
+Every reward signal has signature `(prompts, completions, **kwargs) -> list[float]`. The composer combines them. Adding a new signal means one new class plus an entry in `REWARD_REGISTRY` and `_KNOWN_REWARD_KEYS`.
+
+#### Advantage-weighted composition
+
+Each reward component is z-scored per batch before the weighted sum (DIET §3.2). The motivation: binary accuracy has variance roughly C(1-C), which is much larger than the variance of a small length penalty, so a naive sum lets accuracy dominate no matter what weight you set. The `naive_sum` composer is kept around as the E3 ablation against E2 — that is how you measure whether the z-scoring actually mattered for your reward mix.
+
+#### Reward schedulers via callback
+
+Some rewards have time-dependent state. The DIET length penalty anneals its alpha from 0 across training, for example. Those rewards expose `step()`, and `_RewardStepCallback` calls them after each training step. The TRL trainer does not know about reward internals.
 
 ## Modules
 
@@ -225,7 +235,7 @@ Each reward is a callable class with signature `(prompts, completions, **kwargs)
 **`accuracy.py`**
 
 - `AnswerReward` - Calls `domain.score_answer()` on the extracted answer. Graded from -4.5 to +5.0.
-- `NumericReward` - Calls `domain.score_numbers()` on the extracted number. Strict float equality: +3.5 or -1.5. Falls back gracefully if the domain lacks `extract_number`.
+- `NumericReward` - Calls `domain.score_numbers()` on the extracted number. Strict float equality: +3.5 or -1.5. Returns 0.0 if the domain has no `extract_number` method.
 
 **`token_length.py` - `TokenLengthReward`**
 
@@ -278,7 +288,7 @@ Use `--smoke` to cap all splits to 10 samples for quick sanity checks. `--smoke`
 
 Decoding is configurable per config (`eval.temperature`, `eval.do_sample`). Defaults to greedy (`do_sample=false`; `temperature` is dropped from generation kwargs to silence HF warnings).
 
-Generation is batched. Set `eval.batch_size` (default 8) per config. Tokenizer is forced to left-padding during generation so completions slice cleanly out of the batched output. MMLU and capability-floor probes go through the same chat template as ID/near-OOD so the trained model can still emit `<start_working_out>...<SOLUTION>...</SOLUTION>`; answer extraction prefers the SOLUTION block before falling back to raw text scanning.
+Generation is batched. Set `eval.batch_size` (default 8) per config. Tokenizer is set to left-padding during generation, otherwise the completion slice indices land in the wrong place for shorter prompts in a batch. MMLU and capability-floor probes go through the same chat template as ID/near-OOD so the trained model can still emit `<start_working_out>...<SOLUTION>...</SOLUTION>`; answer extraction prefers the SOLUTION block before falling back to raw text scanning.
 
 **`report.py`**
 
@@ -294,7 +304,7 @@ Generates per-experiment PNG figures automatically at the end of each eval run:
 - `plot_difficulty_scatter` — scatter of difficulty vs token count, coloured by correctness, annotated with Pearson r (MATH datasets only; skipped silently otherwise).
 - `plot_all` — top-level entry point that calls all four; individual failures are caught and logged without aborting eval.
 
-Requires `matplotlib`. Degrades gracefully (no crash) if not installed.
+Requires `matplotlib`. Logs a warning and skips plotting if it is not installed.
 
 **`compare.py`**
 
