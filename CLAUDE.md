@@ -30,6 +30,7 @@ Key entry points (run from `pipeline/`):
 python -m training.train --config configs/e0-baseline-math-1.5b.yaml --eval
 python -m eval.runner --config configs/e0-baseline-math-1.5b.yaml
 python -m eval.compare --runs runs/e0-baseline runs/e1-token-entropy
+python -m training.batch configs/e0-*.yaml configs/e1-*.yaml --train --eval --baseline
 ```
 
 Add `--smoke` to any command for a fast sanity check (3 steps, 10 eval samples).
@@ -37,6 +38,20 @@ Add `--smoke` to any command for a fast sanity check (3 steps, 10 eval samples).
 `training.train` refuses to clobber an existing `runs/<experiment_id>/` directory — pass `--overwrite` to replace, or change `experiment_id` in the config. The frozen `config.yaml` and `checkpoint-final/` are the trigger artifacts.
 
 Outputs land in `runs/<experiment_id>/`: frozen config, LoRA checkpoint, eval JSON/Markdown, and PNG plots (training curves, accuracy bars, token distribution, difficulty scatter).
+
+### Batch runner
+
+`training.batch` queues many configs through training, eval, and/or baseline assessment as subprocesses (one fresh Python process per phase so GPU memory is released cleanly between runs). Designed for unattended overnight queues on a single GPU.
+
+```bash
+python -m training.batch configs/e0-*.yaml configs/e1-*.yaml --train --eval --baseline
+```
+
+Phase flags are independent and combinable: `--train`, `--eval`, `--baseline`. Default when none given: `--train --eval`. Other flags: `--smoke` (pass through to each subprocess), `--force` (re-run even if outputs exist; passes `--overwrite` to train), `--retries N` (per-phase retry count, default 1), `--no-compare` (skip auto `eval.compare` at end), `--no-baseline-dedup` (run baseline separately per config instead of sharing across configs with the same `model.slug`).
+
+Execution order with all three phases enabled: baselines first (deduplicated by `model.slug`, sharing via symlink into the canonical `runs/<owner_exp>/baseline/`), then train→eval per config. Baseline-first ordering means trained eval reports automatically pick up the `vs_base_model` delta block. Phase outputs are skipped by default if their artifacts already exist (`checkpoint-final/`, `eval_report.json`, `baseline/eval_report.json`) — resume-friendly after a crash.
+
+Per-phase logs land at `runs/<exp_id>/batch_{train,eval,baseline}.log`. End-of-batch summary is printed to stdout and written to `runs/batch_summary_<timestamp>.md`. When two or more eval reports exist after the batch, `eval.compare` is invoked automatically with output in `runs/comparison/`.
 
 **Domains:** `MathDomain` is fully implemented (GSM8K, Hendrycks MATH, DAPO). `CodingDomain` is a **stub** — it loads HumanEval/MBPP but `is_correct`/`score_answer` warn and return `False`/`0.0` (no sandboxed execution). Coding experiments will train against an all-zero reward signal until execution-based verification is added.
 

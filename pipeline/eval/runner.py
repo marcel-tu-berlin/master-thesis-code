@@ -13,16 +13,18 @@ def run_eval(
     domain,
     run_dir: str,
     max_new_tokens: int = 512,
+    baseline: bool = False,
 ) -> dict:
-    """max_new_tokens: default budget; eval.max_new_tokens in config overrides."""
-    """
-    Load trained LoRA checkpoint, run all eval splits, write eval_report.json.
-    Returns the report dict.
+    """max_new_tokens: default budget; eval.max_new_tokens in config overrides.
+
+    When baseline=True: skip LoRA adapter loading and run probes against the
+    raw base model. Artefacts are written to runs/<exp>/baseline/ instead of
+    the run root so a trained assessment can coexist with its before-finetune
+    counterpart.
     """
     from unsloth import FastLanguageModel
     from training.registry import get_model_config
 
-    print(f"Loading checkpoint: {checkpoint_dir}")
     model_cfg = get_model_config(config["model"]["slug"])
     max_seq = config["model"].get("max_seq_length", model_cfg["max_seq_length"])
 
@@ -31,8 +33,12 @@ def run_eval(
         max_seq_length=max_seq,
         load_in_4bit=config["model"].get("load_in_4bit", model_cfg["load_in_4bit"]),
     )
-    from peft import PeftModel
-    model = PeftModel.from_pretrained(model, checkpoint_dir)
+    if baseline:
+        print(f"Baseline mode: assessing base model {model_cfg['model_name']} (no LoRA)")
+    else:
+        print(f"Loading checkpoint: {checkpoint_dir}")
+        from peft import PeftModel
+        model = PeftModel.from_pretrained(model, checkpoint_dir)
     domain.build_chat_template(tokenizer)
 
     FastLanguageModel.for_inference(model)
@@ -46,21 +52,34 @@ def run_eval(
         max_new_tokens = int(cfg_budget)
     ood_results = run_ood_probes(model, tokenizer, domain, config, eval_cfg, max_new_tokens, smoke=smoke)
 
-    report = generate_report(config, ood_results, run_dir)
+    output_dir = os.path.join(run_dir, "baseline") if baseline else run_dir
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Baseline reports are themselves "before" measurements — comparing them
+    # against another e0-* run would be nonsense, so suppress sibling search.
+    report = generate_report(
+        config,
+        ood_results,
+        run_dir,
+        output_dir=output_dir,
+        skip_baseline_compare=baseline,
+    )
 
     try:
         from eval.plots import plot_all
-        plot_all(run_dir, ood_results, report, run_dir)
+        # plot_training_curves still reads from run_dir (no trainer state in
+        # baseline mode — that plot bails silently).
+        plot_all(run_dir, ood_results, report, output_dir)
     except Exception as exc:
         # Per-plot failures inside plot_all are already named by plots.py;
         # this outer catch only fires on top-level failures (import, mkdir,
         # etc.), so include the exception type to make those easier to triage.
         print(f"Warning: plot_all failed before per-plot dispatch: {type(exc).__name__}: {exc}")
 
-    report_path = os.path.join(run_dir, "eval_report.json")
+    report_path = os.path.join(output_dir, "eval_report.json")
     with open(report_path, "w") as f:
         json.dump(report, f, indent=2)
-    print(f"Eval report written to {report_path}")
+    print(f"Report written to {report_path}")
 
     return report
 
@@ -77,6 +96,8 @@ def main() -> None:
     parser.add_argument("--max_new_tokens", type=int, default=None,
                         help="Override eval.max_new_tokens from the config (default: config value or 512)")
     parser.add_argument("--smoke", action="store_true", help="Limit eval to 10 samples per split for quick sanity checks")
+    parser.add_argument("--baseline", action="store_true",
+                        help="Skip the LoRA adapter and assess the base model. Writes to runs/<exp>/baseline/.")
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -99,7 +120,7 @@ def main() -> None:
     # CLI > config > 512 default. CLI explicit overrides config.
     if args.max_new_tokens is not None:
         config.setdefault("eval", {})["max_new_tokens"] = args.max_new_tokens
-    run_eval(config, checkpoint, domain, run_dir)
+    run_eval(config, checkpoint, domain, run_dir, baseline=args.baseline)
 
 
 if __name__ == "__main__":

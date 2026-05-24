@@ -46,6 +46,16 @@ Add `--smoke` to limit eval to 10 samples per split for quick sanity checks:
 python -m eval.runner --config configs/e0-baseline-math-1.5b.yaml --smoke
 ```
 
+### Assess the base model (before-finetune baseline)
+
+Run the same probe suite against the un-adapted base model from `config["model"]["slug"]`. Use this to measure what the finetune actually changed:
+
+```bash
+python -m eval.runner --config configs/e0-baseline-math-1.5b.yaml --baseline
+```
+
+Artefacts land under `runs/<experiment_id>/baseline/` so they do not collide with the trained-checkpoint report. The baseline pass is shared across all experiments using the same base model and probe set — you only need to run it once per (model, config) combo. `--baseline` and `--smoke` compose normally.
+
 ### Compare experiments
 
 After running eval on multiple experiments, generate cross-experiment comparison plots:
@@ -61,14 +71,92 @@ Outputs land in `runs/comparison/`:
 ```
 runs/comparison/
   compare_accuracy.png     # grouped bar chart: accuracy per split per experiment
-  compare_efficiency.png   # scatter: accuracy vs mean token count (efficiency frontier)
-  compare_summary.md       # markdown table with Δ-accuracy and token counts
+  compare_efficiency.png   # accuracy vs mean token count Pareto plot — colour by reward family, marker by compose method, bold edge on Pareto-optimal points, error bars from bootstrap CIs
+  compare_summary.md       # markdown table with Δ-accuracy, token counts, underthinking + overthinking rates
 ```
 
 Override the output directory with `--out`:
 
 ```bash
 python -m eval.compare --runs runs/e0-baseline runs/e1-token-length --out runs/length-ablation
+```
+
+Add `--facet-by model` to split the Pareto plot into one subplot per base model (useful once experiments cover multiple models from the registry):
+
+```bash
+python -m eval.compare --runs runs/e0-baseline-math-1.5b runs/e1-token-length \
+  runs/e1-token-length-qwen-7b runs/e1-token-length-qwen3-4b --facet-by model
+```
+
+### Batch run (overnight queue)
+
+`training.batch` queues many configs through training, eval, and/or baseline assessment as subprocesses. Each phase gets a fresh Python process so GPU memory is released cleanly between experiments — designed to be left running unattended on a single GPU.
+
+```bash
+python -m training.batch configs/e0-*.yaml configs/e1-*.yaml --train --eval --baseline
+```
+
+Phase flags are independent and combinable. Default (no flag given) is `--train --eval`.
+
+| Flag | Behaviour |
+|------|-----------|
+| `--train` | Run `training.train` for each config |
+| `--eval` | Run `eval.runner` for each config (after train if both given; standalone otherwise) |
+| `--baseline` | Run `eval.runner --baseline` per unique `model.slug` (other configs sharing that slug symlink into the same `baseline/` dir) |
+| `--smoke` | Pass `--smoke` through to every subprocess |
+| `--force` | Re-run phases even if their output artifacts already exist; passes `--overwrite` to train |
+| `--retries N` | Retry a failed phase N times before marking it failed (default `1`) |
+| `--no-compare` | Skip the auto `eval.compare` run at the end of the batch |
+| `--no-baseline-dedup` | Run baseline separately per config instead of sharing across configs with the same `model.slug` |
+| `--compare-out DIR` | Output directory for `eval.compare` artifacts (default `runs/comparison`) |
+| `--summary-dir DIR` | Where to write `batch_summary_<timestamp>.md` (default `runs`) |
+
+**Execution order** with all three phases enabled:
+
+1. **Baselines first** (deduplicated by `model.slug`). The first config touching a given slug runs the actual baseline; later configs sharing that slug get `runs/<their_exp>/baseline/` as a relative symlink into the canonical baseline directory. Baseline-first ordering means each trained eval report can pick up the `vs_base_model` delta block automatically.
+2. **Train + eval per config**, looped. Eval runs immediately after each train so a `tail -f` from another shell sees full reports land one experiment at a time.
+3. **Auto `eval.compare`** across every run that produced an `eval_report.json` this batch (skipped silently if fewer than two reports exist, or when `--no-compare` is passed).
+
+**Resume behaviour:** by default each phase is skipped if its output artifacts exist — `checkpoint-final/` for train, `eval_report.json` for eval, `baseline/eval_report.json` for baseline. Re-running the same batch command after a crash picks up where it left off. Pass `--force` to redo everything.
+
+**End-of-batch outputs:**
+
+```
+runs/
+  <exp_id>/
+    batch_train.log         # captured stdout/stderr for the train phase
+    batch_eval.log
+    batch_baseline.log
+    checkpoint-final/
+    eval_report.json
+    eval_report.md
+    baseline/               # real dir on the owner, symlink on dedup'd peers
+      eval_report.json
+      eval_report.md
+  comparison/
+    compare_accuracy.png
+    compare_efficiency.png
+    compare_summary.md
+    batch_compare.log
+  batch_summary_<timestamp>.md
+```
+
+The exit code is non-zero if any phase ultimately failed (after retries), so a wrapping shell script or cron job can detect it.
+
+**Examples:**
+
+```bash
+# Train + eval the full e1 family across all model variants, retry twice on failure
+python -m training.batch configs/e1-*.yaml --train --eval --retries 2
+
+# Re-eval already-trained checkpoints (e.g. after changing eval.* in the config)
+python -m training.batch configs/e2-*.yaml --eval --force
+
+# Only baseline-assess every base model used by the e1 configs
+python -m training.batch configs/e1-*.yaml --baseline
+
+# Smoke the entire matrix end-to-end (3 train steps, 10 eval samples per split)
+python -m training.batch configs/e*-*.yaml --train --eval --baseline --smoke
 ```
 
 ### Run a new experiment
@@ -92,19 +180,27 @@ python -m training.train --config configs/e4-my-experiment.yaml --eval
 runs/e4-my-experiment/
   config.yaml              # frozen copy of the config used
   checkpoint-final/        # LoRA adapter + tokenizer
-  eval_report.json         # structured metrics
+  eval_report.json         # structured metrics (trained model)
   eval_report.md           # human-readable summary
   training_curves.png      # reward, KL, completion length, loss over steps
   eval_accuracy.png        # accuracy with 95% CI across all eval splits
   token_distribution.png   # token count histogram: correct vs incorrect
   difficulty_scatter.png   # difficulty vs token count (MATH datasets only)
+  baseline/                # populated by `eval.runner --baseline` (before-finetune assessment)
+    eval_report.json       # same schema as the trained report
+    eval_report.md
+    eval_accuracy.png
+    token_distribution.png
+    difficulty_scatter.png
 ```
 
 ### Experiment matrix
 
-| Config | Reward signals | Compose method | Purpose |
+Each reward family below has three model variants on disk: the bare name (`qwen-1.5b`), `-qwen-7b`, and `-qwen3-4b` (the last is 16-bit). For example the entropy family is `e1-token-entropy.yaml`, `e1-token-entropy-qwen-7b.yaml`, `e1-token-entropy-qwen3-4b.yaml`. Swap the model by picking the matching file; all other fields stay aligned so the deltas across (model × reward-stack) are directly comparable.
+
+| Config family | Reward signals | Compose method | Purpose |
 |--------|---------------|----------------|---------|
-| `e0-baseline-math-1.5b` | accuracy only | advantage_weighted | Baseline for delta comparisons |
+| `e0-baseline-math` | accuracy only | advantage_weighted | Baseline for delta comparisons |
 | `e1-token-length` | accuracy + token_length (cosine) | advantage_weighted | DIET length penalty |
 | `e1-token-entropy` | accuracy + token_entropy | advantage_weighted | Entropy reward, no fork masking |
 | `e1-token-entropy-forkmask` | accuracy + token_entropy (top-20%) | advantage_weighted | Entropy reward with fork masking |
@@ -221,6 +317,10 @@ Maps slugs (e.g. `qwen-1.5b`) to model configs (HuggingFace name, quantization, 
 
 Checks required keys (`experiment_id`, `model.slug`, `training.dataset`), numeric ranges (LoRA rank, learning rate, KL beta), model slug validity against the registry, and compose method validity. Runs before any model loading to fail fast on misconfiguration.
 
+**`batch.py` - Multi-experiment runner**
+
+Queues N configs through train, eval, and/or baseline phases as subprocesses (one fresh Python process per phase). Reads `experiment_id` and `model.slug` from each YAML cheaply up front so a bad config fails the batch immediately, before any GPU work starts. Tees each subprocess's combined stdout/stderr to both the parent terminal and a per-phase log file under `runs/<exp_id>/`. Baseline phase deduplicates by `model.slug` (canonical baseline stored under the first owning experiment; later configs sharing the slug get relative symlinks). Auto-invokes `eval.compare` at end of batch when at least two eval reports were produced.
+
 ### `training/rewards/`
 
 Each reward is a callable class with signature `(prompts, completions, **kwargs) -> list[float]`. All use `extract_content(completion)` from `utils.py` for safe access to completion text.
@@ -273,8 +373,8 @@ Loads a trained LoRA checkpoint, runs all OOD probes, and writes the evaluation 
 **`metrics.py`**
 
 - `SampleResult` - per-sample dataclass: correct, n_tokens, difficulty
-- `EvalMetrics` - aggregate metrics: accuracy, 95% bootstrap CI, mean token count, underthinking rate, Pearson r (difficulty vs length) with p-value
-- `compute_metrics()` - computes all metrics from a list of SampleResults. Uses `scipy.stats.pearsonr` for correlation with statistical significance, and bootstrap resampling (n=2000) for accuracy confidence intervals.
+- `EvalMetrics` - aggregate metrics: accuracy, 95% bootstrap CI, mean token count, underthinking rate, overthinking rate (+ absolute token threshold), Pearson r (difficulty vs length) with p-value
+- `compute_metrics()` - computes all metrics from a list of SampleResults. Uses `scipy.stats.pearsonr` for correlation with statistical significance, and bootstrap resampling (n=2000) for accuracy confidence intervals. Underthinking is correct answers with ≤50 tokens (lucky guessing); overthinking is correct answers above the per-split P75 of all token counts (wasted reasoning). Both thresholds are configurable.
 
 **`ood_probes.py`**
 
@@ -292,7 +392,12 @@ Generation is batched. Set `eval.batch_size` (default 8) per config. Tokenizer i
 
 **`report.py`**
 
-Generates structured JSON and Markdown reports. Compares against a baseline experiment if found. Baseline discovery uses explicit `baseline_id` from config first, then falls back to heuristic matching (entries starting with `e0-` or containing `-baseline-`). Reports include accuracy with 95% CI, Pearson r with p-value, and delta-accuracy vs baseline.
+Generates structured JSON and Markdown reports. Two independent baseline comparisons are populated when their data is available:
+
+- `vs_reward_baseline` — trained-vs-trained comparison against an E0 reward-only baseline experiment (e.g., `e0-baseline-math-1.5b`). Discovery: explicit `baseline_id` from config first, then heuristic matching for entries starting with `e0-` or containing `-baseline-`. Useful for reward-stack ablation deltas.
+- `vs_base_model` — before-vs-after comparison against the same model and probes evaluated *without* the LoRA adapter. Populated whenever `runs/<experiment_id>/baseline/eval_report.json` exists (produced by `eval.runner --baseline`). This is the actual "did finetuning help?" measurement and reports both Δ accuracy and Δ mean tokens.
+
+Reports include accuracy and bootstrap CIs on accuracy, mean token count, underthinking rate, and overthinking rate; the Pearson r between difficulty and length (with p-value); plus both baseline-delta blocks above when applicable.
 
 **`plots.py`**
 
@@ -316,8 +421,8 @@ python -m eval.compare --runs runs/e0-baseline runs/e1-token-entropy [--out runs
 
 Outputs:
 - `compare_accuracy.png` — grouped bar chart per experiment and split, with baseline dashed line.
-- `compare_efficiency.png` — scatter of accuracy vs mean token count (efficiency frontier).
-- `compare_summary.md` — markdown table: experiment, accuracy, Δ vs baseline, mean tokens, underthinking rate.
+- `compare_efficiency.png` — Pareto plot: accuracy vs mean token count. Reward family encoded as colour, compose method as marker, Pareto-optimal points (non-dominated on accuracy↑ × tokens↓) drawn with a bold black edge. Error bars come from the bootstrap CIs on accuracy and mean token count. Use `--facet-by model` to render one subplot per base model.
+- `compare_summary.md` — markdown table: experiment, accuracy, Δ vs baseline, mean tokens, underthinking rate, overthinking rate.
 
 ## Reward signal reference
 

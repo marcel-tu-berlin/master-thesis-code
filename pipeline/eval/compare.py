@@ -108,16 +108,60 @@ def _plot_compare_accuracy(reports: list[dict], out_dir: str) -> None:
     print(f"Plot saved: {out_path}")
 
 
-def _plot_compare_efficiency(reports: list[dict], out_dir: str) -> None:
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-    except ImportError:
-        return
+def _reward_family(exp_id: str, model_slug: str | None) -> str:
+    """Strip the trailing model-slug variant from experiment_id, leaving the
+    reward-stack identity. Examples:
+      e0-baseline-math-1.5b           -> e0-baseline-math    (model: qwen-1.5b)
+      e1-token-length-qwen-7b         -> e1-token-length     (model: qwen-7b)
+      e1-token-entropy-forkmask       -> e1-token-entropy-forkmask
+    Falls back to the full id if no known suffix matches.
+    """
+    if not model_slug:
+        return exp_id
+    # Try a few common ways the slug appears in ids.
+    for suffix in (f"-{model_slug}", f"-{model_slug.replace('-', '')}", f"-{model_slug.split('-')[-1]}"):
+        if exp_id.endswith(suffix):
+            return exp_id[: -len(suffix)]
+    return exp_id
 
-    fig, ax = plt.subplots(figsize=(8, 6))
 
+def _pareto_indices(points: list[tuple[float, float]]) -> set[int]:
+    """Return indices of Pareto-optimal points. Each point is (tokens, accuracy);
+    minimize tokens, maximize accuracy. A point i is dominated if there exists j
+    with tokens[j] <= tokens[i] AND accuracy[j] >= accuracy[i] AND at least one
+    strict inequality.
+    """
+    optimal = set()
+    for i, (xi, yi) in enumerate(points):
+        dominated = False
+        for j, (xj, yj) in enumerate(points):
+            if i == j:
+                continue
+            if xj <= xi and yj >= yi and (xj < xi or yj > yi):
+                dominated = True
+                break
+        if not dominated:
+            optimal.add(i)
+    return optimal
+
+
+def _group_by_model(reports: list[dict]) -> dict[str, list[dict]]:
+    """Group reports by model_slug. Reports without a slug fall into 'unknown'."""
+    groups: dict[str, list[dict]] = {}
+    for r in reports:
+        slug = r.get("model_slug") or "unknown"
+        groups.setdefault(slug, []).append(r)
+    return groups
+
+
+def _draw_efficiency_panel(ax, reports: list[dict], panel_title: str | None = None) -> None:
+    """Draw one accuracy-vs-tokens panel. Colour per reward family, marker per
+    compose method, error bars from CIs, bold edge on Pareto-optimal points.
+    """
+    import matplotlib.pyplot as plt
+
+    points: list[tuple[float, float]] = []
+    rows = []  # (tokens, acc, x_err, y_err, family, compose, exp_id)
     for r in reports:
         exp_id = r.get("experiment_id", os.path.basename(r["_run_dir"]))
         split = (r.get("results") or {}).get("id_split")
@@ -127,16 +171,104 @@ def _plot_compare_efficiency(reports: list[dict], out_dir: str) -> None:
         tokens = split.get("mean_token_count")
         if acc is None or tokens is None:
             continue
-        ax.scatter(tokens, acc, s=80, zorder=3)
-        ax.annotate(exp_id, (tokens, acc), textcoords="offset points",
-                    xytext=(6, 4), fontsize=7)
+        acc_ci = split.get("accuracy_ci")
+        tok_ci = split.get("mean_token_count_ci")
+        y_err = (acc - acc_ci[0], acc_ci[1] - acc) if acc_ci else (0.0, 0.0)
+        x_err = (tokens - tok_ci[0], tok_ci[1] - tokens) if tok_ci else (0.0, 0.0)
+        family = _reward_family(exp_id, r.get("model_slug"))
+        compose = r.get("compose_method", "advantage_weighted")
+        rows.append((tokens, acc, x_err, y_err, family, compose, exp_id))
+        points.append((tokens, acc))
 
-    ax.set_xlabel("Mean Token Count (ID Split)")
-    ax.set_ylabel("Accuracy (ID Split)")
-    ax.set_title("Accuracy vs Efficiency — Experiment Comparison")
-    ax.annotate("← fewer tokens\n↑ better accuracy", xy=(0.02, 0.90),
-                xycoords="axes fraction", fontsize=8, color="gray")
+    if not rows:
+        ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
+        return
+
+    pareto = _pareto_indices(points)
+
+    # Stable colour per family + marker per compose method
+    families = sorted({r[4] for r in rows})
+    cmap = plt.get_cmap("tab10")
+    fam_color = {f: cmap(i % 10) for i, f in enumerate(families)}
+    compose_marker = {"advantage_weighted": "o", "naive_sum": "s"}
+
+    for i, (tokens, acc, x_err, y_err, family, compose, exp_id) in enumerate(rows):
+        marker = compose_marker.get(compose, "^")
+        edge = "black" if i in pareto else "none"
+        lw = 1.8 if i in pareto else 0.0
+        ax.errorbar(
+            tokens, acc,
+            xerr=[[x_err[0]], [x_err[1]]],
+            yerr=[[y_err[0]], [y_err[1]]],
+            fmt=marker, markersize=10, color=fam_color[family],
+            ecolor="gray", elinewidth=0.8, capsize=2.5, alpha=0.9,
+            markeredgecolor=edge, markeredgewidth=lw, zorder=3,
+        )
+        ax.annotate(exp_id, (tokens, acc), textcoords="offset points",
+                    xytext=(6, 6), fontsize=6, alpha=0.8)
+
+    ax.set_xlabel("Mean Token Count (ID)")
+    ax.set_ylabel("Accuracy (ID)")
+    if panel_title:
+        ax.set_title(panel_title, fontsize=10)
     ax.grid(True, alpha=0.3)
+
+
+def _plot_compare_efficiency(
+    reports: list[dict],
+    out_dir: str,
+    facet_by: str | None = None,
+) -> None:
+    """Pareto plot: accuracy vs mean token count.
+
+    facet_by='model' produces one subplot per model_slug; otherwise a single
+    panel. Reward family is encoded as colour; compose method as marker.
+    Pareto-optimal points (non-dominated on accuracy↑ × tokens↓) get a bold
+    black edge.
+    """
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from matplotlib.lines import Line2D
+    except ImportError:
+        return
+
+    if facet_by == "model":
+        groups = _group_by_model(reports)
+        n = len(groups)
+        ncols = min(n, 3)
+        nrows = (n + ncols - 1) // ncols
+        fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 5 * nrows), squeeze=False)
+        flat_axes = axes.flatten()
+        for ax, (slug, group_reports) in zip(flat_axes, sorted(groups.items())):
+            _draw_efficiency_panel(ax, group_reports, panel_title=f"model: {slug}")
+        for ax in flat_axes[n:]:
+            ax.set_visible(False)
+        fig.suptitle("Accuracy vs Efficiency — by Model", fontsize=12)
+    else:
+        fig, ax = plt.subplots(figsize=(9, 6))
+        _draw_efficiency_panel(ax, reports)
+        ax.set_title("Accuracy vs Efficiency — Experiment Comparison")
+
+    # Build a shared legend for reward families + compose methods
+    all_families = sorted({_reward_family(r.get("experiment_id", ""), r.get("model_slug")) for r in reports})
+    all_composes = sorted({r.get("compose_method", "advantage_weighted") for r in reports})
+    cmap = plt.get_cmap("tab10")
+    handles = [
+        Line2D([], [], marker="o", color="w", markerfacecolor=cmap(i % 10),
+               markersize=9, label=fam)
+        for i, fam in enumerate(all_families)
+    ]
+    compose_marker = {"advantage_weighted": "o", "naive_sum": "s"}
+    for c in all_composes:
+        handles.append(Line2D([], [], marker=compose_marker.get(c, "^"),
+                              color="gray", markersize=9, linestyle="None", label=f"compose: {c}"))
+    handles.append(Line2D([], [], marker="o", color="w", markerfacecolor="lightgray",
+                          markersize=10, markeredgecolor="black", markeredgewidth=1.8,
+                          label="Pareto-optimal"))
+    fig.legend(handles=handles, loc="lower center", ncol=min(len(handles), 4),
+               fontsize=8, frameon=False, bbox_to_anchor=(0.5, -0.02))
 
     plt.tight_layout()
     out_path = os.path.join(out_dir, "compare_efficiency.png")
@@ -149,8 +281,8 @@ def _write_compare_summary(reports: list[dict], out_dir: str) -> None:
     baseline = _baseline_acc(reports)
 
     rows = [
-        "| Experiment | Accuracy (ID) | Δ vs Baseline | Mean Tokens | Underthinking |",
-        "|-----------|:------------:|:------------:|:-----------:|:-------------:|",
+        "| Experiment | Accuracy (ID) | Δ vs Baseline | Mean Tokens | Underthinking | Overthinking |",
+        "|-----------|:------------:|:------------:|:-----------:|:-------------:|:------------:|",
     ]
     for r in reports:
         exp_id = r.get("experiment_id", os.path.basename(r["_run_dir"]))
@@ -158,6 +290,7 @@ def _write_compare_summary(reports: list[dict], out_dir: str) -> None:
         acc = split.get("accuracy")
         tokens = split.get("mean_token_count")
         under = split.get("underthinking_rate")
+        over = split.get("overthinking_rate")
 
         acc_str = f"{acc:.4f}" if acc is not None else "—"
         delta_str = "—"
@@ -166,8 +299,9 @@ def _write_compare_summary(reports: list[dict], out_dir: str) -> None:
             delta_str = f"{'+' if d >= 0 else ''}{d:.4f}"
         tokens_str = f"{tokens:.1f}" if tokens is not None else "—"
         under_str = f"{under:.4f}" if under is not None else "—"
+        over_str = f"{over:.4f}" if over is not None else "—"
 
-        rows.append(f"| {exp_id} | {acc_str} | {delta_str} | {tokens_str} | {under_str} |")
+        rows.append(f"| {exp_id} | {acc_str} | {delta_str} | {tokens_str} | {under_str} | {over_str} |")
 
     out_path = os.path.join(out_dir, "compare_summary.md")
     with open(out_path, "w") as f:
@@ -181,6 +315,8 @@ def main() -> None:
                         help="Run directories containing eval_report.json")
     parser.add_argument("--out", default=None,
                         help="Output directory (default: runs/comparison)")
+    parser.add_argument("--facet-by", choices=["model", "none"], default="none",
+                        help="Split the efficiency Pareto plot into subplots (default: none)")
     args = parser.parse_args()
 
     reports = _load_reports(args.runs)
@@ -191,8 +327,9 @@ def main() -> None:
     out_dir = args.out or "runs/comparison"
     os.makedirs(out_dir, exist_ok=True)
 
+    facet = args.facet_by if args.facet_by != "none" else None
     _plot_compare_accuracy(reports, out_dir)
-    _plot_compare_efficiency(reports, out_dir)
+    _plot_compare_efficiency(reports, out_dir, facet_by=facet)
     _write_compare_summary(reports, out_dir)
 
 
