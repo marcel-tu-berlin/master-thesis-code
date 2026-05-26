@@ -73,6 +73,7 @@ runs/comparison/
   compare_accuracy.png     # grouped bar chart: accuracy per split per experiment
   compare_efficiency.png   # accuracy vs mean token count Pareto plot — colour by reward family, marker by compose method, bold edge on Pareto-optimal points, error bars from bootstrap CIs
   compare_summary.md       # markdown table with Δ-accuracy, token counts, underthinking + overthinking rates
+  compare_pairwise.md      # paired-bootstrap Δ-accuracy matrix on the ID split with 95% CIs and two-sided p-values
 ```
 
 Override the output directory with `--out`:
@@ -137,6 +138,7 @@ runs/
     compare_accuracy.png
     compare_efficiency.png
     compare_summary.md
+    compare_pairwise.md
     batch_compare.log
   batch_summary_<timestamp>.md
 ```
@@ -423,6 +425,7 @@ Outputs:
 - `compare_accuracy.png` — grouped bar chart per experiment and split, with baseline dashed line.
 - `compare_efficiency.png` — Pareto plot: accuracy vs mean token count. Reward family encoded as colour, compose method as marker, Pareto-optimal points (non-dominated on accuracy↑ × tokens↓) drawn with a bold black edge. Error bars come from the bootstrap CIs on accuracy and mean token count. Use `--facet-by model` to render one subplot per base model.
 - `compare_summary.md` — markdown table: experiment, accuracy, Δ vs baseline, mean tokens, underthinking rate, overthinking rate.
+- `compare_pairwise.md` — paired-bootstrap Δ-accuracy matrix on the ID split. For every ordered pair of experiments with matching `n_samples`, resamples per-sample correctness indices with replacement (n=2000, seeded) and reports Δ-accuracy, its 95% CI, and a two-sided p-value. Pairs without per-sample series (older reports) or with mismatched lengths are skipped explicitly rather than silently fabricated.
 
 ## Reward signal reference
 

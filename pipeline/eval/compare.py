@@ -277,6 +277,121 @@ def _plot_compare_efficiency(
     print(f"Plot saved: {out_path}")
 
 
+def _paired_bootstrap_delta(
+    samples_a: list[dict],
+    samples_b: list[dict],
+    n_bootstrap: int = 2000,
+    ci: float = 0.95,
+) -> tuple[float, float, float, float] | None:
+    """Paired bootstrap on per-sample correctness vectors.
+
+    Returns (delta, ci_low, ci_high, p_value) for accuracy(A) − accuracy(B),
+    or None when pairing is not possible (length mismatch or missing data).
+
+    The test resamples *indices* with replacement and recomputes the delta on
+    the resampled vector. Pairing preserves the per-sample correlation between
+    experiments (both saw the same prompts), so the resulting CI is tighter
+    than an unpaired test would give and reflects within-prompt variance.
+
+    The two-sided p-value is the bootstrap-percentile version: `2 × min(P(Δ ≤ 0),
+    P(Δ ≥ 0))`, capped at 1.0. It answers "is zero a plausible value for the
+    paired difference under resampling".
+
+    Deterministic via a fixed RNG seed so the comparison report is reproducible.
+    """
+    if not samples_a or not samples_b:
+        return None
+    if len(samples_a) != len(samples_b):
+        return None
+
+    a = np.array([1.0 if s.get("correct") else 0.0 for s in samples_a])
+    b = np.array([1.0 if s.get("correct") else 0.0 for s in samples_b])
+    delta = float(a.mean() - b.mean())
+
+    rng = np.random.default_rng(42)
+    n = len(a)
+    boot = np.empty(n_bootstrap)
+    for i in range(n_bootstrap):
+        idx = rng.integers(0, n, size=n)
+        boot[i] = a[idx].mean() - b[idx].mean()
+
+    alpha = (1 - ci) / 2
+    lo = float(np.percentile(boot, 100 * alpha))
+    hi = float(np.percentile(boot, 100 * (1 - alpha)))
+    # Two-sided p via bootstrap percentile.
+    p_le = float((boot <= 0).mean())
+    p_ge = float((boot >= 0).mean())
+    p = min(1.0, 2.0 * min(p_le, p_ge))
+    return delta, lo, hi, p
+
+
+def _write_compare_pairwise(reports: list[dict], out_dir: str) -> None:
+    """Pairwise paired-bootstrap accuracy tests on the ID split.
+
+    Writes a markdown matrix of Δ-accuracy (A − B) with 95% CI and p-value
+    for every ordered pair of experiments where both reports carry per-sample
+    series of equal length. Pairs without matched samples are reported as "—"
+    with the reason (missing samples, length mismatch).
+    """
+    rows_with_samples: list[tuple[str, list[dict]]] = []
+    skipped: list[str] = []
+    for r in reports:
+        exp_id = r.get("experiment_id", os.path.basename(r["_run_dir"]))
+        split = (r.get("results") or {}).get("id_split") or {}
+        samples = split.get("samples")
+        if not samples:
+            skipped.append(exp_id)
+            continue
+        rows_with_samples.append((exp_id, samples))
+
+    lines = ["# Pairwise paired-bootstrap comparison (ID split)", ""]
+    if skipped:
+        lines.append(
+            "_Skipped (no per-sample series in eval_report.json — rerun eval to "
+            f"populate): {', '.join(skipped)}_"
+        )
+        lines.append("")
+
+    if len(rows_with_samples) < 2:
+        lines.append("_Need at least two experiments with per-sample series to compare._")
+        out_path = os.path.join(out_dir, "compare_pairwise.md")
+        with open(out_path, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        print(f"Pairwise comparison written: {out_path}")
+        return
+
+    lines.append(
+        "Each cell is Δ-accuracy = row − column on matched samples, with the "
+        "95% bootstrap CI and a two-sided p-value. Bold p < 0.05."
+    )
+    lines.append("")
+    header = "| A \\ B | " + " | ".join(eid for eid, _ in rows_with_samples) + " |"
+    sep = "|" + "---|" * (len(rows_with_samples) + 1)
+    lines.append(header)
+    lines.append(sep)
+
+    for a_id, a_samples in rows_with_samples:
+        cells = [a_id]
+        for b_id, b_samples in rows_with_samples:
+            if a_id == b_id:
+                cells.append("—")
+                continue
+            result = _paired_bootstrap_delta(a_samples, b_samples)
+            if result is None:
+                cells.append("(length mismatch)")
+                continue
+            d, lo, hi, p = result
+            sign = "+" if d >= 0 else ""
+            p_str = f"**p={p:.3f}**" if p < 0.05 else f"p={p:.3f}"
+            cells.append(f"{sign}{d:.4f} [{lo:+.4f}, {hi:+.4f}] {p_str}")
+        lines.append("| " + " | ".join(cells) + " |")
+
+    out_path = os.path.join(out_dir, "compare_pairwise.md")
+    with open(out_path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"Pairwise comparison written: {out_path}")
+
+
 def _write_compare_summary(reports: list[dict], out_dir: str) -> None:
     baseline = _baseline_acc(reports)
 
@@ -331,6 +446,7 @@ def main() -> None:
     _plot_compare_accuracy(reports, out_dir)
     _plot_compare_efficiency(reports, out_dir, facet_by=facet)
     _write_compare_summary(reports, out_dir)
+    _write_compare_pairwise(reports, out_dir)
 
 
 if __name__ == "__main__":

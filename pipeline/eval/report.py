@@ -21,6 +21,10 @@ def _metrics_dict(metrics) -> dict:
             if metrics.underthinking_rate is not None else None
         ),
         "underthinking_rate_ci": _ci(metrics.underthinking_rate_ci_low, metrics.underthinking_rate_ci_high, 4),
+        "underthinking_threshold": (
+            round(metrics.underthinking_threshold, 1)
+            if metrics.underthinking_threshold is not None else None
+        ),
         "overthinking_rate": (
             round(metrics.overthinking_rate, 4)
             if metrics.overthinking_rate is not None else None
@@ -40,6 +44,13 @@ def _metrics_dict(metrics) -> dict:
         ),
         "n_samples": metrics.n_samples,
         "n_correct": metrics.n_correct,
+        # Per-sample series — required for paired bootstrap tests in
+        # eval.compare. Bounded to (correct, n_tokens) per sample to keep
+        # the report small; raw completion text is not persisted.
+        "samples": [
+            {"correct": bool(r.correct), "n_tokens": int(r.n_tokens)}
+            for r in metrics.raw
+        ],
     }
 
 
@@ -189,7 +200,9 @@ def _write_markdown(report: dict, run_dir: str) -> None:
         ]
         under_rate = metrics.get("underthinking_rate")
         if under_rate is not None:
-            lines.append(f"- Underthinking rate: {under_rate}{_ci_suffix(metrics.get('underthinking_rate_ci'))}")
+            under_thr = metrics.get("underthinking_threshold")
+            thr_str = f" (threshold: {under_thr} tokens, P10)" if under_thr is not None else ""
+            lines.append(f"- Underthinking rate: {under_rate}{_ci_suffix(metrics.get('underthinking_rate_ci'))}{thr_str}")
         else:
             lines.append("- Underthinking rate: -")
         over_rate = metrics.get("overthinking_rate")

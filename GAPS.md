@@ -34,23 +34,12 @@ Why it matters: "efficient" can mean fewer tokens, less compute, or lower latenc
 
 Fix: log generation wall-clock per sample during eval, and optionally estimate FLOPs from token count and model size. Add to `EvalMetrics` and the Pareto plot as an optional axis.
 
-## 5. Underthinking threshold is fixed at 50 tokens
-
-`compute_metrics` in `pipeline/eval/metrics.py` uses a constant `underthinking_threshold=50`. Overthinking uses P75 of the split, which adapts to data. Underthinking does not.
-
-Why it matters: 50 tokens may be too low for harder MATH problems (where even a terse correct chain runs longer) or too high for short GSM8K answers. A fixed threshold can hide or invent the underthinking signal depending on dataset.
-
-Fix: make the threshold configurable per probe in YAML, or derive it from a percentile of the split (e.g. P10) the way overthinking uses P75.
-
-## 6. No paired statistical test in cross-experiment comparison
-
-`eval.compare` plots deltas and shows bootstrap CIs per experiment, but does not test whether the difference between two experiments is significant. Two error-barred dots that visually overlap may still be reliably different on a paired test, and vice versa.
-
-Why it matters: the thesis will argue "this reward signal is better." A formal paired test (bootstrap difference, permutation, or paired t on per-sample correctness) makes the claim defensible.
-
-Fix: add a pairwise comparison routine to `eval.compare` — bootstrap the difference in accuracy on the matched ID-split sample set, report 95% CI on the delta and a p-value. Output a small markdown table alongside the existing plots.
-
 ## Out of scope (intentional)
 
 - Per-step KL tracking and reward decomposition plots (already in `training_curves.png`).
 - Distillation or self-consistency at eval time. Eval is single-sample by design to keep the efficiency signal honest.
+
+## Closed
+
+- **Underthinking threshold is fixed at 50 tokens** — `compute_metrics` now derives the threshold from a per-split percentile (default P10) of all token counts, mirroring the overthinking P75 design. The threshold adapts to dataset verbosity. The JSON report carries `underthinking_threshold` alongside the rate.
+- **No paired statistical test in cross-experiment comparison** — `eval.compare` now writes `compare_pairwise.md`: a matrix of paired-bootstrap Δ-accuracy on the ID split between every ordered pair of experiments, with 95% CIs and two-sided p-values. Powered by a new `samples` series in `eval_report.json` (per-sample `correct` and `n_tokens`).

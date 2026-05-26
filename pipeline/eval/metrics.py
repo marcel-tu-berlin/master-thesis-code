@@ -19,12 +19,14 @@ class EvalMetrics:
     mean_token_count: float = 0.0
     mean_token_count_ci_low: float = 0.0
     mean_token_count_ci_high: float = 0.0
-    # None when no correct samples — distinguishes "0% underthinking" (real
-    # signal) from "no correct answers to measure" (no signal). Treat 0.0
-    # only as a genuinely measured rate.
+    # Fraction of correct completions whose token count is at or below the
+    # per-split P10 (configurable). Captures "correct with too little
+    # reasoning — likely pattern-match luck". None when there are no
+    # correct samples or too few total samples for a stable percentile.
     underthinking_rate: float | None = None
     underthinking_rate_ci_low: float | None = None
     underthinking_rate_ci_high: float | None = None
+    underthinking_threshold: float | None = None  # absolute token threshold (P10 of all samples)
     # Fraction of correct completions whose token count exceeds the per-split
     # P75 (configurable). Captures "correct answer with wasted reasoning" —
     # the inverse failure mode to underthinking. None when there are no
@@ -32,7 +34,7 @@ class EvalMetrics:
     overthinking_rate: float | None = None
     overthinking_rate_ci_low: float | None = None
     overthinking_rate_ci_high: float | None = None
-    overthinking_threshold: float | None = None  # the absolute token threshold used (P75 of all samples)
+    overthinking_threshold: float | None = None  # absolute token threshold (P75 of all samples)
     pearson_difficulty_length: float | None = None
     pearson_p_value: float | None = None
     n_samples: int = 0
@@ -59,21 +61,24 @@ def _bootstrap_ci(values: np.ndarray, n_bootstrap: int = 2000, ci: float = 0.95)
 
 def compute_metrics(
     results: list[SampleResult],
-    underthinking_threshold: int = 50,
+    underthinking_percentile: int = 10,
     overthinking_percentile: int = 75,
     n_bootstrap: int = 2000,
 ) -> EvalMetrics:
     """
     Compute all thesis metrics from per-sample results.
 
-    underthinking_rate: fraction of CORRECT completions with <= threshold tokens.
-    Flags cases where the model produced a correct answer with minimal reasoning -
-    likely lucky pattern-matching rather than genuine derivation.
+    underthinking_rate: fraction of CORRECT completions whose token count is
+    at or below the per-split percentile (default P10) of ALL completions.
+    Flags correct answers produced with unusually little reasoning relative
+    to the split — likely lucky pattern-matching rather than genuine
+    derivation. The threshold adapts to dataset verbosity so the metric
+    behaves consistently across GSM-8K (short) and MATH (long).
 
     overthinking_rate: fraction of CORRECT completions whose token count exceeds
     the per-split percentile (default P75) of ALL completions' token counts.
     Captures wasted reasoning — the inverse failure mode to underthinking.
-    The percentile is computed over all samples (correct + incorrect) so the
+    Both thresholds are computed over all samples (correct + incorrect) so the
     threshold reflects the population's overall verbosity, not just the
     correct-subset distribution. Requires at least 4 samples for the
     percentile to be meaningful.
@@ -96,21 +101,24 @@ def compute_metrics(
     tokens_ci_low, tokens_ci_high = _bootstrap_ci(all_tokens, n_bootstrap=n_bootstrap)
 
     correct_results = [r for r in results if r.correct]
+
+    # Both under- and overthinking use a per-split percentile of all token
+    # counts as the threshold, then count correct samples on the matching
+    # side. Thresholds are computed once on the observed sample and held
+    # fixed during the bootstrap — the reported CI is on the rate
+    # conditional on the observed threshold.
     underthinking_rate = None
+    underthinking_threshold = None
     under_ci_low: float | None = None
     under_ci_high: float | None = None
-    if correct_results:
+    if correct_results and n >= 4:
+        underthinking_threshold = float(np.percentile(all_tokens, underthinking_percentile))
         under_flags = np.array(
             [1.0 if r.n_tokens <= underthinking_threshold else 0.0 for r in correct_results]
         )
         underthinking_rate = float(under_flags.mean())
         under_ci_low, under_ci_high = _bootstrap_ci(under_flags, n_bootstrap=n_bootstrap)
 
-    # Overthinking: per-split percentile of all token counts (population-level
-    # threshold), then count correct samples above it. Threshold is computed
-    # once on the observed sample and held fixed during the bootstrap — this
-    # is a CI on the rate conditional on the observed threshold, which is the
-    # statistic the report quotes.
     overthinking_rate = None
     overthinking_threshold = None
     over_ci_low: float | None = None
@@ -149,6 +157,7 @@ def compute_metrics(
         underthinking_rate=underthinking_rate,
         underthinking_rate_ci_low=under_ci_low,
         underthinking_rate_ci_high=under_ci_high,
+        underthinking_threshold=underthinking_threshold,
         overthinking_rate=overthinking_rate,
         overthinking_rate_ci_low=over_ci_low,
         overthinking_rate_ci_high=over_ci_high,
