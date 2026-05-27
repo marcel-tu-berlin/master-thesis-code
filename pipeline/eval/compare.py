@@ -41,7 +41,7 @@ def _baseline_acc(reports: list[dict]) -> float | None:
     return None
 
 
-def _plot_compare_accuracy(reports: list[dict], out_dir: str) -> None:
+def _plot_compare_accuracy(reports: list[dict], out_dir: str, label_mode: str = "short") -> None:
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -52,11 +52,15 @@ def _plot_compare_accuracy(reports: list[dict], out_dir: str) -> None:
     splits = [("id_split", "ID"), ("near_ood", "Near-OOD"), ("far_ood", "Far-OOD")]
     colors = ["steelblue", "coral", "seagreen"]
     exp_ids = [r.get("experiment_id", os.path.basename(r["_run_dir"])) for r in reports]
+    tick_labels = _compute_labels(
+        [(eid, r.get("model_slug")) for eid, r in zip(exp_ids, reports)],
+        label_mode,
+    )
     n_splits = len(splits)
     x = np.arange(len(reports))
     width = 0.22
 
-    fig, ax = plt.subplots(figsize=(max(8, len(reports) * 1.8), 5))
+    fig, ax = plt.subplots(figsize=(max(8, len(reports) * 1.2), 5))
 
     for i, (split_key, split_label) in enumerate(splits):
         # NaN signals "data unavailable" to matplotlib so the bar is omitted
@@ -94,7 +98,14 @@ def _plot_compare_accuracy(reports: list[dict], out_dir: str) -> None:
                    label=f"Baseline ID ({baseline:.3f})")
 
     ax.set_xticks(x)
-    ax.set_xticklabels(exp_ids, rotation=20, ha="right", fontsize=8)
+    # Rotate and shrink labels harder when many points / long names — otherwise
+    # the bar plot becomes unreadable with 10+ experiments.
+    max_label_len = max((len(s) for s in tick_labels), default=0)
+    if len(tick_labels) > 8 or max_label_len > 18:
+        rotation, fontsize = 45, 7
+    else:
+        rotation, fontsize = 20, 8
+    ax.set_xticklabels(tick_labels, rotation=rotation, ha="right", fontsize=fontsize)
     ax.set_ylabel("Accuracy")
     ax.set_ylim(0, 1.05)
     ax.set_title("Accuracy by Experiment and Split")
@@ -123,6 +134,69 @@ def _reward_family(exp_id: str, model_slug: str | None) -> str:
         if exp_id.endswith(suffix):
             return exp_id[: -len(suffix)]
     return exp_id
+
+
+def _short_label(exp_id: str, model_slug: str | None) -> str:
+    """Compact label for plot annotations/ticks. Strips model slug and the
+    `-vllm` runtime-variant suffix so labels read as the reward family. Used
+    in compare plots when many experiments would otherwise overlap.
+    Examples:
+      e0-baseline-math-qwen-7b-vllm   -> e0-baseline-math
+      e1-token-entropy-forkmask-1.5b  -> e1-token-entropy-forkmask
+    """
+    base = exp_id
+    if base.endswith("-vllm"):
+        base = base[: -len("-vllm")]
+    base = _reward_family(base, model_slug)
+    return base or exp_id
+
+
+def _compute_labels(rows: list[tuple[str, str | None]], mode: str) -> list[str]:
+    """Build a per-experiment label list.
+
+    `rows` is a list of (experiment_id, model_slug). `mode` is one of:
+      - "full" : full experiment_id (legacy behaviour)
+      - "short": strip model slug + `-vllm`. Disambiguates collisions in two
+                 tiers: first reinstate `-vllm` when present, then append
+                 `@<model_slug>` if still colliding (e.g. same reward family
+                 across different models).
+      - "none" : empty strings; rely on the legend/colour mapping.
+    """
+    if mode == "full":
+        return [eid for eid, _ in rows]
+    if mode == "none":
+        return ["" for _ in rows]
+
+    def _tally(items: list[str]) -> dict[str, int]:
+        c: dict[str, int] = {}
+        for x in items:
+            c[x] = c.get(x, 0) + 1
+        return c
+
+    tier1 = [_short_label(eid, slug) for eid, slug in rows]
+    c1 = _tally(tier1)
+
+    # Tier 2: keep `-vllm` suffix on the colliding rows so non-vLLM and vLLM
+    # twins of the same family separate cleanly. The model slug sits *between*
+    # family and `-vllm` in the id, so we strip `-vllm` first, then the slug,
+    # then re-append `-vllm` if it was present.
+    tier2: list[str] = []
+    for s, (eid, slug) in zip(tier1, rows):
+        if c1[s] == 1:
+            tier2.append(s)
+            continue
+        is_vllm = eid.endswith("-vllm")
+        base = eid[: -len("-vllm")] if is_vllm else eid
+        base = _reward_family(base, slug)
+        tier2.append(f"{base}-vllm" if is_vllm else base)
+
+    c2 = _tally(tier2)
+    # Tier 3: still colliding => append `@<model_slug>` to disambiguate
+    # cross-model duplicates (same family, same vLLM status, different model).
+    return [
+        x if c2[x] == 1 or not slug else f"{x}@{slug}"
+        for x, (_, slug) in zip(tier2, rows)
+    ]
 
 
 def _pareto_indices(points: list[tuple[float, float]]) -> set[int]:
@@ -154,14 +228,19 @@ def _group_by_model(reports: list[dict]) -> dict[str, list[dict]]:
     return groups
 
 
-def _draw_efficiency_panel(ax, reports: list[dict], panel_title: str | None = None) -> None:
+def _draw_efficiency_panel(
+    ax,
+    reports: list[dict],
+    panel_title: str | None = None,
+    label_mode: str = "short",
+) -> None:
     """Draw one accuracy-vs-tokens panel. Colour per reward family, marker per
     compose method, error bars from CIs, bold edge on Pareto-optimal points.
     """
     import matplotlib.pyplot as plt
 
     points: list[tuple[float, float]] = []
-    rows = []  # (tokens, acc, x_err, y_err, family, compose, exp_id)
+    rows = []  # (tokens, acc, x_err, y_err, family, compose, exp_id, slug)
     for r in reports:
         exp_id = r.get("experiment_id", os.path.basename(r["_run_dir"]))
         split = (r.get("results") or {}).get("id_split")
@@ -177,7 +256,7 @@ def _draw_efficiency_panel(ax, reports: list[dict], panel_title: str | None = No
         x_err = (tokens - tok_ci[0], tok_ci[1] - tokens) if tok_ci else (0.0, 0.0)
         family = _reward_family(exp_id, r.get("model_slug"))
         compose = r.get("compose_method", "advantage_weighted")
-        rows.append((tokens, acc, x_err, y_err, family, compose, exp_id))
+        rows.append((tokens, acc, x_err, y_err, family, compose, exp_id, r.get("model_slug")))
         points.append((tokens, acc))
 
     if not rows:
@@ -192,7 +271,12 @@ def _draw_efficiency_panel(ax, reports: list[dict], panel_title: str | None = No
     fam_color = {f: cmap(i % 10) for i, f in enumerate(families)}
     compose_marker = {"advantage_weighted": "o", "naive_sum": "s"}
 
-    for i, (tokens, acc, x_err, y_err, family, compose, exp_id) in enumerate(rows):
+    labels = _compute_labels([(r[6], r[7]) for r in rows], label_mode)
+    # Shrink annotation font as point count grows so labels don't collide.
+    n = len(rows)
+    annot_fs = 6 if n <= 8 else (5 if n <= 16 else 4)
+
+    for i, (tokens, acc, x_err, y_err, family, compose, _exp_id, _slug) in enumerate(rows):
         marker = compose_marker.get(compose, "^")
         edge = "black" if i in pareto else "none"
         lw = 1.8 if i in pareto else 0.0
@@ -204,8 +288,9 @@ def _draw_efficiency_panel(ax, reports: list[dict], panel_title: str | None = No
             ecolor="gray", elinewidth=0.8, capsize=2.5, alpha=0.9,
             markeredgecolor=edge, markeredgewidth=lw, zorder=3,
         )
-        ax.annotate(exp_id, (tokens, acc), textcoords="offset points",
-                    xytext=(6, 6), fontsize=6, alpha=0.8)
+        if labels[i]:
+            ax.annotate(labels[i], (tokens, acc), textcoords="offset points",
+                        xytext=(6, 6), fontsize=annot_fs, alpha=0.8)
 
     ax.set_xlabel("Mean Token Count (ID)")
     ax.set_ylabel("Accuracy (ID)")
@@ -218,6 +303,7 @@ def _plot_compare_efficiency(
     reports: list[dict],
     out_dir: str,
     facet_by: str | None = None,
+    label_mode: str = "short",
 ) -> None:
     """Pareto plot: accuracy vs mean token count.
 
@@ -242,13 +328,13 @@ def _plot_compare_efficiency(
         fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 5 * nrows), squeeze=False)
         flat_axes = axes.flatten()
         for ax, (slug, group_reports) in zip(flat_axes, sorted(groups.items())):
-            _draw_efficiency_panel(ax, group_reports, panel_title=f"model: {slug}")
+            _draw_efficiency_panel(ax, group_reports, panel_title=f"model: {slug}", label_mode=label_mode)
         for ax in flat_axes[n:]:
             ax.set_visible(False)
         fig.suptitle("Accuracy vs Efficiency — by Model", fontsize=12)
     else:
         fig, ax = plt.subplots(figsize=(9, 6))
-        _draw_efficiency_panel(ax, reports)
+        _draw_efficiency_panel(ax, reports, label_mode=label_mode)
         ax.set_title("Accuracy vs Efficiency — Experiment Comparison")
 
     # Build a shared legend for reward families + compose methods
@@ -432,6 +518,10 @@ def main() -> None:
                         help="Output directory (default: runs/comparison)")
     parser.add_argument("--facet-by", choices=["model", "none"], default="none",
                         help="Split the efficiency Pareto plot into subplots (default: none)")
+    parser.add_argument("--label-mode", choices=["full", "short", "none"], default="short",
+                        help="Plot label style. 'short' strips model slug + '-vllm' and disambiguates "
+                             "collisions with @<model>. 'none' suppresses inline labels (rely on legend). "
+                             "Default: short.")
     args = parser.parse_args()
 
     reports = _load_reports(args.runs)
@@ -443,8 +533,8 @@ def main() -> None:
     os.makedirs(out_dir, exist_ok=True)
 
     facet = args.facet_by if args.facet_by != "none" else None
-    _plot_compare_accuracy(reports, out_dir)
-    _plot_compare_efficiency(reports, out_dir, facet_by=facet)
+    _plot_compare_accuracy(reports, out_dir, label_mode=args.label_mode)
+    _plot_compare_efficiency(reports, out_dir, facet_by=facet, label_mode=args.label_mode)
     _write_compare_summary(reports, out_dir)
     _write_compare_pairwise(reports, out_dir)
 
