@@ -200,6 +200,8 @@ runs/e4-my-experiment/
 
 Each reward family below has three model variants on disk: the bare name (`qwen-1.5b`), `-qwen-7b`, and `-qwen3-4b` (the last is 16-bit). For example the entropy family is `e1-token-entropy.yaml`, `e1-token-entropy-qwen-7b.yaml`, `e1-token-entropy-qwen3-4b.yaml`. Swap the model by picking the matching file; all other fields stay aligned so the deltas across (model × reward-stack) are directly comparable.
 
+Every `qwen-7b` config also ships a `-vllm` twin (e.g. `e1-token-entropy-qwen-7b-vllm.yaml`) with `model.use_vllm: true`, `gpu_memory_utilization: 0.6`, and `enforce_eager: true`. These route GRPO rollout generation through vLLM via Unsloth's `fast_inference` path — much faster at 7B where rollout sampling dominates step time. The non-vLLM 7B configs stay in place as throughput references. `e0-baseline-math-1.5b-vllm.yaml` is the matching 1.5B reference. Pick `configs/*-vllm.yaml` for the fast set, or `configs/e*-qwen-7b.yaml | grep -v vllm` for the HF-generate set.
+
 | Config family | Reward signals | Compose method | Purpose |
 |--------|---------------|----------------|---------|
 | `e0-baseline-math` | accuracy only | advantage_weighted | Baseline for delta comparisons |
