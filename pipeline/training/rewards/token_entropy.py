@@ -40,12 +40,15 @@ class TokenEntropyReward:
         reward_scale: float = 0.1,
         fork_mask_top_frac: float = 0.0,
         max_seq_length: int | None = None,
+        chunk_size: int = 4,
     ) -> None:
         if not 0.0 <= fork_mask_top_frac <= 1.0:
             raise ValueError(
                 f"fork_mask_top_frac must be in [0, 1] (got {fork_mask_top_frac}). "
                 "Pass a fraction like 0.25, not a percent like 25."
             )
+        if chunk_size < 1:
+            raise ValueError(f"chunk_size must be >= 1 (got {chunk_size})")
         self.model = model
         self.tokenizer = tokenizer
         self.reward_scale = reward_scale
@@ -54,6 +57,12 @@ class TokenEntropyReward:
         # within the model's context window. Defaults to the tokenizer's max
         # if available; falls back to 4096.
         self.max_seq_length = max_seq_length or getattr(tokenizer, "model_max_length", 4096) or 4096
+        # Rows per forward pass. Materialising (B, T, V) fp32 entropy
+        # tensors blows up VRAM (Qwen-7B V≈152k → ~2.4 GB per intermediate
+        # at B=8, T=500). Builder picks the default: 1 when vLLM is
+        # co-resident (tight headroom), 4 otherwise. Direct instantiation
+        # defaults to 4 — drop to 1 if you hit OOM.
+        self.chunk_size = chunk_size
 
     def _prompt_to_text(self, prompt) -> str:
         if isinstance(prompt, str):
@@ -103,45 +112,55 @@ class TokenEntropyReward:
         pad_id = self.tokenizer.pad_token_id
         if pad_id is None:
             pad_id = self.tokenizer.eos_token_id
-        max_len = max(len(s) for s in full_ids)
 
         device = self.model.device
-        input_ids = torch.tensor(
-            [s + [pad_id] * (max_len - len(s)) for s in full_ids],
-            dtype=torch.long, device=device,
-        )
-        attention_mask = torch.tensor(
-            [[1] * len(s) + [0] * (max_len - len(s)) for s in full_ids],
-            dtype=torch.long, device=device,
-        )
+        n = len(completions)
+        scores: list[float] = [0.0] * n
 
-        with torch.inference_mode():
-            logits = self.model(input_ids=input_ids, attention_mask=attention_mask).logits
+        # Chunked forward + entropy. Keeps peak VRAM bounded by chunk_size
+        # rather than full batch. Per-chunk we slice [start:end] *before*
+        # promoting to fp32, so the giant (B, T, V) fp32 intermediates the
+        # old vectorised path produced never exist.
+        for chunk_start in range(0, n, self.chunk_size):
+            chunk_end = min(chunk_start + self.chunk_size, n)
+            chunk_ids = full_ids[chunk_start:chunk_end]
+            chunk_max = max(len(s) for s in chunk_ids)
 
-        # log_softmax + exp avoids the log(0) hazard the previous +1e-10 hack masked.
-        log_probs = F.log_softmax(logits, dim=-1)
-        H = -(log_probs.exp() * log_probs).sum(dim=-1)  # (B, T)
+            input_ids = torch.tensor(
+                [s + [pad_id] * (chunk_max - len(s)) for s in chunk_ids],
+                dtype=torch.long, device=device,
+            )
+            attention_mask = torch.tensor(
+                [[1] * len(s) + [0] * (chunk_max - len(s)) for s in chunk_ids],
+                dtype=torch.long, device=device,
+            )
 
-        scores: list[float] = []
-        for i in range(len(completions)):
-            p_len = prompt_lens[i]
-            c_len = comp_lens[i]
-            if p_len < 1 or c_len < 1:
-                scores.append(0.0)
-                continue
-            # logits[t] predict token t+1; completion tokens occupy
-            # positions [p_len .. p_len+c_len-1], so we want H at
-            # [p_len-1 .. p_len+c_len-2].
-            start = p_len - 1
-            end = p_len + c_len - 1
-            h_i = H[i, start:end]
-            if h_i.numel() == 0:
-                scores.append(0.0)
-                continue
-            if self.fork_mask_top_frac > 0.0:
-                threshold = torch.quantile(h_i.float(), 1.0 - self.fork_mask_top_frac)
-                h_i = h_i[h_i >= threshold]
-            mean_entropy = h_i.mean().item() if h_i.numel() > 0 else 0.0
-            scores.append(self.reward_scale * mean_entropy)
+            with torch.inference_mode():
+                logits = self.model(input_ids=input_ids, attention_mask=attention_mask).logits
+
+            for j, abs_i in enumerate(range(chunk_start, chunk_end)):
+                p_len = prompt_lens[abs_i]
+                c_len = comp_lens[abs_i]
+                if p_len < 1 or c_len < 1:
+                    continue
+                # logits[t] predict token t+1; completion tokens occupy
+                # positions [p_len .. p_len+c_len-1], so we want entropy at
+                # [p_len-1 .. p_len+c_len-2].
+                start = p_len - 1
+                end = p_len + c_len - 1
+                # Slice first → only (c_len, V) reaches fp32, not (T, V).
+                sl = logits[j, start:end].float()
+                if sl.numel() == 0:
+                    continue
+                log_probs = F.log_softmax(sl, dim=-1)
+                h_i = -(log_probs.exp() * log_probs).sum(dim=-1)
+                del sl, log_probs
+                if self.fork_mask_top_frac > 0.0:
+                    threshold = torch.quantile(h_i, 1.0 - self.fork_mask_top_frac)
+                    h_i = h_i[h_i >= threshold]
+                if h_i.numel() > 0:
+                    scores[abs_i] = self.reward_scale * h_i.mean().item()
+
+            del logits, input_ids, attention_mask
 
         return scores

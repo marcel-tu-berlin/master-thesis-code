@@ -40,7 +40,7 @@ _KNOWN_REWARD_SUBKEYS: dict[str, set[str]] = {
     "numeric":       _COMMON_REWARD_SUBKEYS,
     "token_length":  _COMMON_REWARD_SUBKEYS | {"alpha", "schedule"},
     "token_entropy": _COMMON_REWARD_SUBKEYS | {
-        "reward_scale", "fork_mask_top_frac",
+        "reward_scale", "fork_mask_top_frac", "chunk_size",
         # Deprecated alias: still accepted, builder warns.
         "fork_mask_top_pct",
     },

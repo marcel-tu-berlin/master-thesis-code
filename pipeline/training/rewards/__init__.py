@@ -59,12 +59,18 @@ def _build_token_entropy(domain, runner, training_cfg, cfg):
     # forward pass doesn't silently exceed the configured context.
     model_cfg = getattr(runner, "config", {}).get("model", {}) if hasattr(runner, "config") else {}
     max_seq = model_cfg.get("max_seq_length") or training_cfg.get("max_seq_length")
+    # chunk_size default: vLLM co-resident → 1 (tight VRAM, see token_entropy
+    # OOM); otherwise 4 (Qwen-7B 4-bit on 24 GB has ample headroom). Override
+    # per-config via `rewards.token_entropy.chunk_size`.
+    default_chunk = 1 if model_cfg.get("use_vllm") else 4
+    chunk_size = int(cfg.get("chunk_size", default_chunk))
     return TokenEntropyReward(
         runner.model,
         runner.tokenizer,
         reward_scale=cfg.get("reward_scale", 0.1),
         fork_mask_top_frac=frac,
         max_seq_length=int(max_seq) if max_seq is not None else None,
+        chunk_size=chunk_size,
     )
 
 
