@@ -38,7 +38,13 @@ _KNOWN_REWARD_SUBKEYS: dict[str, set[str]] = {
     "format_approx": _COMMON_REWARD_SUBKEYS | {"per_tag", "penalty", "missing_penalty"},
     "accuracy":      _COMMON_REWARD_SUBKEYS,
     "numeric":       _COMMON_REWARD_SUBKEYS,
-    "token_length":  _COMMON_REWARD_SUBKEYS | {"alpha", "schedule"},
+    "token_length":  _COMMON_REWARD_SUBKEYS | {
+        # Linear-penalty knobs (used when shape=linear, e.g. under naive_sum):
+        "alpha", "schedule",
+        # Cosine-shape knobs (Wu/Yeo correctness-coupled length reward):
+        "shape", "max_len",
+        "r_correct_short", "r_correct_long", "r_wrong_short", "r_wrong_long",
+    },
     "token_entropy": _COMMON_REWARD_SUBKEYS | {
         "reward_scale", "fork_mask_top_frac", "chunk_size",
         # Deprecated alias: still accepted, builder warns.
@@ -63,6 +69,69 @@ _NUMERIC_COERCIONS = {
     "training.max_prompt_length": (1, 131072),
     "training.dataset_size_limit": (1, 1_000_000),
 }
+
+
+def warn_inert_scalars(rewards_cfg: dict, compose_method: str) -> list[str]:
+    """Return warnings for scalar reward knobs that do nothing under
+    advantage_weighted composition.
+
+    AdvantageWeightedComposer z-scores each component per prompt-group, which is
+    invariant to any global positive scalar. So `token_length.alpha`, the cosine
+    `schedule` (a per-step global scalar), `token_entropy.reward_scale`,
+    `effort_proxy.alpha`, and a non-token_count effort `metric` (flops/gpu_time
+    differ from token_count only by a per-model constant) all cancel. The live
+    levers are `weight`, the per-completion signal *shape*, and `naive_sum`.
+
+    Returns [] under naive_sum (there the scalars are live) and for disabled
+    rewards. Warns on token_length only for the linear shape — `shape: cosine`
+    uses correctness-coupled endpoints, not a single global scalar. Default-valued
+    scalars are not flagged, to avoid noising every config that lists them as
+    boilerplate; we warn when a value signals an intent to tune (non-default
+    alpha/reward_scale, an explicit cosine schedule, or a flops/gpu_time metric).
+    """
+    if compose_method != "advantage_weighted":
+        return []
+
+    rc = rewards_cfg or {}
+    warnings: list[str] = []
+    lever = "Use `weight`, the signal shape, or compose_method: naive_sum instead."
+
+    tl = rc.get("token_length") or {}
+    if tl.get("enabled") and tl.get("shape", "linear") == "linear":
+        if "alpha" in tl and tl["alpha"] != 0.001:
+            warnings.append(
+                f"rewards.token_length.alpha={tl['alpha']} is inert under advantage_weighted "
+                f"(per-group z-scoring cancels global scalars). {lever}"
+            )
+        if tl.get("schedule") == "cosine":
+            warnings.append(
+                "rewards.token_length.schedule: cosine is inert under advantage_weighted "
+                "(the schedule is a per-step global scalar that z-scoring cancels). "
+                "Anneal `weight`, or use shape: cosine / naive_sum."
+            )
+
+    te = rc.get("token_entropy") or {}
+    if te.get("enabled") and "reward_scale" in te and te["reward_scale"] != 0.1:
+        warnings.append(
+            f"rewards.token_entropy.reward_scale={te['reward_scale']} is inert under "
+            f"advantage_weighted (z-scoring cancels global scalars). {lever}"
+        )
+
+    ep = rc.get("effort_proxy") or {}
+    if ep.get("enabled"):
+        if "alpha" in ep and ep["alpha"] != 0.001:
+            warnings.append(
+                f"rewards.effort_proxy.alpha={ep['alpha']} is inert under advantage_weighted "
+                f"(z-scoring cancels global scalars). {lever}"
+            )
+        if ep.get("metric") in ("flops", "gpu_time"):
+            warnings.append(
+                f"rewards.effort_proxy.metric={ep['metric']!r} has no effect under advantage_weighted: "
+                "flops/gpu_time differ from token_count only by a global scalar that z-scoring cancels, "
+                "so all effort metrics reduce to z-scored token count (identical to token_length)."
+            )
+
+    return warnings
 
 
 def _get_nested(d: dict, key: str):

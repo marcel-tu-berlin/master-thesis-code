@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -64,6 +65,8 @@ def compute_metrics(
     underthinking_percentile: int = 10,
     overthinking_percentile: int = 75,
     n_bootstrap: int = 2000,
+    underthinking_threshold: float | None = None,
+    overthinking_threshold: float | None = None,
 ) -> EvalMetrics:
     """
     Compute all thesis metrics from per-sample results.
@@ -102,17 +105,29 @@ def compute_metrics(
 
     correct_results = [r for r in results if r.correct]
 
+    # Absolute-threshold overrides (e.g. from a fixed reference run via
+    # load_reference_thresholds) take precedence over the per-run percentile.
+    # When set, they make the over/under-thinking rate comparable across runs;
+    # when None we fall back to the per-run percentile (back-compatible). An
+    # override also bypasses the n>=4 percentile-stability guard, since the
+    # threshold no longer depends on this run's sample size.
+    under_override = underthinking_threshold
+    over_override = overthinking_threshold
+
     # Both under- and overthinking use a per-split percentile of all token
-    # counts as the threshold, then count correct samples on the matching
-    # side. Thresholds are computed once on the observed sample and held
-    # fixed during the bootstrap — the reported CI is on the rate
+    # counts as the threshold (unless overridden), then count correct samples
+    # on the matching side. Thresholds are computed once on the observed sample
+    # and held fixed during the bootstrap — the reported CI is on the rate
     # conditional on the observed threshold.
     underthinking_rate = None
     underthinking_threshold = None
     under_ci_low: float | None = None
     under_ci_high: float | None = None
-    if correct_results and n >= 4:
-        underthinking_threshold = float(np.percentile(all_tokens, underthinking_percentile))
+    if correct_results and (n >= 4 or under_override is not None):
+        underthinking_threshold = (
+            under_override if under_override is not None
+            else float(np.percentile(all_tokens, underthinking_percentile))
+        )
         under_flags = np.array(
             [1.0 if r.n_tokens <= underthinking_threshold else 0.0 for r in correct_results]
         )
@@ -123,8 +138,11 @@ def compute_metrics(
     overthinking_threshold = None
     over_ci_low: float | None = None
     over_ci_high: float | None = None
-    if correct_results and n >= 4:
-        overthinking_threshold = float(np.percentile(all_tokens, overthinking_percentile))
+    if correct_results and (n >= 4 or over_override is not None):
+        overthinking_threshold = (
+            over_override if over_override is not None
+            else float(np.percentile(all_tokens, overthinking_percentile))
+        )
         over_flags = np.array(
             [1.0 if r.n_tokens > overthinking_threshold else 0.0 for r in correct_results]
         )
@@ -168,3 +186,36 @@ def compute_metrics(
         n_correct=n_correct,
         raw=results,
     )
+
+
+def load_reference_thresholds(
+    report_path: str,
+    under_pct: int = 10,
+    over_pct: int = 75,
+    min_samples: int = 4,
+) -> dict[str, dict]:
+    """Derive fixed over/under-thinking thresholds from a reference eval report.
+
+    Reads `report_path` (a run's eval_report.json) and, for each split that
+    carries a `samples` series, returns the P`under_pct`/P`over_pct` of its token
+    counts. Thresholds are kept PER SPLIT on purpose: GSM-8K (id_split) and MATH
+    (near_ood) have legitimately different verbosity, so a single global
+    threshold would mislabel one of them. Feed the e0 accuracy-only baseline here
+    so every run's thinking rates are measured against the same yardstick.
+
+    Returns `{split: {"underthinking_threshold": float, "overthinking_threshold": float}}`,
+    skipping splits with fewer than `min_samples` samples.
+    """
+    with open(report_path) as f:
+        report = json.load(f)
+    out: dict[str, dict] = {}
+    for split, metrics in (report.get("results") or {}).items():
+        samples = (metrics or {}).get("samples")
+        if not samples or len(samples) < min_samples:
+            continue
+        tokens = np.array([s["n_tokens"] for s in samples], dtype=float)
+        out[split] = {
+            "underthinking_threshold": float(np.percentile(tokens, under_pct)),
+            "overthinking_threshold": float(np.percentile(tokens, over_pct)),
+        }
+    return out

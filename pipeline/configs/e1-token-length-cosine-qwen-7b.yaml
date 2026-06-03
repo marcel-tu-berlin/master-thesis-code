@@ -1,5 +1,5 @@
-experiment_id: e1-token-entropy-forkmask-qwen-7b-vllm
-description: "E1 single-signal: accuracy + token_entropy with top-20% fork masking and vLLM fast inference (Qwen2-7B)"
+experiment_id: e1-token-length-cosine-qwen-7b
+description: "E1 single-signal: accuracy + correctness-coupled COSINE length reward (Wu/Yeo-2025, Qwen2-7B). Fixes the linear-penalty collapse — alpha/schedule are inert under advantage_weighted z-scoring."
 seed: 42
 
 model:
@@ -7,9 +7,6 @@ model:
   lora_r: 16
   load_in_4bit: true
   max_seq_length: 2048
-  use_vllm: true
-  gpu_memory_utilization: 0.6
-  enforce_eager: true
 
 training:
   domain: math
@@ -35,12 +32,20 @@ rewards:
     enabled: true
     weight: 1.0
   token_length:
-    enabled: false
-  token_entropy:
     enabled: true
     weight: 1.0
-    reward_scale: 0.1
-    fork_mask_top_frac: 0.2
+    # Cosine shape: correct -> prefer shorter, wrong -> prefer longer. Survives
+    # the per-group z-scoring that nullifies the linear penalty's alpha. max_len
+    # is the length normalizer (progress = min(n_tokens/max_len, 1)); tune to the
+    # dataset's completion-length range (GSM8K trained completions ~150-250).
+    shape: cosine
+    max_len: 256
+    r_correct_short: 1.0
+    r_correct_long: 0.5
+    r_wrong_short: -1.0
+    r_wrong_long: -0.5
+  token_entropy:
+    enabled: false
   effort_proxy:
     enabled: false
 
@@ -49,7 +54,7 @@ eval:
   do_sample: false
   # Fixed over/under-thinking thresholds from the e0 baseline so thinking
   # rates are comparable across the sweep (eval.metrics.load_reference_thresholds).
-  reference_run: runs/e0-baseline-math-qwen-7b-vllm
+  reference_run: runs/e0-baseline-math-qwen-7b
   id_split: openai/gsm8k
   id_split_hf_split: test
   ood_probes:

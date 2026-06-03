@@ -1,7 +1,8 @@
+import os
 import re
 from dataclasses import dataclass
 
-from eval.metrics import EvalMetrics, SampleResult, compute_metrics
+from eval.metrics import EvalMetrics, SampleResult, compute_metrics, load_reference_thresholds
 
 
 @dataclass
@@ -76,6 +77,8 @@ def _run_split(
     max_new_tokens: int = 512,
     gen_kwargs: dict | None = None,
     batch_size: int = 8,
+    underthinking_threshold: float | None = None,
+    overthinking_threshold: float | None = None,
 ) -> EvalMetrics:
     """Generate completions for a dataset split (batched) and score them."""
     gen_kwargs = gen_kwargs or {"do_sample": False}
@@ -94,7 +97,35 @@ def _run_split(
             difficulty = domain.difficulty(sample)
             results.append(SampleResult(correct=correct, n_tokens=n_tokens, difficulty=difficulty))
 
-    return compute_metrics(results)
+    return compute_metrics(
+        results,
+        underthinking_threshold=underthinking_threshold,
+        overthinking_threshold=overthinking_threshold,
+    )
+
+
+def _resolve_reference_thresholds(reference_run) -> dict[str, dict]:
+    """Turn an `eval.reference_run` config value into per-split thresholds.
+
+    Accepts a run directory or a direct eval_report.json path. Returns {} (so
+    callers fall back to per-run percentiles) when unset, missing, or unreadable
+    — a reference run that hasn't been evaluated yet must never crash the eval.
+    """
+    if not reference_run:
+        return {}
+    ref_path = reference_run if str(reference_run).endswith(".json") else os.path.join(reference_run, "eval_report.json")
+    if not os.path.exists(ref_path):
+        print(f"  Warning: eval.reference_run set but {ref_path} not found; using per-run thresholds")
+        return {}
+    try:
+        thr = load_reference_thresholds(ref_path)
+    except (KeyError, ValueError) as exc:
+        print(f"  Warning: could not read reference thresholds from {ref_path}: {type(exc).__name__}: {exc}; using per-run thresholds")
+        return {}
+    if thr:
+        summary = {k: (round(v["underthinking_threshold"], 1), round(v["overthinking_threshold"], 1)) for k, v in thr.items()}
+        print(f"  Fixed thinking thresholds (P10/P75 from {ref_path}): {summary}")
+    return thr
 
 
 def run_ood_probes(
@@ -125,6 +156,16 @@ def run_ood_probes(
     near_limit = 10 if smoke else eval_cfg.get("near_ood_limit", 200)
     mmlu_limit = 10 if smoke else eval_cfg.get("far_ood_limit", 100)
 
+    # Fixed thinking thresholds from a reference run (e.g. e0). Per-split P10/P75
+    # of the reference's token counts replace this run's self-distribution so
+    # over/under-thinking rates are comparable across runs. Unset / missing /
+    # unreadable -> fall back to per-run percentiles.
+    ref_thresholds = _resolve_reference_thresholds(eval_cfg.get("reference_run"))
+
+    def _thr(split_key):
+        t = ref_thresholds.get(split_key, {})
+        return t.get("underthinking_threshold"), t.get("overthinking_threshold")
+
     # ID split
     id_name = eval_cfg.get("id_split")
     if id_name:
@@ -134,7 +175,11 @@ def run_ood_probes(
             split=eval_cfg.get("id_split_hf_split", "test"),
         )
         id_ds = id_ds.select(range(min(id_limit, len(id_ds))))
-        results.id_split = _run_split(model, tokenizer, domain, id_ds, max_new_tokens, gen_kwargs=gk, batch_size=batch_size)
+        u, o = _thr("id_split")
+        results.id_split = _run_split(
+            model, tokenizer, domain, id_ds, max_new_tokens, gen_kwargs=gk, batch_size=batch_size,
+            underthinking_threshold=u, overthinking_threshold=o,
+        )
 
     # Near-OOD
     near_name = probes_cfg.get("near")
@@ -142,7 +187,11 @@ def run_ood_probes(
         print(f"  Running near-OOD: {near_name}")
         near_ds = domain.load_dataset(near_name, split="test")
         near_ds = near_ds.select(range(min(near_limit, len(near_ds))))
-        results.near_ood = _run_split(model, tokenizer, domain, near_ds, max_new_tokens, gen_kwargs=gk, batch_size=batch_size)
+        u, o = _thr("near_ood")
+        results.near_ood = _run_split(
+            model, tokenizer, domain, near_ds, max_new_tokens, gen_kwargs=gk, batch_size=batch_size,
+            underthinking_threshold=u, overthinking_threshold=o,
+        )
 
     # Far-OOD: MMLU. Match case-insensitively so configs may use 'mmlu',
     # 'MMLU', or 'cais/mmlu' interchangeably; warn rather than silently skip
@@ -151,8 +200,11 @@ def run_ood_probes(
     if far_name:
         if "mmlu" in str(far_name).lower():
             print(f"  Running far-OOD: MMLU (config: {far_name})")
+            u, o = _thr("far_ood")
             results.far_ood = _run_mmlu(
-                model, tokenizer, domain, max_new_tokens, n_samples=mmlu_limit, gen_kwargs=gk, batch_size=batch_size
+                model, tokenizer, domain, max_new_tokens, n_samples=mmlu_limit,
+                gen_kwargs=gk, batch_size=batch_size,
+                underthinking_threshold=u, overthinking_threshold=o,
             )
         else:
             print(f"  Warning: unrecognized far-OOD probe {far_name!r}; only MMLU is implemented. Skipping.")
@@ -208,6 +260,8 @@ def _run_mmlu(
     n_samples: int = 100,
     gen_kwargs: dict | None = None,
     batch_size: int = 8,
+    underthinking_threshold: float | None = None,
+    overthinking_threshold: float | None = None,
 ) -> EvalMetrics:
     from datasets import load_dataset as hf_load
     ds = hf_load("cais/mmlu", "all", split="test")
@@ -240,15 +294,33 @@ def _run_mmlu(
             correct = pred == ans
             results.append(SampleResult(correct=correct, n_tokens=n_tokens))
 
-    return compute_metrics(results)
+    return compute_metrics(
+        results,
+        underthinking_threshold=underthinking_threshold,
+        overthinking_threshold=overthinking_threshold,
+    )
 
 
+# A capability floor must be able to FAIL — otherwise it can't catch a
+# regression. The first two are trivial anchors a healthy model never misses;
+# the rest are discriminative items that a collapsed or over-compressed model
+# (e.g. the e1-token-length 17-token failure mode) can get wrong. All expected
+# answers are single tokens so the whole-word `_capability_match` resolves them,
+# and the prompts instruct "answer with the number/one word only" so a model
+# that lost multi-step reasoning produces a wrong token rather than a verbose
+# hedge that still happens to contain the answer.
 _DEFAULT_CAPABILITY_PROMPTS = [
     ("What is 2+2?", "4"),
     ("What is the capital of France?", "Paris"),
-    ("Name the first planet from the Sun.", "Mercury"),
-    ("What is 10 * 10?", "100"),
-    ("What color is the sky on a clear day?", "blue"),
+    # Multi-step arithmetic word problem — needs actual reasoning, not recall.
+    ("A bag has 3 red marbles and 5 blue marbles. You add 4 more red marbles. "
+     "How many red marbles are there now? Answer with the number only.", "7"),
+    # One-word instruction following.
+    ("Answer with one word: what is the opposite of hot?", "cold"),
+    # Decimal-magnitude trap (classic failure; 9.11 is the wrong intuition).
+    ("Which number is larger, 9.9 or 9.11? Answer with the number only.", "9.9"),
+    # Two-step arithmetic — a model that drops the second step answers 144.
+    ("What is 12 times 12, minus 100? Answer with the number only.", "44"),
 ]
 
 

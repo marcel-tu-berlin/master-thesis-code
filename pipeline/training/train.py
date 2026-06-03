@@ -14,7 +14,7 @@ from domains.coding.loader import CodingDomain
 from training.grpo_runner import GRPORunner
 from training.rewards import REWARD_REGISTRY
 from training.rewards.compose import build_composer
-from training.config_schema import validate_config
+from training.config_schema import validate_config, warn_inert_scalars
 from transformers import TrainerCallback, set_seed
 
 
@@ -47,6 +47,11 @@ def build_reward_components(config: dict, domain, runner: GRPORunner) -> list:
     """Build (reward_fn, weight) pairs from config using REWARD_REGISTRY."""
     rewards_cfg = config.get("rewards", {}) or {}
     training_cfg = config.get("training", {}) or {}
+
+    method = rewards_cfg.get("compose_method", "advantage_weighted")
+    for w in warn_inert_scalars(rewards_cfg, method):
+        print(f"⚠  {w}")
+
     components = []
 
     for key, (default_enabled, default_weight, builder) in REWARD_REGISTRY.items():

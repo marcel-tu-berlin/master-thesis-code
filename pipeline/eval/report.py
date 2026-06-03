@@ -201,14 +201,16 @@ def _write_markdown(report: dict, run_dir: str) -> None:
         under_rate = metrics.get("underthinking_rate")
         if under_rate is not None:
             under_thr = metrics.get("underthinking_threshold")
-            thr_str = f" (threshold: {under_thr} tokens, P10)" if under_thr is not None else ""
+            # Threshold may be this run's P10 or a fixed reference value, so the
+            # label states the comparison, not the percentile.
+            thr_str = f" (≤ {under_thr} tokens)" if under_thr is not None else ""
             lines.append(f"- Underthinking rate: {under_rate}{_ci_suffix(metrics.get('underthinking_rate_ci'))}{thr_str}")
         else:
             lines.append("- Underthinking rate: -")
         over_rate = metrics.get("overthinking_rate")
         if over_rate is not None:
             over_thr = metrics.get("overthinking_threshold")
-            thr_str = f" (threshold: {over_thr} tokens, P75)" if over_thr is not None else ""
+            thr_str = f" (> {over_thr} tokens)" if over_thr is not None else ""
             lines.append(f"- Overthinking rate: {over_rate}{_ci_suffix(metrics.get('overthinking_rate_ci'))}{thr_str}")
         else:
             lines.append("- Overthinking rate: -")

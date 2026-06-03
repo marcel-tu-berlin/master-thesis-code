@@ -9,6 +9,7 @@ Each builder has the signature:
 where reward_cfg is the dict under `rewards.<key>` from the YAML.
 """
 from training.rewards.accuracy import AnswerReward, NumericReward
+from training.rewards.cosine_length import CosineLengthReward
 from training.rewards.effort_proxy import EffortProxyReward
 from training.rewards.format import FormatApproxReward, FormatExactReward
 from training.rewards.token_entropy import TokenEntropyReward
@@ -37,6 +38,25 @@ def _build_numeric(domain, runner, training_cfg, cfg):
 
 
 def _build_token_length(domain, runner, training_cfg, cfg):
+    # `shape: cosine` gives the correctness-coupled Wu/Yeo length reward, which
+    # survives the advantage_weighted z-scoring that nullifies the linear
+    # penalty's alpha/schedule. `shape: linear` (default) keeps the original
+    # penalty for naive_sum use.
+    shape = cfg.get("shape", "linear")
+    if shape == "cosine":
+        return CosineLengthReward(
+            runner.tokenizer,
+            domain,
+            max_len=int(cfg.get("max_len", 512)),
+            r_correct_short=cfg.get("r_correct_short", 1.0),
+            r_correct_long=cfg.get("r_correct_long", 0.5),
+            r_wrong_short=cfg.get("r_wrong_short", -1.0),
+            r_wrong_long=cfg.get("r_wrong_long", -0.5),
+        )
+    if shape != "linear":
+        raise ValueError(
+            f"rewards.token_length.shape must be 'linear' or 'cosine' (got {shape!r})"
+        )
     return TokenLengthReward(
         runner.tokenizer,
         alpha=cfg.get("alpha", 0.001),

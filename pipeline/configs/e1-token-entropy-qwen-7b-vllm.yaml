@@ -47,6 +47,9 @@ rewards:
 eval:
   temperature: 0.0
   do_sample: false
+  # Fixed over/under-thinking thresholds from the e0 baseline so thinking
+  # rates are comparable across the sweep (eval.metrics.load_reference_thresholds).
+  reference_run: runs/e0-baseline-math-qwen-7b-vllm
   id_split: openai/gsm8k
   id_split_hf_split: test
   ood_probes:

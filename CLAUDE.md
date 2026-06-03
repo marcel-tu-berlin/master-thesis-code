@@ -85,6 +85,17 @@ plus opt-in efficiency signals (`TokenLengthReward`, `TokenEntropyReward`,
 on the full text and the solution tags on the suffix to avoid CoT false
 positives — semantics differ from the notebook version.
 
+`TokenLengthReward` has two shapes via `rewards.token_length.shape`: `linear`
+(default, `-alpha * n_tokens`; note `alpha` is inert under `advantage_weighted` —
+see Reward Composition) and `cosine` (`CosineLengthReward`, Wu/Yeo-2025): correct
+→ prefer shorter, wrong → prefer longer. The cosine shape is non-linear in length
+and gated by correctness, so it survives per-group z-scoring and fixes the linear
+penalty's length-collapse (a wrong, ultra-short completion becomes the
+most-penalized cell instead of the most-rewarded). `TokenEntropyReward.fork_mask_top_frac`
+masks the *reward* (averages entropy over the top fraction of tokens by entropy),
+not the *gradient* over forking tokens — it is inspired by, but is not, the
+Wang-2025 gradient-masking mechanism.
+
 ### Reward Registry (Pipeline)
 
 Rewards are wired via `REWARD_REGISTRY` in `pipeline/training/rewards/__init__.py`. Each entry maps a config key (under `rewards:`) to `(default_enabled, default_weight, builder)`. Adding a new reward requires both:
@@ -99,6 +110,8 @@ Multiple reward components are combined via a composer selected by `rewards.comp
 
 - **`advantage_weighted`** (default) — `AdvantageWeightedComposer` in `pipeline/training/rewards/compose.py`. Per-prompt-group z-scoring of each component's raw rewards *before* the weighted sum. Motivated by DIET §3.2: raw variance σ²≈C(1-C) differs across components (high-variance binary accuracy would dominate a naive sum regardless of weight). Normalising per group preserves GRPO's within-group advantage semantics. A component with zero within-group variance contributes 0 — by design, since a constant signal carries no advantage information.
 - **`naive_sum`** — `NaiveSumComposer`. Plain weighted sum, no normalisation. Used as the E3 ablation baseline (`configs/e3-ablation-naive-sum.yaml`) to isolate the advantage-weighting effect.
+
+**Scale-invariance (important).** Because `advantage_weighted` z-scores each component per prompt-group, it is invariant to any global scalar inside a component's raw reward. Under the default composer these knobs therefore do **nothing**: `token_length.alpha`, `token_length.schedule: cosine` (a per-step global scalar), `token_entropy.reward_scale`, `effort_proxy.alpha`, and `effort_proxy.metric` (`flops`/`gpu_time` differ from `token_count` only by a per-model constant, so every effort metric reduces to z-scored token count — identical to `token_length`). The only live levers are the component `weight`, the per-completion signal *shape*, and switching to `naive_sum`. `build_reward_components` prints a warning (`warn_inert_scalars` in `config_schema.py`) when an inert knob is set to a non-default under `advantage_weighted`.
 
 ### Pipeline Evaluation
 

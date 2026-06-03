@@ -27,10 +27,17 @@ class TokenEntropyReward:
     the reward should be read as a proxy.
 
     fork_mask_top_frac: if >0, average only over tokens in the top fraction
-    by entropy (Wang 2025, high-entropy tokens). Focuses reward on actual
-    decision points. Expressed as a fraction in [0, 1] — e.g. 0.25 for
-    "top 25%". Values >1 are rejected to prevent the prior pct/frac
+    by entropy (inspired by Wang 2025, high-entropy "forking" tokens). Focuses
+    reward on actual decision points. Expressed as a fraction in [0, 1] — e.g.
+    0.25 for "top 25%". Values >1 are rejected to prevent the prior pct/frac
     ambiguity that produced silent torch.quantile crashes.
+
+    NOTE: this masks the *reward* — it restricts which completion tokens enter
+    the entropy mean — not the *gradient*. Wang 2025 masks the policy gradient
+    so only high-entropy forking tokens are updated; that is a different
+    mechanism operating inside the GRPO loss, not a reward function. Read any
+    fork-mask result as "reward computed over top-entropy tokens", not as
+    Wang-style gradient masking.
     """
 
     def __init__(

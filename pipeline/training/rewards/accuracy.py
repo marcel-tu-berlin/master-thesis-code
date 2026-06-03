@@ -1,19 +1,5 @@
 from domains.base import Domain
-from training.rewards.utils import extract_content
-
-
-def _require_answers(answer, n: int, reward_name: str) -> list[str]:
-    if answer is None:
-        raise ValueError(
-            f"{reward_name} requires the dataset to expose an 'answer' column. "
-            "TRL passes dataset columns as keyword args to reward functions; "
-            "ensure the loader's map() output includes 'answer'."
-        )
-    if len(answer) != n:
-        raise ValueError(
-            f"{reward_name}: len(answer)={len(answer)} does not match len(completions)={n}"
-        )
-    return answer
+from training.rewards.utils import _require_answers, extract_content
 
 
 class AnswerReward:
