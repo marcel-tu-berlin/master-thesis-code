@@ -38,8 +38,11 @@ def _metrics_dict(metrics) -> dict:
             round(metrics.pearson_difficulty_length, 4)
             if metrics.pearson_difficulty_length is not None else None
         ),
+        # Full precision, not round(.,6): a strongly significant correlation
+        # (p ~ 1e-12) would otherwise serialize to the literal 0.0. Formatted as
+        # scientific notation at display time.
         "pearson_p_value": (
-            round(metrics.pearson_p_value, 6)
+            float(metrics.pearson_p_value)
             if metrics.pearson_p_value is not None else None
         ),
         "n_samples": metrics.n_samples,
@@ -80,7 +83,15 @@ def generate_report(
     report = {
         "experiment_id": exp_id,
         "model_slug": config["model"]["slug"],
+        # Training seed, so eval.compare can group runs by it for the
+        # seed-as-replicate hierarchical bootstrap. Mirrors the effective
+        # default the rest of the pipeline uses (train.py / grpo_runner default
+        # to 42 when unset) rather than None, so the label matches what ran.
+        "seed": config.get("seed", 42),
         "compose_method": config.get("rewards", {}).get("compose_method", "advantage_weighted"),
+        # Self-describe a complete run so consumers can distinguish it from the
+        # status:'error'/'skipped' stubs emitted on a failed/partial eval.
+        "status": "ok",
         "results": {
             "id_split": _metrics_dict(ood_results.id_split),
             "near_ood": _metrics_dict(ood_results.near_ood),
@@ -101,11 +112,17 @@ def generate_report(
                 baseline = json.load(f)
             base_acc = baseline.get("results", {}).get("id_split", {}).get("accuracy")
             if base_acc is not None and curr_acc is not None:
-                report["vs_reward_baseline"] = {
+                base_tokens = baseline.get("results", {}).get("id_split", {}).get("mean_token_count")
+                curr_tokens = report["results"]["id_split"].get("mean_token_count")
+                vrb = {
                     "baseline_id": baseline.get("experiment_id"),
                     "delta_accuracy": round(curr_acc - base_acc, 4),
                     "baseline_accuracy": base_acc,
+                    "baseline_mean_tokens": base_tokens,
                 }
+                if base_tokens is not None and curr_tokens is not None:
+                    vrb["delta_mean_tokens"] = round(curr_tokens - base_tokens, 1)
+                report["vs_reward_baseline"] = vrb
 
         # Compare against the pre-finetune base model assessment, if produced
         # by `eval.runner --baseline`. This is the before-and-after delta:
@@ -151,6 +168,19 @@ def _find_baseline(run_dir: str, config: dict | None = None) -> str | None:
             return candidate
         print(f"Warning: baseline_id={config['baseline_id']!r} given but {candidate} not found")
         return None
+
+    # Next precedence: eval.reference_run (the run whose thresholds already
+    # anchor this eval). Accept a run dir or a direct eval_report.json path.
+    # This kills the fragile single-e0 heuristic for the common case where the
+    # sweep names its reference explicitly; an unusable value falls through.
+    reference_run = ((config or {}).get("eval") or {}).get("reference_run")
+    if reference_run:
+        ref_path = (str(reference_run) if str(reference_run).endswith(".json")
+                    else os.path.join(str(reference_run), "eval_report.json"))
+        if ref_path != self_report and os.path.exists(ref_path):
+            return ref_path
+        print(f"Warning: eval.reference_run={reference_run!r} set but {ref_path} not usable; "
+              "falling back to baseline heuristic")
 
     if not os.path.isdir(runs_root):
         return None
@@ -215,7 +245,8 @@ def _write_markdown(report: dict, run_dir: str) -> None:
         else:
             lines.append("- Overthinking rate: -")
         if metrics.get("pearson_difficulty_length") is not None:
-            p_str = f" (p={metrics.get('pearson_p_value', '-')})" if metrics.get("pearson_p_value") is not None else ""
+            pv = metrics.get("pearson_p_value")
+            p_str = f" (p={pv:.2e})" if pv is not None else ""
             lines.append(f"- Pearson(difficulty, length): {metrics['pearson_difficulty_length']}{p_str}")
         lines.append("")
 
@@ -223,12 +254,19 @@ def _write_markdown(report: dict, run_dir: str) -> None:
         vb = report["vs_reward_baseline"]
         delta = vb["delta_accuracy"]
         sign = "+" if delta >= 0 else ""
+        base_desc = f"acc={vb['baseline_accuracy']}"
+        if vb.get("baseline_mean_tokens") is not None:
+            base_desc += f", mean tokens={vb['baseline_mean_tokens']}"
         lines += [
             "## vs Reward Baseline (trained-vs-trained)",
-            f"- Baseline: {vb['baseline_id']} (acc={vb['baseline_accuracy']})",
+            f"- Baseline: {vb['baseline_id']} ({base_desc})",
             f"- Δ accuracy: **{sign}{delta}**",
-            "",
         ]
+        if vb.get("delta_mean_tokens") is not None:
+            d_tok = vb["delta_mean_tokens"]
+            tsign = "+" if d_tok >= 0 else ""
+            lines.append(f"- Δ mean tokens: **{tsign}{d_tok}** (negative = more efficient)")
+        lines.append("")
 
     if "vs_base_model" in report:
         vbm = report["vs_base_model"]
