@@ -212,11 +212,18 @@ def run_ood_probes(
     # Capability floor
     cap_name = probes_cfg.get("capability_floor")
     if cap_name:
-        print(f"  Running capability floor: {cap_name}")
+        cap_dataset = eval_cfg.get("capability_floor_dataset")
+        cap_limit = 10 if smoke else int(eval_cfg.get("capability_floor_limit", 50))
+        suffix = f" ({cap_dataset} {eval_cfg.get('capability_floor_take', 'tail')}[:{cap_limit}])" if cap_dataset else ""
+        print(f"  Running capability floor: {cap_name}{suffix}")
         results.capability_floor = _run_capability_floor(
             model, tokenizer, domain, max_new_tokens,
             gen_kwargs=gk, batch_size=batch_size,
             prompts=eval_cfg.get("capability_floor_prompts"),
+            dataset=cap_dataset,
+            hf_split=eval_cfg.get("capability_floor_hf_split", "test"),
+            limit=cap_limit,
+            take=eval_cfg.get("capability_floor_take", "tail"),
         )
 
     return results
@@ -340,6 +347,15 @@ def _capability_match(expected: str, extracted: str) -> bool:
         return False
 
 
+def _floor_slice_indices(n_total: int, limit: int, take: str) -> range:
+    """Indices for the capability-floor benchmark slice. `take='tail'` returns
+    the last `min(limit, n_total)` rows so the floor stays disjoint from the
+    id_split head[:N] that shares the dataset; `take='head'` returns the first.
+    """
+    n = min(limit, n_total)
+    return range(n_total - n, n_total) if take == "tail" else range(n)
+
+
 def _run_capability_floor(
     model,
     tokenizer,
@@ -348,12 +364,30 @@ def _run_capability_floor(
     gen_kwargs: dict | None = None,
     batch_size: int = 8,
     prompts: list | None = None,
+    dataset: str | None = None,
+    hf_split: str = "test",
+    limit: int = 50,
+    take: str = "tail",
 ) -> EvalMetrics:
-    """Simple instruction following — checks the model hasn't catastrophically forgotten.
+    """Checks the model hasn't catastrophically forgotten / collapsed.
 
-    `prompts` may be a list of `[question, expected]` pairs from config. Falls
-    back to a fixed 5-question default set.
+    Two modes:
+      - `dataset` set: grade a slice of a real benchmark (n=`limit`) with the
+        same domain.is_correct grader as id_split, so the floor is large enough
+        to show graded regression instead of saturating at acc=1.0. The slice is
+        taken from the tail by default to stay disjoint from id_split's head.
+      - otherwise: the fixed instruction-following prompt set (`prompts` from
+        config, else the default discriminative set), scored by _capability_match.
     """
+    if dataset:
+        ds = domain.load_dataset(dataset, split=hf_split)
+        idx = _floor_slice_indices(len(ds), limit, take)
+        ds = ds.select(list(idx))
+        return _run_split(
+            model, tokenizer, domain, ds, max_new_tokens,
+            gen_kwargs=gen_kwargs, batch_size=batch_size,
+        )
+
     if prompts:
         pair_iter = [(p[0], p[1]) for p in prompts]
     else:
