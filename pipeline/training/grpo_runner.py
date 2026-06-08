@@ -40,6 +40,12 @@ class GRPORunner:
                 config["model"].get("gpu_memory_utilization", 0.6)
             )
             load_kwargs["enforce_eager"] = enforce_eager
+            # Thread the experiment seed into the vLLM engine. Without this the
+            # engine initializes at seed 0 regardless of `seed:` in the config
+            # (arg_utils.py global-seed-0 + engine seed=0), which makes rollouts
+            # non-reproducible across runs and is the cause of the cross-batch
+            # baseline shift. FastLanguageModel forwards this to the vLLM engine.
+            load_kwargs["seed"] = int(config.get("seed", 42))
 
         self.model, self.tokenizer = FastLanguageModel.from_pretrained(**load_kwargs)
 
@@ -84,6 +90,10 @@ class GRPORunner:
             output_dir=output_dir,
             report_to="none",
             beta=float(t.get("kl_beta", 0.001)),
+            # Belt-and-suspenders: seed the TRL trainer + colocate sampler too,
+            # so data shuffling and any non-vLLM sampling path are reproducible
+            # alongside the vLLM engine seed set in __init__.
+            seed=int(self.config.get("seed", 42)),
         )
 
         trainer = GRPOTrainer(
