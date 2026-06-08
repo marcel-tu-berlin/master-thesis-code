@@ -168,15 +168,38 @@ def plot_token_distribution(ood_results, out_dir: str) -> None:
     print(f"Plot saved: {out_path}")
 
 
+def _split_with_difficulty(ood_results):
+    """Pick the (name, metrics) of the split carrying a difficulty/length signal.
+
+    Difficulty labels only exist on Hendrycks MATH, so the relevant split is
+    id_split for a MATH-trained run but near_ood (MATH) for a GSM8K-trained one.
+    Prefer a split with a computed correlation; else any split that at least has
+    difficulty-bearing samples; else (None, None).
+    """
+    named = [
+        ("id_split", ood_results.id_split),
+        ("near_ood", ood_results.near_ood),
+        ("far_ood", ood_results.far_ood),
+        ("capability_floor", ood_results.capability_floor),
+    ]
+    for name, m in named:
+        if m is not None and m.pearson_difficulty_length is not None:
+            return name, m
+    for name, m in named:
+        if m is not None and m.raw and any(r.difficulty is not None for r in m.raw):
+            return name, m
+    return None, None
+
+
 def plot_difficulty_scatter(ood_results, out_dir: str) -> None:
     if not _MPL_AVAILABLE:
         return
 
-    id_metrics = ood_results.id_split
-    if id_metrics is None or not id_metrics.raw:
+    split_name, metrics = _split_with_difficulty(ood_results)
+    if metrics is None or not metrics.raw:
         return
 
-    samples = [r for r in id_metrics.raw if r.difficulty is not None]
+    samples = [r for r in metrics.raw if r.difficulty is not None]
     if len(samples) < 5:
         return
 
@@ -187,10 +210,10 @@ def plot_difficulty_scatter(ood_results, out_dir: str) -> None:
     fig, ax = plt.subplots(figsize=(7, 5))
     ax.scatter(diffs, tokens, c=colors, alpha=0.6, edgecolors="none", s=30)
 
-    pr = id_metrics.pearson_difficulty_length
-    pv = id_metrics.pearson_p_value
+    pr = metrics.pearson_difficulty_length
+    pv = metrics.pearson_p_value
     if pr is not None:
-        ann = f"r = {pr:.3f}" + (f", p = {pv:.3f}" if pv is not None else "")
+        ann = f"r = {pr:.3f}" + (f", p = {pv:.2e}" if pv is not None else "")
         ax.annotate(ann, xy=(0.05, 0.93), xycoords="axes fraction", fontsize=10)
 
     ax.legend(handles=[
@@ -199,7 +222,7 @@ def plot_difficulty_scatter(ood_results, out_dir: str) -> None:
     ])
     ax.set_xlabel("Difficulty")
     ax.set_ylabel("Token Count")
-    ax.set_title("Difficulty vs Token Count (ID Split)")
+    ax.set_title(f"Difficulty vs Token Count ({split_name})")
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
