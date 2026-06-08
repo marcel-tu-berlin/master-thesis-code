@@ -2,7 +2,12 @@ import json
 from dataclasses import dataclass, field
 
 import numpy as np
-from scipy.stats import pearsonr
+from scipy.stats import norm, pearsonr
+
+# Bootstrap replicate count. At p=0.05 the Monte-Carlo error is sqrt(p(1-p)/B):
+# B=2000 -> ±0.0049 (borderline cells flip bold/not-bold between seeds), B=10000
+# -> ±0.0022. Vectorized resampling makes 10k as cheap as the old 2k loop.
+N_BOOTSTRAP = 10_000
 
 
 @dataclass
@@ -43,28 +48,106 @@ class EvalMetrics:
     raw: list[SampleResult] = field(default_factory=list)
 
 
-def _bootstrap_ci(values: np.ndarray, n_bootstrap: int = 2000, ci: float = 0.95) -> tuple[float, float]:
-    """Bootstrap CI for the mean of `values`. Works for both binary rates
-    (mean of 0/1 = rate) and continuous values (e.g. token counts).
-    Deterministic via fixed RNG seed so reports are reproducible.
+def _bootstrap_ci(values: np.ndarray, n_bootstrap: int = N_BOOTSTRAP, ci: float = 0.95) -> tuple[float, float]:
+    """Bootstrap CI for the mean of continuous `values` (e.g. token counts).
+    Vectorized: one (n_bootstrap, n) index draw instead of a Python loop, so
+    10k replicates cost about what 2k used to. Deterministic via fixed RNG seed.
+
+    For a binary proportion (accuracy, thinking rates) prefer `_wilson_ci`:
+    a percentile bootstrap on a 0/1 vector collapses to a zero-width [p, p]
+    interval at p=0 or p=1, hiding all uncertainty.
     """
+    values = np.asarray(values, dtype=float)
     n = len(values)
     if n == 0:
         return 0.0, 0.0
     rng = np.random.default_rng(42)
-    boot = np.empty(n_bootstrap)
-    for i in range(n_bootstrap):
-        sample = rng.choice(values, size=n, replace=True)
-        boot[i] = sample.mean()
+    idx = rng.integers(0, n, size=(n_bootstrap, n))
+    boot = values[idx].mean(axis=1)
     alpha = (1 - ci) / 2
     return float(np.percentile(boot, 100 * alpha)), float(np.percentile(boot, 100 * (1 - alpha)))
+
+
+def _wilson_ci(n_success: int, n: int, ci: float = 0.95) -> tuple[float, float]:
+    """Wilson score interval for a binomial proportion. Unlike a
+    percentile-bootstrap on the 0/1 vector, it stays a proper interval at the
+    boundaries: 6/6 -> ~[0.61, 1.0] rather than the degenerate [1.0, 1.0].
+    Clamped to [0, 1]; returns (0, 0) for n=0.
+    """
+    if n == 0:
+        return 0.0, 0.0
+    z = float(norm.ppf(1 - (1 - ci) / 2))
+    phat = n_success / n
+    denom = 1 + z * z / n
+    center = (phat + z * z / (2 * n)) / denom
+    half = (z / denom) * np.sqrt(phat * (1 - phat) / n + z * z / (4 * n * n))
+    return max(0.0, center - half), min(1.0, center + half)
+
+
+def _thinking_rate(
+    all_tokens: np.ndarray,
+    corrects: np.ndarray,
+    percentile: int,
+    override: float | None,
+    side: str,
+    n_bootstrap: int = N_BOOTSTRAP,
+    ci: float = 0.95,
+) -> tuple[float | None, float | None, float | None, float | None]:
+    """Over/under-thinking rate with a CI that reflects threshold uncertainty.
+
+    `side` is 'under' (token <= threshold) or 'over' (token > threshold). The
+    rate is the fraction of CORRECT completions on the matching side. The
+    threshold is the `percentile` of ALL token counts (correct + incorrect),
+    unless `override` is set.
+
+    Returns (rate, threshold, ci_low, ci_high), or all-None when there are no
+    correct samples.
+
+    Two CI regimes:
+      - override set -> threshold is fixed, so the rate is a clean proportion;
+        use Wilson (no boundary collapse at rate 0/1).
+      - percentile -> the threshold is itself estimated, so recompute it inside
+        every bootstrap replicate; its variance then enters the CI (T2.3).
+    """
+    all_tokens = np.asarray(all_tokens, dtype=float)
+    corrects = np.asarray(corrects, dtype=bool)
+    n = len(all_tokens)
+    n_correct = int(corrects.sum())
+    if n_correct == 0:
+        return None, None, None, None
+
+    thr = float(override) if override is not None else float(np.percentile(all_tokens, percentile))
+    flagged = (all_tokens <= thr) if side == "under" else (all_tokens > thr)
+    rate = float(flagged[corrects].mean())
+
+    if override is not None:
+        k = int(flagged[corrects].sum())
+        lo, hi = _wilson_ci(k, n_correct, ci)
+        return rate, thr, lo, hi
+
+    # Percentile threshold: resample all samples, recompute the threshold per
+    # replicate, then the rate over the resampled correct subset.
+    rng = np.random.default_rng(42)
+    idx = rng.integers(0, n, size=(n_bootstrap, n))
+    bt = all_tokens[idx]                                   # (B, n)
+    bc = corrects[idx]                                     # (B, n)
+    thr_b = np.percentile(bt, percentile, axis=1, keepdims=True)  # (B, 1)
+    flag_b = (bt <= thr_b) if side == "under" else (bt > thr_b)
+    num = (flag_b & bc).sum(axis=1)
+    den = bc.sum(axis=1)
+    valid = den > 0
+    if not valid.any():
+        return rate, thr, rate, rate
+    rates = num[valid] / den[valid]
+    alpha = (1 - ci) / 2
+    return rate, thr, float(np.percentile(rates, 100 * alpha)), float(np.percentile(rates, 100 * (1 - alpha)))
 
 
 def compute_metrics(
     results: list[SampleResult],
     underthinking_percentile: int = 10,
     overthinking_percentile: int = 75,
-    n_bootstrap: int = 2000,
+    n_bootstrap: int = N_BOOTSTRAP,
     underthinking_threshold: float | None = None,
     overthinking_threshold: float | None = None,
 ) -> EvalMetrics:
@@ -119,38 +202,33 @@ def compute_metrics(
     # on the matching side. Thresholds are computed once on the observed sample
     # and held fixed during the bootstrap — the reported CI is on the rate
     # conditional on the observed threshold.
-    underthinking_rate = None
-    underthinking_threshold = None
-    under_ci_low: float | None = None
-    under_ci_high: float | None = None
+    corrects_mask = np.array([r.correct for r in results], dtype=bool)
+
+    # Over/under-thinking rates. The threshold (per-split percentile of all token
+    # counts, or a fixed reference override) is itself estimated, so T2.3
+    # recomputes it inside each bootstrap replicate to fold its variance into the
+    # CI — unless an absolute override fixes it, where a Wilson interval on the
+    # clean proportion is exact. The n>=4 guard keeps the percentile stable; an
+    # override bypasses it (the threshold no longer depends on this sample size).
+    underthinking_rate = underthinking_threshold = None
+    under_ci_low = under_ci_high = None
     if correct_results and (n >= 4 or under_override is not None):
-        underthinking_threshold = (
-            under_override if under_override is not None
-            else float(np.percentile(all_tokens, underthinking_percentile))
+        underthinking_rate, underthinking_threshold, under_ci_low, under_ci_high = _thinking_rate(
+            all_tokens, corrects_mask, underthinking_percentile, under_override, "under",
+            n_bootstrap=n_bootstrap,
         )
-        under_flags = np.array(
-            [1.0 if r.n_tokens <= underthinking_threshold else 0.0 for r in correct_results]
-        )
-        underthinking_rate = float(under_flags.mean())
-        under_ci_low, under_ci_high = _bootstrap_ci(under_flags, n_bootstrap=n_bootstrap)
 
-    overthinking_rate = None
-    overthinking_threshold = None
-    over_ci_low: float | None = None
-    over_ci_high: float | None = None
+    overthinking_rate = overthinking_threshold = None
+    over_ci_low = over_ci_high = None
     if correct_results and (n >= 4 or over_override is not None):
-        overthinking_threshold = (
-            over_override if over_override is not None
-            else float(np.percentile(all_tokens, overthinking_percentile))
+        overthinking_rate, overthinking_threshold, over_ci_low, over_ci_high = _thinking_rate(
+            all_tokens, corrects_mask, overthinking_percentile, over_override, "over",
+            n_bootstrap=n_bootstrap,
         )
-        over_flags = np.array(
-            [1.0 if r.n_tokens > overthinking_threshold else 0.0 for r in correct_results]
-        )
-        overthinking_rate = float(over_flags.mean())
-        over_ci_low, over_ci_high = _bootstrap_ci(over_flags, n_bootstrap=n_bootstrap)
 
-    corrects = np.array([r.correct for r in results], dtype=float)
-    ci_low, ci_high = _bootstrap_ci(corrects, n_bootstrap=n_bootstrap)
+    # Accuracy CI: Wilson, not a percentile bootstrap on the binary vector (which
+    # collapses to [1, 1] at acc=1.0 — the capability_floor 6/6 case).
+    ci_low, ci_high = _wilson_ci(n_correct, n)
 
     pearson_val = None
     pearson_p = None
