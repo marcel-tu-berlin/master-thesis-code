@@ -64,3 +64,10 @@ eval:
     near: EleutherAI/hendrycks_math
     far: MMLU
     capability_floor: simple
+  # T2.6: graded 50-problem capability floor from the GSM8K test tail (disjoint
+  # from the id_split head[:200]) so a collapse/over-compression regression
+  # drops the floor below 1.0 instead of saturating on the 6 toy prompts.
+  capability_floor_dataset: openai/gsm8k
+  capability_floor_hf_split: test
+  capability_floor_limit: 50
+  capability_floor_take: tail

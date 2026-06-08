@@ -1,5 +1,5 @@
-experiment_id: e0-baseline-math-qwen-7b-vllm
-description: "accuracy-only GRPO baseline with vLLM fast inference (Qwen2-7B) — reference for vLLM throughput comparison"
+experiment_id: e2-multi-signal-cosine-qwen-7b-vllm
+description: "E2 multi-signal (cosine): accuracy + COSINE length reward + token_entropy (advantage-weighted) with vLLM fast inference (Qwen2-7B). Rebuilt on the correctness-coupled cosine length shape — the prior linear+schedule variant collapsed under per-group z-scoring (over-compressed to ~76 tok / 0.66 acc)."
 seed: 42
 
 model:
@@ -35,15 +35,32 @@ rewards:
     enabled: true
     weight: 1.0
   token_length:
-    enabled: false
+    enabled: true
+    weight: 0.5
+    # Cosine shape: correct -> prefer shorter, wrong -> prefer longer. Survives
+    # the per-group z-scoring that nullifies the linear penalty's alpha/schedule.
+    # max_len normalizes progress = min(n_tokens/max_len, 1); GSM8K trained
+    # completions sit ~150-250 tokens.
+    shape: cosine
+    max_len: 256
+    r_correct_short: 1.0
+    r_correct_long: 0.5
+    r_wrong_short: -1.0
+    r_wrong_long: -0.5
   token_entropy:
-    enabled: false
+    enabled: true
+    weight: 0.5
+    reward_scale: 0.1
+    fork_mask_top_frac: 0.2
   effort_proxy:
     enabled: false
 
 eval:
   temperature: 0.0
   do_sample: false
+  # Fixed over/under-thinking thresholds from the e0 baseline so thinking
+  # rates are comparable across the sweep (eval.metrics.load_reference_thresholds).
+  reference_run: runs/e0-baseline-math-qwen-7b-vllm
   id_split: openai/gsm8k
   id_split_hf_split: test
   ood_probes:
