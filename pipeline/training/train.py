@@ -29,6 +29,27 @@ class _RewardStepCallback(TrainerCallback):
             fn()
 
 
+class _ComponentMetricsCallback(TrainerCallback):
+    """Drain the composer's per-component reward metrics into the trainer log.
+
+    TRL only sees one composed reward function, so it logs a single
+    rewards/<composer>/{mean,std}; the individual accuracy/format/length/entropy
+    contributions are invisible. on_log fires just before TRL records a log
+    entry, so merging the popped metrics into `logs` lands them in
+    trainer_state.json's log_history next to reward/kl/loss — visible in the
+    training curves and inspectable post-hoc. Purely observational: it never
+    touches the composed reward or the advantage math.
+    """
+
+    def __init__(self, composer) -> None:
+        self.composer = composer
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if logs is None or not hasattr(self.composer, "pop_step_metrics"):
+            return
+        logs.update(self.composer.pop_step_metrics())
+
+
 def load_config(path: str) -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
@@ -154,8 +175,15 @@ def main() -> None:
     method = config.get("rewards", {}).get("compose_method", "advantage_weighted")
     reward_fn = build_composer(components, method)
 
+    callbacks = []
     step_fns = [fn.step for fn, _ in components if hasattr(fn, "step") and callable(fn.step)]
-    callbacks = [_RewardStepCallback(step_fns)] if step_fns else None
+    if step_fns:
+        callbacks.append(_RewardStepCallback(step_fns))
+    # The callback holds the same composer instance passed as the reward fn, so
+    # it drains the very buffer the trainer's reward calls populate (T2.1).
+    if hasattr(reward_fn, "pop_step_metrics"):
+        callbacks.append(_ComponentMetricsCallback(reward_fn))
+    callbacks = callbacks or None
 
     print(f"Experiment: {exp_id}")
     print(f"Reward components: {[type(fn).__name__ for fn, _ in components]}")

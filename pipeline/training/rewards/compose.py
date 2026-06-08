@@ -1,6 +1,8 @@
 from typing import Callable
 
-import torch
+# torch is imported lazily inside AdvantageWeightedComposer.__call__ so this
+# module can be imported (and the torch-free NaiveSumComposer / metric draining
+# exercised) without pulling the full deep-learning stack.
 
 
 def _group_indices(prompts) -> list[list[int]]:
@@ -28,6 +30,21 @@ def _group_indices(prompts) -> list[list[int]]:
     return groups
 
 
+def _drain_step_metrics(composer) -> dict:
+    """Average a composer's buffered per-step component metrics across this
+    step's reward-fn calls, then clear the buffer. Shared by both composers.
+    """
+    buf = composer._step_metrics
+    if not buf:
+        return {}
+    agg: dict[str, float] = {}
+    for key in buf[0]:
+        vals = [m[key] for m in buf if key in m]
+        agg[key] = sum(vals) / len(vals)
+    composer._step_metrics = []
+    return agg
+
+
 class AdvantageWeightedComposer:
     """
     Normalizes each reward component's advantages per prompt-group before combining.
@@ -48,12 +65,18 @@ class AdvantageWeightedComposer:
     def __init__(self, components: list[tuple[Callable, float]]) -> None:
         self.components = components
         self.__name__ = "advantage_weighted_composer"
+        # Per-step diagnostics, drained by a TrainerCallback (T2.1). Purely
+        # observational — never read back into the composed reward.
+        self._step_metrics: list[dict] = []
 
     def __call__(self, prompts, completions, **kwargs) -> list[float]:
+        import torch
+
         n = len(completions)
         total = [0.0] * n
         groups = _group_indices(prompts)
 
+        call_metrics: dict[str, float] = {}
         for fn, weight in self.components:
             raw = fn(prompts, completions, **kwargs)
             r = torch.tensor(raw, dtype=torch.float32)
@@ -75,10 +98,21 @@ class AdvantageWeightedComposer:
                     # weight ignored.
                     continue
                 normalized[slice_idx] = (sub - sub.mean()) / std
-            for i, v in enumerate(normalized.tolist()):
-                total[i] += weight * v
+            # weight * normalized is exactly the old `weight * v` per element —
+            # the composed reward is unchanged; we only also record diagnostics.
+            contribution = weight * normalized
+            for i, v in enumerate(contribution.tolist()):
+                total[i] += v
+            name = type(fn).__name__
+            call_metrics[f"reward/{name}/raw_mean"] = float(r.mean())
+            call_metrics[f"reward/{name}/raw_std"] = float(r.std(unbiased=False))
+            call_metrics[f"reward/{name}/contrib_l1"] = float(contribution.abs().mean())
 
+        self._step_metrics.append(call_metrics)
         return total
+
+    def pop_step_metrics(self) -> dict:
+        return _drain_step_metrics(self)
 
 
 class NaiveSumComposer:
@@ -89,17 +123,30 @@ class NaiveSumComposer:
     def __init__(self, components: list[tuple[Callable, float]]) -> None:
         self.components = components
         self.__name__ = "naive_sum_composer"
+        self._step_metrics: list[dict] = []
 
     def __call__(self, prompts, completions, **kwargs) -> list[float]:
         n = len(completions)
         total = [0.0] * n
 
+        call_metrics: dict[str, float] = {}
         for fn, weight in self.components:
             raw = fn(prompts, completions, **kwargs)
             for i in range(n):
                 total[i] += weight * raw[i]
+            if n:
+                mean = sum(raw) / n
+                var = sum((x - mean) ** 2 for x in raw) / n
+                name = type(fn).__name__
+                call_metrics[f"reward/{name}/raw_mean"] = float(mean)
+                call_metrics[f"reward/{name}/raw_std"] = float(var ** 0.5)
+                call_metrics[f"reward/{name}/contrib_l1"] = float(sum(abs(weight * x) for x in raw) / n)
 
+        self._step_metrics.append(call_metrics)
         return total
+
+    def pop_step_metrics(self) -> dict:
+        return _drain_step_metrics(self)
 
 
 def build_composer(
