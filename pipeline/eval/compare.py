@@ -9,8 +9,11 @@ Usage:
 import argparse
 import json
 import os
+import re
 
 import numpy as np
+
+from eval.metrics import N_BOOTSTRAP
 
 
 def _load_reports(run_dirs: list[str]) -> list[dict]:
@@ -134,6 +137,27 @@ def _reward_family(exp_id: str, model_slug: str | None) -> str:
         if exp_id.endswith(suffix):
             return exp_id[: -len(suffix)]
     return exp_id
+
+
+_SEED_SUFFIX_RE = re.compile(r"-s\d+$")
+
+
+def _strip_seed_suffix(exp_id: str) -> str:
+    """Drop a trailing -s<seed> tag added by the multi-seed batch harness."""
+    return _SEED_SUFFIX_RE.sub("", exp_id)
+
+
+def _family_key(exp_id: str, model_slug: str | None) -> str:
+    """Reward-stack identity, independent of training seed and runtime variant.
+
+    Strips the -s<seed> replicate tag and the -vllm runtime suffix, then the
+    model slug, so every seed of one reward stack collapses to a single family
+    (the grouping key for the seed-as-replicate hierarchical bootstrap).
+    """
+    base = _strip_seed_suffix(exp_id)
+    if base.endswith("-vllm"):
+        base = base[: -len("-vllm")]
+    return _reward_family(base, model_slug)
 
 
 def _short_label(exp_id: str, model_slug: str | None) -> str:
@@ -363,63 +387,119 @@ def _plot_compare_efficiency(
     print(f"Plot saved: {out_path}")
 
 
-def _paired_bootstrap_delta(
-    samples_a: list[dict],
-    samples_b: list[dict],
-    n_bootstrap: int = 2000,
+def _multiseed_bootstrap_delta(
+    family_a: list,
+    family_b: list,
+    n_bootstrap: int = N_BOOTSTRAP,
     ci: float = 0.95,
 ) -> tuple[float, float, float, float] | None:
-    """Paired bootstrap on per-sample correctness vectors.
+    """Two-level (hierarchical) paired bootstrap on per-sample correctness.
+
+    Each family is a list of per-seed correctness vectors (one per training
+    replicate), all of length N. The eval sample order is fixed independent of
+    the training seed, so position i is the same prompt across every run — that
+    is what makes the comparison paired.
 
     Returns (delta, ci_low, ci_high, p_value) for accuracy(A) − accuracy(B),
-    or None when pairing is not possible (length mismatch or missing data).
+    where a family's accuracy is the mean over its seeds. None on a length
+    mismatch (pairing impossible) or empty input.
 
-    The test resamples *indices* with replacement and recomputes the delta on
-    the resampled vector. Pairing preserves the per-sample correlation between
-    experiments (both saw the same prompts), so the resulting CI is tighter
-    than an unpaired test would give and reflects within-prompt variance.
+    Per replicate: (i) resample the eval samples once, shared by A and B (the
+    within-run / paired level); (ii) resample each family's seeds with
+    replacement, independently — A and B are independent training replicates,
+    so there is no seed-level pairing; then recompute the family-mean delta.
+    With one seed per family the outer resample is a no-op and this reduces
+    exactly to the single-run paired bootstrap; with ≥2 seeds it folds in the
+    between-training-seed variance a within-run bootstrap cannot see (T1.1).
 
-    The two-sided p-value is the bootstrap-percentile version: `2 × min(P(Δ ≤ 0),
-    P(Δ ≥ 0))`, capped at 1.0. It answers "is zero a plausible value for the
-    paired difference under resampling".
-
-    Deterministic via a fixed RNG seed so the comparison report is reproducible.
+    The two-sided p-value is the bootstrap percentile `2 × min(P(Δ ≤ 0),
+    P(Δ ≥ 0))`, capped at 1.0. Deterministic via a fixed RNG seed.
     """
-    if not samples_a or not samples_b:
+    if not family_a or not family_b:
         return None
-    if len(samples_a) != len(samples_b):
+    lengths = {len(v) for v in family_a} | {len(v) for v in family_b}
+    if len(lengths) != 1:
+        return None
+    n = lengths.pop()
+    if n == 0:
         return None
 
-    a = np.array([1.0 if s.get("correct") else 0.0 for s in samples_a])
-    b = np.array([1.0 if s.get("correct") else 0.0 for s in samples_b])
-    delta = float(a.mean() - b.mean())
+    MA = np.asarray(family_a, dtype=float)   # (kA, n)
+    MB = np.asarray(family_b, dtype=float)   # (kB, n)
+    kA, kB = MA.shape[0], MB.shape[0]
+    delta = float(MA.mean() - MB.mean())
 
     rng = np.random.default_rng(42)
-    n = len(a)
-    boot = np.empty(n_bootstrap)
-    for i in range(n_bootstrap):
-        idx = rng.integers(0, n, size=n)
-        boot[i] = a[idx].mean() - b[idx].mean()
+    sample_idx = rng.integers(0, n, size=(n_bootstrap, n))   # shared inner resample
+
+    # Per-(seed, replicate) mean accuracy on each replicate's resampled samples.
+    # MA[:, sample_idx] -> (kA, B, n); mean over samples -> (kA, B).
+    SA = MA[:, sample_idx].mean(axis=2)
+    SB = MB[:, sample_idx].mean(axis=2)
+
+    # Outer level: resample seeds with replacement, independently per family.
+    rows = np.arange(n_bootstrap)[:, None]
+    seed_idx_a = rng.integers(0, kA, size=(n_bootstrap, kA))
+    seed_idx_b = rng.integers(0, kB, size=(n_bootstrap, kB))
+    aval = SA.T[rows, seed_idx_a].mean(axis=1)
+    bval = SB.T[rows, seed_idx_b].mean(axis=1)
+    boot = aval - bval
 
     alpha = (1 - ci) / 2
     lo = float(np.percentile(boot, 100 * alpha))
     hi = float(np.percentile(boot, 100 * (1 - alpha)))
-    # Two-sided p via bootstrap percentile.
     p_le = float((boot <= 0).mean())
     p_ge = float((boot >= 0).mean())
     p = min(1.0, 2.0 * min(p_le, p_ge))
     return delta, lo, hi, p
 
 
-def _write_compare_pairwise(reports: list[dict], out_dir: str) -> None:
-    """Pairwise paired-bootstrap accuracy tests on the ID split.
+def _correct_pvalues(pvals, method: str = "bh") -> np.ndarray:
+    """Adjust a flat list of p-values for multiple comparisons.
 
-    Writes a markdown matrix of Δ-accuracy (A − B) with 95% CI and p-value
-    for every ordered pair of experiments where both reports carry per-sample
-    series of equal length. Pairs without matched samples are reported as "—"
-    with the reason (missing samples, length mismatch).
+    none  -> identity (raw p-values)
+    bh    -> Benjamini-Hochberg FDR q-values (scipy.stats.false_discovery_control)
+    holm  -> Holm-Bonferroni FWER step-down adjusted p-values
+
+    The pairwise matrix runs N·(N-1)/2 tests; bolding each at raw p<0.05 makes
+    the family-wise false-positive rate ~50-66% at N=6-7. Correcting across the
+    deduped unordered pairs restores calibrated significance.
     """
-    rows_with_samples: list[tuple[str, list[dict]]] = []
+    p = np.asarray(pvals, dtype=float)
+    if p.size == 0 or method == "none":
+        return p
+    if method == "bh":
+        from scipy.stats import false_discovery_control
+        return np.asarray(false_discovery_control(p, method="bh"), dtype=float)
+    if method == "holm":
+        m = p.size
+        adj = np.empty(m)
+        running = 0.0
+        for rank, idx in enumerate(np.argsort(p)):
+            running = max(running, min(1.0, (m - rank) * float(p[idx])))
+            adj[idx] = running
+        return adj
+    raise ValueError(f"Unknown correction method: {method!r}. Choose none | bh | holm.")
+
+
+def _write_compare_pairwise(
+    reports: list[dict],
+    out_dir: str,
+    correction: str = "bh",
+    n_bootstrap: int = N_BOOTSTRAP,
+) -> None:
+    """Pairwise hierarchical-bootstrap accuracy comparison on the ID split.
+
+    Runs are grouped into reward families by (reward_family, model_slug); the
+    training seed is the replicate. Each unordered family pair gets a two-level
+    bootstrap Δ-accuracy (resample seeds, then eval samples) with multiple-
+    comparisons control across all pairs (default Benjamini-Hochberg). Cells are
+    bold at q<0.05 (or raw p<0.05 when correction=none). Single-seed families
+    fall back to the single-run paired bootstrap and are labelled n_seeds=1.
+    """
+    from collections import Counter
+
+    groups: dict[tuple, dict] = {}
     skipped: list[str] = []
     for r in reports:
         exp_id = r.get("experiment_id", os.path.basename(r["_run_dir"]))
@@ -428,51 +508,101 @@ def _write_compare_pairwise(reports: list[dict], out_dir: str) -> None:
         if not samples:
             skipped.append(exp_id)
             continue
-        rows_with_samples.append((exp_id, samples))
+        slug = r.get("model_slug")
+        fam = _family_key(exp_id, slug)
+        vec = np.array([1.0 if s.get("correct") else 0.0 for s in samples])
+        g = groups.setdefault((fam, slug), {"label": fam, "slug": slug, "seeds": [], "vecs": []})
+        g["seeds"].append(r.get("seed"))
+        g["vecs"].append(vec)
 
-    lines = ["# Pairwise paired-bootstrap comparison (ID split)", ""]
+    out_path = os.path.join(out_dir, "compare_pairwise.md")
+    lines = ["# Pairwise hierarchical-bootstrap comparison (ID split)", ""]
     if skipped:
         lines.append(
-            "_Skipped (no per-sample series in eval_report.json — rerun eval to "
-            f"populate): {', '.join(skipped)}_"
+            "_Skipped (no per-sample series in eval_report.json — error/skipped "
+            f"stub, or a pre-samples run): {', '.join(skipped)}_"
         )
         lines.append("")
 
-    if len(rows_with_samples) < 2:
-        lines.append("_Need at least two experiments with per-sample series to compare._")
-        out_path = os.path.join(out_dir, "compare_pairwise.md")
+    keys = sorted(groups, key=lambda k: (k[0] or "", k[1] or ""))
+    fams = [groups[k] for k in keys]
+
+    if len(fams) < 2:
+        lines.append("_Need at least two reward families with per-sample series to compare._")
         with open(out_path, "w") as f:
             f.write("\n".join(lines) + "\n")
         print(f"Pairwise comparison written: {out_path}")
         return
 
+    label_counts = Counter(f["label"] for f in fams)
+
+    def _disp(f):
+        return f["label"] if label_counts[f["label"]] == 1 else f"{f['label']}@{f['slug']}"
+
+    multi = any(len(f["vecs"]) > 1 for f in fams)
     lines.append(
-        "Each cell is Δ-accuracy = row − column on matched samples, with the "
-        "95% bootstrap CI and a two-sided p-value. Bold p < 0.05."
+        "Grouped by reward family; training seed = replicate. "
+        + ("Two-level (seed + sample) bootstrap" if multi else "Single-run paired bootstrap (n_seeds=1)")
+        + f", {n_bootstrap:,} replicates, "
+        + (f"{correction.upper()} multiple-comparisons correction." if correction != "none"
+           else "no multiple-comparisons correction.")
     )
     lines.append("")
-    header = "| A \\ B | " + " | ".join(eid for eid, _ in rows_with_samples) + " |"
-    sep = "|" + "---|" * (len(rows_with_samples) + 1)
+    lines.append("Families:")
+    for f in fams:
+        seeds = ", ".join(str(s) for s in sorted(x for x in f["seeds"] if x is not None))
+        lines.append(
+            f"- **{_disp(f)}** (model `{f['slug']}`): n_seeds={len(f['vecs'])}"
+            + (f" (seeds {seeds})" if seeds else "")
+        )
+    lines.append("")
+    lines.append(
+        "Each cell is Δ-accuracy = row − column on matched eval samples, with the "
+        "95% bootstrap CI and a two-sided p-value"
+        + ("" if correction == "none" else f" plus the {correction.upper()}-adjusted q-value")
+        + f". Bold = {'q' if correction != 'none' else 'p'} < 0.05."
+    )
+    lines.append("")
+
+    # Compute every unordered-pair delta, then correct across the collected p's.
+    pair_res: dict[tuple, tuple] = {}
+    pvals: list[float] = []
+    pidx: list[tuple] = []
+    for i in range(len(fams)):
+        for j in range(i + 1, len(fams)):
+            res = _multiseed_bootstrap_delta(fams[i]["vecs"], fams[j]["vecs"], n_bootstrap=n_bootstrap)
+            pair_res[(i, j)] = res
+            if res is not None:
+                pvals.append(res[3])
+                pidx.append((i, j))
+    qcorr = _correct_pvalues(pvals, correction)
+    qmap = {pidx[k]: float(qcorr[k]) for k in range(len(pidx))}
+
+    def _cell(i, j):
+        if i == j:
+            return "—"
+        a, b = (i, j) if i < j else (j, i)
+        res = pair_res[(a, b)]
+        if res is None:
+            return "(length mismatch)"
+        d, lo, hi, p = res
+        if i > j:                       # mirror: Δ(i,j) = −Δ(j,i); CI flips and negates
+            d, lo, hi = -d, -hi, -lo
+        q = qmap.get((a, b))
+        sig = q if correction != "none" else p
+        sign = "+" if d >= 0 else ""
+        qstr = "" if correction == "none" or q is None else f" (q={q:.3f})"
+        core = f"{sign}{d:.4f} [{lo:+.4f}, {hi:+.4f}] p={p:.3f}{qstr}"
+        return f"**{core}**" if (sig is not None and sig < 0.05) else core
+
+    header = "| A \\ B | " + " | ".join(_disp(f) for f in fams) + " |"
+    sep = "|" + "---|" * (len(fams) + 1)
     lines.append(header)
     lines.append(sep)
-
-    for a_id, a_samples in rows_with_samples:
-        cells = [a_id]
-        for b_id, b_samples in rows_with_samples:
-            if a_id == b_id:
-                cells.append("—")
-                continue
-            result = _paired_bootstrap_delta(a_samples, b_samples)
-            if result is None:
-                cells.append("(length mismatch)")
-                continue
-            d, lo, hi, p = result
-            sign = "+" if d >= 0 else ""
-            p_str = f"**p={p:.3f}**" if p < 0.05 else f"p={p:.3f}"
-            cells.append(f"{sign}{d:.4f} [{lo:+.4f}, {hi:+.4f}] {p_str}")
+    for i, f in enumerate(fams):
+        cells = [_disp(f)] + [_cell(i, j) for j in range(len(fams))]
         lines.append("| " + " | ".join(cells) + " |")
 
-    out_path = os.path.join(out_dir, "compare_pairwise.md")
     with open(out_path, "w") as f:
         f.write("\n".join(lines) + "\n")
     print(f"Pairwise comparison written: {out_path}")
@@ -522,6 +652,9 @@ def main() -> None:
                         help="Plot label style. 'short' strips model slug + '-vllm' and disambiguates "
                              "collisions with @<model>. 'none' suppresses inline labels (rely on legend). "
                              "Default: short.")
+    parser.add_argument("--correction", choices=["none", "bh", "holm"], default="bh",
+                        help="Multiple-comparisons correction for the pairwise matrix (default: bh = "
+                             "Benjamini-Hochberg FDR). 'holm' = Holm-Bonferroni FWER; 'none' = raw p.")
     args = parser.parse_args()
 
     reports = _load_reports(args.runs)
@@ -536,7 +669,7 @@ def main() -> None:
     _plot_compare_accuracy(reports, out_dir, label_mode=args.label_mode)
     _plot_compare_efficiency(reports, out_dir, facet_by=facet, label_mode=args.label_mode)
     _write_compare_summary(reports, out_dir)
-    _write_compare_pairwise(reports, out_dir)
+    _write_compare_pairwise(reports, out_dir, correction=args.correction)
 
 
 if __name__ == "__main__":
