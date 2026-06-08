@@ -21,67 +21,101 @@ def run_eval(
     raw base model. Artefacts are written to runs/<exp>/baseline/ instead of
     the run root so a trained assessment can coexist with its before-finetune
     counterpart.
+
+    A crashed or partial eval always leaves a stub eval_report.json behind
+    (status:'error') so the run still appears in auto-compare instead of
+    silently vanishing; the exception is then re-raised so the subprocess
+    still exits non-zero and the batch marks the phase failed.
     """
-    from unsloth import FastLanguageModel
-    from training.registry import get_model_config
-
-    model_cfg = get_model_config(config["model"]["slug"])
-    max_seq = config["model"].get("max_seq_length", model_cfg["max_seq_length"])
-
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=model_cfg["model_name"],
-        max_seq_length=max_seq,
-        load_in_4bit=config["model"].get("load_in_4bit", model_cfg["load_in_4bit"]),
-    )
-    if baseline:
-        print(f"Baseline mode: assessing base model {model_cfg['model_name']} (no LoRA)")
-    else:
-        print(f"Loading checkpoint: {checkpoint_dir}")
-        from peft import PeftModel
-        model = PeftModel.from_pretrained(model, checkpoint_dir)
-    domain.build_chat_template(tokenizer)
-
-    FastLanguageModel.for_inference(model)
-
-    eval_cfg = config.get("eval", {})
-    smoke = config.get("_smoke", False)
-    # Config wins over the run_eval default; CLI override (--max_new_tokens
-    # not equal to default) is handled by the caller in main().
-    cfg_budget = eval_cfg.get("max_new_tokens")
-    if cfg_budget is not None:
-        max_new_tokens = int(cfg_budget)
-    ood_results = run_ood_probes(model, tokenizer, domain, config, eval_cfg, max_new_tokens, smoke=smoke)
-
+    # Computed up front so the except below can drop a stub in the right place
+    # (run root, or the baseline/ subdir) regardless of where the failure hit.
     output_dir = os.path.join(run_dir, "baseline") if baseline else run_dir
     os.makedirs(output_dir, exist_ok=True)
 
-    # Baseline reports are themselves "before" measurements — comparing them
-    # against another e0-* run would be nonsense, so suppress sibling search.
-    report = generate_report(
-        config,
-        ood_results,
-        run_dir,
-        output_dir=output_dir,
-        skip_baseline_compare=baseline,
-    )
-
     try:
-        from eval.plots import plot_all
-        # plot_training_curves still reads from run_dir (no trainer state in
-        # baseline mode — that plot bails silently).
-        plot_all(run_dir, ood_results, report, output_dir)
+        from unsloth import FastLanguageModel
+        from training.registry import get_model_config
+
+        model_cfg = get_model_config(config["model"]["slug"])
+        max_seq = config["model"].get("max_seq_length", model_cfg["max_seq_length"])
+
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=model_cfg["model_name"],
+            max_seq_length=max_seq,
+            load_in_4bit=config["model"].get("load_in_4bit", model_cfg["load_in_4bit"]),
+        )
+        if baseline:
+            print(f"Baseline mode: assessing base model {model_cfg['model_name']} (no LoRA)")
+        else:
+            print(f"Loading checkpoint: {checkpoint_dir}")
+            from peft import PeftModel
+            model = PeftModel.from_pretrained(model, checkpoint_dir)
+        domain.build_chat_template(tokenizer)
+
+        FastLanguageModel.for_inference(model)
+
+        eval_cfg = config.get("eval", {})
+        smoke = config.get("_smoke", False)
+        # Config wins over the run_eval default; CLI override (--max_new_tokens
+        # not equal to default) is handled by the caller in main().
+        cfg_budget = eval_cfg.get("max_new_tokens")
+        if cfg_budget is not None:
+            max_new_tokens = int(cfg_budget)
+        ood_results = run_ood_probes(model, tokenizer, domain, config, eval_cfg, max_new_tokens, smoke=smoke)
+
+        # Baseline reports are themselves "before" measurements — comparing them
+        # against another e0-* run would be nonsense, so suppress sibling search.
+        report = generate_report(
+            config,
+            ood_results,
+            run_dir,
+            output_dir=output_dir,
+            skip_baseline_compare=baseline,
+        )
+
+        try:
+            from eval.plots import plot_all
+            # plot_training_curves still reads from run_dir (no trainer state in
+            # baseline mode — that plot bails silently).
+            plot_all(run_dir, ood_results, report, output_dir)
+        except Exception as exc:
+            # Per-plot failures inside plot_all are already named by plots.py;
+            # this outer catch only fires on top-level failures (import, mkdir,
+            # etc.), so include the exception type to make those easier to triage.
+            print(f"Warning: plot_all failed before per-plot dispatch: {type(exc).__name__}: {exc}")
+
+        report_path = os.path.join(output_dir, "eval_report.json")
+        with open(report_path, "w") as f:
+            json.dump(report, f, indent=2)
+        print(f"Report written to {report_path}")
+
+        return report
     except Exception as exc:
-        # Per-plot failures inside plot_all are already named by plots.py;
-        # this outer catch only fires on top-level failures (import, mkdir,
-        # etc.), so include the exception type to make those easier to triage.
-        print(f"Warning: plot_all failed before per-plot dispatch: {type(exc).__name__}: {exc}")
+        _write_stub_report(config, output_dir, status="error", error=f"{type(exc).__name__}: {exc}")
+        raise
 
-    report_path = os.path.join(output_dir, "eval_report.json")
-    with open(report_path, "w") as f:
-        json.dump(report, f, indent=2)
-    print(f"Report written to {report_path}")
 
-    return report
+def _write_stub_report(config: dict, output_dir: str, status: str, error: str | None = None) -> None:
+    """Write a minimal eval_report.json so a failed/partial/skipped eval still
+    leaves a discoverable artifact. `status` is 'error' (crashed) or 'skipped'
+    (never ran). Mirrors the key shape of a real report so consumers can read
+    experiment_id / model_slug / seed without special-casing.
+    """
+    stub = {
+        "experiment_id": config.get("experiment_id"),
+        "model_slug": (config.get("model") or {}).get("slug"),
+        "seed": config.get("seed", 42),
+        "compose_method": (config.get("rewards") or {}).get("compose_method", "advantage_weighted"),
+        "status": status,
+        "results": {},
+    }
+    if error:
+        stub["error"] = error
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, "eval_report.json")
+    with open(path, "w") as f:
+        json.dump(stub, f, indent=2)
+    print(f"⚠ Wrote stub eval_report.json (status={status}) to {path}")
 
 
 def main() -> None:

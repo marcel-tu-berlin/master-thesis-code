@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
 import os
 import subprocess
 import sys
@@ -60,18 +61,35 @@ class ExperimentResult:
     phases: dict = field(default_factory=dict)   # phase -> PhaseResult
 
 
-def _read_config_header(path: str) -> tuple[str, str]:
-    """Return (experiment_id, model_slug) from a config YAML.
-
-    Kept cheap — no model load, no validation; the subprocess will do that.
-    """
+def _load_config(path: str) -> dict:
+    """Load a config YAML. No model load, no validation — the subprocess does that."""
     with open(path) as f:
-        cfg = yaml.safe_load(f) or {}
-    exp_id = cfg.get("experiment_id")
-    slug = (cfg.get("model") or {}).get("slug")
-    if not exp_id or not slug:
-        raise ValueError(f"{path}: missing experiment_id or model.slug")
-    return exp_id, slug
+        return yaml.safe_load(f) or {}
+
+
+# Per-seed configs are materialized here (outside the source configs/ tree and
+# outside any run dir, so they never trip train.py's clobber guard on
+# runs/<exp>/config.yaml). The path is deterministic per exp_id so a resumed
+# batch re-points at the same file rather than churning new ones.
+_SEED_CONFIG_DIR = os.path.join("runs", "_seed_configs")
+
+
+def _materialize_seed_config(base_cfg: dict, seed: int, exp_id: str) -> str:
+    """Freeze a per-seed variant of `base_cfg` and return its path.
+
+    Subprocess CLIs (training.train / eval.runner) only accept --config, so a
+    seed / experiment_id override has to travel through a real config file
+    rather than argv. Only the two top-level scalars change; the run dir keys
+    on experiment_id, so a distinct suffixed id gives each seed its own dir.
+    """
+    cfg = dict(base_cfg)          # shallow copy: only top-level scalars change
+    cfg["seed"] = int(seed)
+    cfg["experiment_id"] = exp_id
+    os.makedirs(_SEED_CONFIG_DIR, exist_ok=True)
+    out = os.path.join(_SEED_CONFIG_DIR, f"{exp_id}.yaml")
+    with open(out, "w") as f:
+        yaml.dump(cfg, f, sort_keys=False)
+    return out
 
 
 def _expand_configs(patterns: list[str]) -> list[str]:
@@ -148,6 +166,40 @@ def _eval_report_exists(exp_id: str) -> bool:
 
 def _baseline_report_exists(exp_id: str) -> bool:
     return os.path.isfile(os.path.join(_run_dir(exp_id), "baseline", "eval_report.json"))
+
+
+def _write_eval_stub(config_path: str, status: str, note: str = "") -> bool:
+    """Backstop for T0.5: guarantee runs/<exp>/eval_report.json exists even when
+    the eval phase produced none — eval skipped before the subprocess ran (no
+    checkpoint / train failed), or a hard crash (OOM-kill) that killed runner.py
+    before it wrote its own error stub. Never overwrites an existing report
+    (runner.py's stub, or a real one). Returns True if it wrote a stub.
+    """
+    try:
+        cfg = _load_config(config_path)
+    except Exception:
+        return False
+    exp_id = cfg.get("experiment_id")
+    if not exp_id:
+        return False
+    path = os.path.join(_run_dir(exp_id), "eval_report.json")
+    if os.path.exists(path):
+        return False
+    stub = {
+        "experiment_id": exp_id,
+        "model_slug": (cfg.get("model") or {}).get("slug"),
+        "seed": cfg.get("seed", 42),
+        "compose_method": (cfg.get("rewards") or {}).get("compose_method", "advantage_weighted"),
+        "status": status,
+        "results": {},
+    }
+    if note:
+        stub["note"] = note
+    os.makedirs(_run_dir(exp_id), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(stub, f, indent=2)
+    print(f"  Wrote stub eval_report.json (status={status}) for {exp_id}: {note}")
+    return True
 
 
 def _ensure_baseline_symlink(target_run_dir: str, source_baseline_dir: str) -> bool:
@@ -351,6 +403,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--eval", action="store_true", help="Run eval.runner per config")
     parser.add_argument("--baseline", action="store_true",
                         help="Run baseline (no-LoRA) eval per config; deduplicated by model slug")
+    parser.add_argument("--seeds", nargs="+", type=int, default=None,
+                        help="Replicate each config across these training seeds (e.g. --seeds 42 43 44). "
+                             "Each seed gets its own run dir <experiment_id>-s<seed>; baselines stay "
+                             "deduplicated by model slug (seeds share one base-model baseline). "
+                             "Omit for a single run at the config's own seed.")
     parser.add_argument("--smoke", action="store_true", help="Pass --smoke to every subprocess")
     parser.add_argument("--force", action="store_true",
                         help="Re-run phases even if their output already exists (train passes --overwrite)")
@@ -395,19 +452,35 @@ def main() -> None:
     for c in configs:
         print(f"  {c}")
     print(f"Phases (in order): {', '.join(enabled)}")
+    if args.seeds:
+        print(f"Seeds: {args.seeds}  ({len(configs)} base config(s) × {len(args.seeds)} = "
+              f"{len(configs) * len(args.seeds)} runs)")
     print(f"Retries per phase: {args.retries}; smoke={args.smoke}; force={args.force}")
     print("")
 
     # Pre-read all config headers so a single bad file fails fast, before any
-    # GPU work starts.
+    # GPU work starts, and expand into one (config_path, exp_id, slug) entry per
+    # (config, seed). Without --seeds this is one entry per config at its own
+    # seed — unchanged behaviour. With --seeds, each seed gets a materialized
+    # config and a suffixed experiment_id / run dir; the shared model.slug keeps
+    # baseline dedup working (seeds reuse one base-model baseline).
     headers: list[tuple[str, str, str]] = []
     for path in configs:
         try:
-            exp_id, slug = _read_config_header(path)
+            base_cfg = _load_config(path)
+            base_id = base_cfg.get("experiment_id")
+            slug = (base_cfg.get("model") or {}).get("slug")
+            if not base_id or not slug:
+                raise ValueError("missing experiment_id or model.slug")
         except Exception as exc:
             print(f"✗ Could not read {path}: {exc}")
             sys.exit(2)
-        headers.append((path, exp_id, slug))
+        if args.seeds:
+            for s in args.seeds:
+                sid = f"{base_id}-s{s}"
+                headers.append((_materialize_seed_config(base_cfg, s, sid), sid, slug))
+        else:
+            headers.append((path, base_id, slug))
 
     results: list[ExperimentResult] = []
     baseline_owners: dict[str, str] = {}      # slug -> exp_id that owns the canonical baseline dir
@@ -448,6 +521,7 @@ def main() -> None:
             # than launching it pointlessly.
             if args.eval and r.phases[PHASE_TRAIN].status == STATUS_FAIL:
                 r.phases[PHASE_EVAL] = PhaseResult(status=STATUS_SKIP, note="train failed")
+                _write_eval_stub(path, status="skipped", note="train failed")
                 continue
 
         if args.eval:
@@ -461,6 +535,16 @@ def main() -> None:
                 # pre-existing checkpoint. Otherwise eval.runner would crash.
                 require_checkpoint=not args.train,
             )
+            # T0.5 backstop: if the eval phase produced no report (skipped before
+            # the subprocess ran, or a hard crash that beat runner.py's own stub),
+            # drop one so the run still shows up in auto-compare.
+            pe = r.phases[PHASE_EVAL]
+            if pe.status in (STATUS_SKIP, STATUS_FAIL) and not _eval_report_exists(exp_id):
+                _write_eval_stub(
+                    path,
+                    status=("error" if pe.status == STATUS_FAIL else "skipped"),
+                    note=pe.note,
+                )
 
     total = time.time() - t_start
 
