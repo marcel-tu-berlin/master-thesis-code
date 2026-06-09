@@ -38,11 +38,12 @@ def _build_numeric(domain, runner, training_cfg, cfg):
 
 
 def _build_token_length(domain, runner, training_cfg, cfg):
-    # `shape: cosine` gives the correctness-coupled Wu/Yeo length reward, which
-    # survives the advantage_weighted z-scoring that nullifies the linear
-    # penalty's alpha/schedule. `shape: linear` (default) keeps the original
-    # penalty for naive_sum use.
-    shape = cfg.get("shape", "linear")
+    # `shape: cosine` (default) gives the correctness-coupled Wu/Yeo length
+    # reward, which survives the advantage_weighted z-scoring that nullifies the
+    # linear penalty's alpha/schedule. `shape: linear` opts back into the original
+    # global -alpha*n penalty — only meaningful under naive_sum (where alpha is
+    # live) or as the linear-collapse ablation; set it explicitly.
+    shape = cfg.get("shape", "cosine")
     if shape == "cosine":
         return CosineLengthReward(
             runner.tokenizer,

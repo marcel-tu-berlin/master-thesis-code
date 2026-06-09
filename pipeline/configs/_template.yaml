@@ -1,13 +1,13 @@
 # GRPO Pipeline — Config Template
 # All fields shown; most have defaults. Copy + modify for each experiment.
 
-experiment_id: e0-baseline-math-1.5b
-description: "accuracy-only GRPO baseline, math domain, 1.5B"
+experiment_id: eX-my-experiment-qwen-7b
+description: "accuracy-only GRPO baseline, math domain, Qwen2-7B"
 seed: 42
-baseline_id: null  # explicit baseline experiment_id for eval comparison (e.g. e0-baseline-math-1.5b)
+baseline_id: null  # explicit baseline experiment_id for eval comparison (e.g. e0-baseline-math-qwen-7b)
 
 model:
-  slug: qwen-1.5b               # key into training/registry.py
+  slug: qwen-7b                 # key into training/registry.py
   lora_r: 16
   lora_alpha: 32                # optional override; defaults to lora_r * 2
   load_in_4bit: true
@@ -53,6 +53,15 @@ rewards:
   token_length:
     enabled: false
     weight: 1.0
+    shape: cosine               # cosine (default, correctness-coupled) | linear
+    # cosine knobs (Wu/Yeo): correct -> prefer shorter, wrong -> prefer longer.
+    # Survives advantage_weighted per-group z-scoring.
+    max_len: 256                # length normalizer: progress = min(n_tokens/max_len, 1)
+    r_correct_short: 1.0        # correct & short -> highest reward
+    r_correct_long: 0.5
+    r_wrong_short: -1.0         # wrong & short -> most penalized
+    r_wrong_long: -0.5
+    # linear knobs (shape: linear only; both inert under advantage_weighted):
     alpha: 0.001                # penalty scale per token
     schedule: constant          # constant | cosine
 

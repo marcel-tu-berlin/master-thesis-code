@@ -97,6 +97,10 @@ def warn_inert_scalars(rewards_cfg: dict, compose_method: str) -> list[str]:
     lever = "Use `weight`, the signal shape, or compose_method: naive_sum instead."
 
     tl = rc.get("token_length") or {}
+    # Warn-path default is "linear" even though the build-path default (registry)
+    # is "cosine": a config that sets alpha/schedule without a shape is expressing
+    # linear-tuning intent, and those knobs are inert here — so flag them. An
+    # explicit `shape: cosine` is respected and stays quiet.
     if tl.get("enabled") and tl.get("shape", "linear") == "linear":
         if "alpha" in tl and tl["alpha"] != 0.001:
             warnings.append(
