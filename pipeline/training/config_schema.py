@@ -72,68 +72,87 @@ _NUMERIC_COERCIONS = {
 
 
 def warn_inert_scalars(rewards_cfg: dict, compose_method: str) -> list[str]:
-    """Return warnings for scalar reward knobs that do nothing under
-    advantage_weighted composition.
+    """Return warnings for reward knobs that do nothing as configured.
 
-    AdvantageWeightedComposer z-scores each component per prompt-group, which is
-    invariant to any global positive scalar. So `token_length.alpha`, the cosine
-    `schedule` (a per-step global scalar), `token_entropy.reward_scale`,
-    `effort_proxy.alpha`, and a non-token_count effort `metric` (flops/gpu_time
-    differ from token_count only by a per-model constant) all cancel. The live
-    levers are `weight`, the per-completion signal *shape*, and `naive_sum`.
+    Two independent sources of inertness:
 
-    Returns [] under naive_sum (there the scalars are live) and for disabled
-    rewards. Warns on token_length only for the linear shape — `shape: cosine`
-    uses correctness-coupled endpoints, not a single global scalar. Default-valued
-    scalars are not flagged, to avoid noising every config that lists them as
-    boilerplate; we warn when a value signals an intent to tune (non-default
-    alpha/reward_scale, an explicit cosine schedule, or a flops/gpu_time metric).
+    * **Wrong shape.** `token_length` resolves `shape` the same way the registry
+      builder does (default `cosine`). The cosine length reward uses
+      correctness-coupled endpoints and never reads `alpha`/`schedule`, so those
+      linear-only knobs are dead under *any* composer — a set value signals a
+      mistake (you probably meant `shape: linear`). This check is
+      composer-independent.
+    * **Z-scoring.** Under `advantage_weighted`, per-group z-scoring is invariant
+      to any global positive scalar, so the *linear* `token_length.alpha`/cosine
+      `schedule`, `token_entropy.reward_scale`, `effort_proxy.alpha`, and a
+      non-token_count effort `metric` all cancel. These are live under
+      `naive_sum`, so they stay quiet there.
+
+    Default-valued scalars are not flagged (boilerplate); we warn only when a
+    value signals intent to tune (non-default alpha/reward_scale, an explicit
+    cosine schedule, or a flops/gpu_time metric). Disabled rewards are skipped.
     """
-    if compose_method != "advantage_weighted":
-        return []
-
     rc = rewards_cfg or {}
     warnings: list[str] = []
     lever = "Use `weight`, the signal shape, or compose_method: naive_sum instead."
 
+    # token_length — resolve shape exactly as the builder does (default cosine)
+    # so the warning matches what actually runs.
     tl = rc.get("token_length") or {}
-    # Warn-path default is "linear" even though the build-path default (registry)
-    # is "cosine": a config that sets alpha/schedule without a shape is expressing
-    # linear-tuning intent, and those knobs are inert here — so flag them. An
-    # explicit `shape: cosine` is respected and stays quiet.
-    if tl.get("enabled") and tl.get("shape", "linear") == "linear":
-        if "alpha" in tl and tl["alpha"] != 0.001:
+    if tl.get("enabled"):
+        shape = tl.get("shape", "cosine")
+        alpha_set = "alpha" in tl and tl["alpha"] != 0.001
+        cosine_schedule = tl.get("schedule") == "cosine"
+        if shape == "cosine":
+            # Composer-independent: the cosine reward never reads these knobs.
+            if alpha_set:
+                warnings.append(
+                    f"rewards.token_length.alpha={tl['alpha']} is ignored under shape: cosine "
+                    "(the cosine length reward uses correctness-coupled endpoints, not alpha). "
+                    "Set shape: linear if you meant the linear penalty."
+                )
+            if cosine_schedule:
+                warnings.append(
+                    "rewards.token_length.schedule: cosine is ignored under shape: cosine "
+                    "(schedule only modulates the linear penalty). Remove it, or set shape: linear."
+                )
+        elif shape == "linear" and compose_method == "advantage_weighted":
+            # Linear penalty: per-group z-scoring cancels the global scalars.
+            if alpha_set:
+                warnings.append(
+                    f"rewards.token_length.alpha={tl['alpha']} is inert under advantage_weighted "
+                    f"(per-group z-scoring cancels global scalars). {lever}"
+                )
+            if cosine_schedule:
+                warnings.append(
+                    "rewards.token_length.schedule: cosine is inert under advantage_weighted "
+                    "(the schedule is a per-step global scalar that z-scoring cancels). "
+                    "Anneal `weight`, or use shape: cosine / naive_sum."
+                )
+
+    # The remaining knobs are inert only under advantage_weighted (z-scoring);
+    # under naive_sum they are live.
+    if compose_method == "advantage_weighted":
+        te = rc.get("token_entropy") or {}
+        if te.get("enabled") and "reward_scale" in te and te["reward_scale"] != 0.1:
             warnings.append(
-                f"rewards.token_length.alpha={tl['alpha']} is inert under advantage_weighted "
-                f"(per-group z-scoring cancels global scalars). {lever}"
-            )
-        if tl.get("schedule") == "cosine":
-            warnings.append(
-                "rewards.token_length.schedule: cosine is inert under advantage_weighted "
-                "(the schedule is a per-step global scalar that z-scoring cancels). "
-                "Anneal `weight`, or use shape: cosine / naive_sum."
+                f"rewards.token_entropy.reward_scale={te['reward_scale']} is inert under "
+                f"advantage_weighted (z-scoring cancels global scalars). {lever}"
             )
 
-    te = rc.get("token_entropy") or {}
-    if te.get("enabled") and "reward_scale" in te and te["reward_scale"] != 0.1:
-        warnings.append(
-            f"rewards.token_entropy.reward_scale={te['reward_scale']} is inert under "
-            f"advantage_weighted (z-scoring cancels global scalars). {lever}"
-        )
-
-    ep = rc.get("effort_proxy") or {}
-    if ep.get("enabled"):
-        if "alpha" in ep and ep["alpha"] != 0.001:
-            warnings.append(
-                f"rewards.effort_proxy.alpha={ep['alpha']} is inert under advantage_weighted "
-                f"(z-scoring cancels global scalars). {lever}"
-            )
-        if ep.get("metric") in ("flops", "gpu_time"):
-            warnings.append(
-                f"rewards.effort_proxy.metric={ep['metric']!r} has no effect under advantage_weighted: "
-                "flops/gpu_time differ from token_count only by a global scalar that z-scoring cancels, "
-                "so all effort metrics reduce to z-scored token count (identical to token_length)."
-            )
+        ep = rc.get("effort_proxy") or {}
+        if ep.get("enabled"):
+            if "alpha" in ep and ep["alpha"] != 0.001:
+                warnings.append(
+                    f"rewards.effort_proxy.alpha={ep['alpha']} is inert under advantage_weighted "
+                    f"(z-scoring cancels global scalars). {lever}"
+                )
+            if ep.get("metric") in ("flops", "gpu_time"):
+                warnings.append(
+                    f"rewards.effort_proxy.metric={ep['metric']!r} has no effect under advantage_weighted: "
+                    "flops/gpu_time differ from token_count only by a global scalar that z-scoring cancels, "
+                    "so all effort metrics reduce to z-scored token count (identical to token_length)."
+                )
 
     return warnings
 
