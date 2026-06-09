@@ -15,7 +15,7 @@ box* below. Run that before trusting a real batch.
 | T0.3 | `--seeds` multi-seed batch; per-seed config materialized to `runs/_seed_configs/` | `training/batch.py` | `test_batch_seeds.py` |
 | T0.4 | `seed` persisted in `eval_report.json` | `eval/report.py` | `test_report_deltas.py` |
 | T0.5 | `eval_report.json` always written (status `ok`/`error`/`skipped` stub) | `eval/runner.py`, `training/batch.py` | `test_eval_stub.py` |
-| T0.6 | Cosine e2/e3 configs (correctness-gated length reward) | `configs/e{2,3}-*-cosine-qwen-7b-vllm.yaml` | config validated |
+| T0.6 | Cosine length reward is now the default; configs consolidated to qwen-7b (both backends), linear kept as `e1-token-length-linear-ablation-*` | `configs/`, `training/rewards/__init__.py` | config validated |
 | T1.1 | Seed-as-replicate hierarchical bootstrap (resample seeds, then samples) | `eval/compare.py` | `test_compare_stats.py` |
 | T1.2 | Multiple-comparisons correction (BH default, holm, none) | `eval/compare.py` | `test_compare_stats.py` |
 | T1.3 | Vectorized bootstrap, 10k replicates | `eval/compare.py`, `eval/metrics.py` | `test_compare_stats.py`, `test_stats_ci.py` |
@@ -69,9 +69,9 @@ at the end emits the BH-corrected, hierarchical-bootstrap pairwise table.
 ```bash
 python -m training.batch \
   configs/e0-baseline-math-qwen-7b-vllm.yaml \
-  configs/e1-token-length-cosine-qwen-7b-vllm.yaml \
-  configs/e2-multi-signal-cosine-qwen-7b-vllm.yaml \
-  configs/e3-ablation-naive-sum-cosine-qwen-7b-vllm.yaml \
+  configs/e1-token-length-qwen-7b-vllm.yaml \
+  configs/e2-multi-signal-qwen-7b-vllm.yaml \
+  configs/e3-ablation-naive-sum-qwen-7b-vllm.yaml \
   --seeds 42 43 44 45 46 --train --eval --baseline
 ```
 

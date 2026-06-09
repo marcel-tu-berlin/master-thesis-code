@@ -1,5 +1,5 @@
 experiment_id: e3-ablation-naive-sum-qwen-7b
-description: "E3 ablation: same as e2-multi-signal-qwen-7b but compose_method=naive_sum. Tests DIET advantage-weighting hypothesis at 7B."
+description: "E3 ablation (cosine): identical to e2-multi-signal-qwen-7b but compose_method=naive_sum. Isolates the DIET advantage-weighting effect with the length shape held at cosine."
 seed: 42
 
 model:
@@ -34,8 +34,15 @@ rewards:
   token_length:
     enabled: true
     weight: 0.5
-    alpha: 0.001
-    schedule: cosine
+    # Cosine shape: correct -> prefer shorter, wrong -> prefer longer. Matched to
+    # e2-multi-signal-qwen-7b so the only difference vs E2 is the composer
+    # (naive_sum). Under naive_sum the cosine endpoints contribute directly.
+    shape: cosine
+    max_len: 256
+    r_correct_short: 1.0
+    r_correct_long: 0.5
+    r_wrong_short: -1.0
+    r_wrong_long: -0.5
   token_entropy:
     enabled: true
     weight: 0.5

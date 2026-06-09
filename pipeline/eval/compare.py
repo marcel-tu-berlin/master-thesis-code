@@ -125,8 +125,8 @@ def _plot_compare_accuracy(reports: list[dict], out_dir: str, label_mode: str = 
 def _reward_family(exp_id: str, model_slug: str | None) -> str:
     """Strip the trailing model-slug variant from experiment_id, leaving the
     reward-stack identity. Examples:
-      e0-baseline-math-1.5b           -> e0-baseline-math    (model: qwen-1.5b)
       e1-token-length-qwen-7b         -> e1-token-length     (model: qwen-7b)
+      e1-token-length-qwen-7b-vllm    -> e1-token-length     (model: qwen-7b)
       e1-token-entropy-forkmask       -> e1-token-entropy-forkmask
     Falls back to the full id if no known suffix matches.
     """

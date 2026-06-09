@@ -1,5 +1,5 @@
-experiment_id: e1-token-length-cosine-qwen-7b
-description: "E1 single-signal: accuracy + correctness-coupled COSINE length reward (Wu/Yeo-2025, Qwen2-7B). Fixes the linear-penalty collapse — alpha/schedule are inert under advantage_weighted z-scoring."
+experiment_id: e1-token-length-linear-ablation-qwen-7b
+description: "E1 linear-penalty ABLATION (negative control): naive -alpha*n_tokens length penalty. Under advantage_weighted, alpha/schedule cancel in per-group z-scoring and only the sign survives -> unconditional short-preference -> length collapse. Kept to document the failure the cosine default fixes."
 seed: 42
 
 model:
@@ -34,16 +34,13 @@ rewards:
   token_length:
     enabled: true
     weight: 1.0
-    # Cosine shape: correct -> prefer shorter, wrong -> prefer longer. Survives
-    # the per-group z-scoring that nullifies the linear penalty's alpha. max_len
-    # is the length normalizer (progress = min(n_tokens/max_len, 1)); tune to the
-    # dataset's completion-length range (GSM8K trained completions ~150-250).
-    shape: cosine
-    max_len: 256
-    r_correct_short: 1.0
-    r_correct_long: 0.5
-    r_wrong_short: -1.0
-    r_wrong_long: -0.5
+    # Linear ABLATION (negative control). shape: linear is explicit now that the
+    # registry default is cosine. Under advantage_weighted, alpha and schedule are
+    # inert (z-scoring cancels global scalars) — this config exists to demonstrate
+    # the resulting length collapse, not to tune it.
+    shape: linear
+    alpha: 0.001
+    schedule: cosine
   token_entropy:
     enabled: false
   effort_proxy:

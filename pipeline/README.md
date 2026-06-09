@@ -17,7 +17,7 @@ A GRPO training and evaluation pipeline for reasoning models. Experiments are YA
 
 ```bash
 cd pipeline
-python -m training.train --config configs/e0-baseline-math-1.5b.yaml
+python -m training.train --config configs/e0-baseline-math-qwen-7b.yaml
 ```
 
 Add `--eval` to run evaluation automatically after training finishes.
@@ -25,25 +25,25 @@ Add `--eval` to run evaluation automatically after training finishes.
 Add `--smoke` to override the config for a fast sanity check (3 steps, 2 rollouts, 512 seq length, 64-sample dataset limit):
 
 ```bash
-python -m training.train --config configs/e0-baseline-math-1.5b.yaml --smoke
+python -m training.train --config configs/e0-baseline-math-qwen-7b.yaml --smoke
 ```
 
 ### Evaluate a trained checkpoint
 
 ```bash
-python -m eval.runner --config configs/e0-baseline-math-1.5b.yaml
+python -m eval.runner --config configs/e0-baseline-math-qwen-7b.yaml
 ```
 
 Optionally override the checkpoint path:
 
 ```bash
-python -m eval.runner --config configs/e0-baseline-math-1.5b.yaml --checkpoint runs/e0-baseline-math-1.5b/checkpoint-final
+python -m eval.runner --config configs/e0-baseline-math-qwen-7b.yaml --checkpoint runs/e0-baseline-math-qwen-7b/checkpoint-final
 ```
 
 Add `--smoke` to limit eval to 10 samples per split for quick sanity checks:
 
 ```bash
-python -m eval.runner --config configs/e0-baseline-math-1.5b.yaml --smoke
+python -m eval.runner --config configs/e0-baseline-math-qwen-7b.yaml --smoke
 ```
 
 ### Assess the base model (before-finetune baseline)
@@ -51,7 +51,7 @@ python -m eval.runner --config configs/e0-baseline-math-1.5b.yaml --smoke
 Run the same probe suite against the un-adapted base model from `config["model"]["slug"]`. Use this to measure what the finetune actually changed:
 
 ```bash
-python -m eval.runner --config configs/e0-baseline-math-1.5b.yaml --baseline
+python -m eval.runner --config configs/e0-baseline-math-qwen-7b.yaml --baseline
 ```
 
 Artefacts land under `runs/<experiment_id>/baseline/` so they do not collide with the trained-checkpoint report. The baseline pass is shared across all experiments using the same base model and probe set — you only need to run it once per (model, config) combo. `--baseline` and `--smoke` compose normally.
@@ -63,7 +63,7 @@ After running eval on multiple experiments, generate cross-experiment comparison
 ```bash
 cd pipeline
 python -m eval.compare \
-  --runs runs/e0-baseline-math-1.5b runs/e1-token-entropy runs/e2-multi-signal
+  --runs runs/e0-baseline-math-qwen-7b runs/e1-token-entropy-qwen-7b runs/e2-multi-signal-qwen-7b
 ```
 
 Outputs land in `runs/comparison/`:
@@ -79,14 +79,14 @@ runs/comparison/
 Override the output directory with `--out`:
 
 ```bash
-python -m eval.compare --runs runs/e0-baseline runs/e1-token-length --out runs/length-ablation
+python -m eval.compare --runs runs/e0-baseline-math-qwen-7b runs/e1-token-length-qwen-7b --out runs/length-ablation
 ```
 
-Add `--facet-by model` to split the Pareto plot into one subplot per base model (useful once experiments cover multiple models from the registry):
+Add `--facet-by model` to split the Pareto plot into one subplot per base model (useful once experiments cover multiple models from the registry — the shipped configs are all `qwen-7b`, so this is a no-op until you add configs on another registry slug):
 
 ```bash
-python -m eval.compare --runs runs/e0-baseline-math-1.5b runs/e1-token-length \
-  runs/e1-token-length-qwen-7b runs/e1-token-length-qwen3-4b --facet-by model
+python -m eval.compare --runs runs/e0-baseline-math-qwen-7b \
+  runs/e1-token-length-qwen-7b runs/e1-token-length-linear-ablation-qwen-7b --facet-by model
 ```
 
 ### Batch run (overnight queue)
@@ -198,14 +198,17 @@ runs/e4-my-experiment/
 
 ### Experiment matrix
 
-Each reward family below has three model variants on disk: the bare name (`qwen-1.5b`), `-qwen-7b`, and `-qwen3-4b` (the last is 16-bit). For example the entropy family is `e1-token-entropy.yaml`, `e1-token-entropy-qwen-7b.yaml`, `e1-token-entropy-qwen3-4b.yaml`. Swap the model by picking the matching file; all other fields stay aligned so the deltas across (model × reward-stack) are directly comparable.
+Each reward family ships as a `qwen-7b` config in two inference backends: the plain `-qwen-7b` (HuggingFace generate) and a `-qwen-7b-vllm` twin. All other fields stay aligned so deltas across (backend × reward-stack) are directly comparable. Earlier `qwen-1.5b`/`qwen3-4b`/bare-name variants were retired to keep the matrix focused on the 7B target; the model registry still lists those slugs, so add configs for them if you want to sweep model size.
 
-Every `qwen-7b` config also ships a `-vllm` twin (e.g. `e1-token-entropy-qwen-7b-vllm.yaml`) with `model.use_vllm: true`, `gpu_memory_utilization: 0.6`, and `enforce_eager: true`. These route GRPO rollout generation through vLLM via Unsloth's `fast_inference` path — much faster at 7B where rollout sampling dominates step time. The non-vLLM 7B configs stay in place as throughput references. `e0-baseline-math-1.5b-vllm.yaml` is the matching 1.5B reference. Pick `configs/*-vllm.yaml` for the fast set, or `configs/e*-qwen-7b.yaml | grep -v vllm` for the HF-generate set.
+The length-reward shape default is `cosine` (correctness-coupled; survives advantage_weighted z-scoring). The `e1-token-length` family therefore runs cosine, and a separate `e1-token-length-linear-ablation-*` keeps the old `-alpha*n` linear penalty as a documented negative control — it collapses under z-scoring, which is the point.
+
+The `-vllm` twins (e.g. `e1-token-entropy-qwen-7b-vllm.yaml`) set `model.use_vllm: true`, `gpu_memory_utilization: 0.6`, and `enforce_eager: true`, routing GRPO rollout generation through vLLM via Unsloth's `fast_inference` path — much faster at 7B where rollout sampling dominates step time. The non-vLLM twins stay as throughput references. Pick `configs/*-vllm.yaml` for the fast set, or `configs/e*-qwen-7b.yaml | grep -v vllm` for the HF-generate set.
 
 | Config family | Reward signals | Compose method | Purpose |
 |--------|---------------|----------------|---------|
 | `e0-baseline-math` | accuracy only | advantage_weighted | Baseline for delta comparisons |
-| `e1-token-length` | accuracy + token_length (cosine) | advantage_weighted | DIET length penalty |
+| `e1-token-length` | accuracy + token_length (cosine) | advantage_weighted | Correctness-coupled length reward |
+| `e1-token-length-linear-ablation` | accuracy + token_length (linear) | advantage_weighted | Negative control: linear penalty collapses under z-scoring |
 | `e1-token-entropy` | accuracy + token_entropy | advantage_weighted | Entropy reward, no fork masking |
 | `e1-token-entropy-forkmask` | accuracy + token_entropy (top-20%) | advantage_weighted | Entropy reward with fork masking |
 | `e2-multi-signal` | accuracy + token_length + token_entropy | advantage_weighted | Combined efficiency signals |
@@ -398,7 +401,7 @@ Generation is batched. Set `eval.batch_size` (default 8) per config. Tokenizer i
 
 Generates structured JSON and Markdown reports. Two independent baseline comparisons are populated when their data is available:
 
-- `vs_reward_baseline` — trained-vs-trained comparison against an E0 reward-only baseline experiment (e.g., `e0-baseline-math-1.5b`). Discovery: explicit `baseline_id` from config first, then heuristic matching for entries starting with `e0-` or containing `-baseline-`. Useful for reward-stack ablation deltas.
+- `vs_reward_baseline` — trained-vs-trained comparison against an E0 reward-only baseline experiment (e.g., `e0-baseline-math-qwen-7b`). Discovery: explicit `baseline_id` from config first, then heuristic matching for entries starting with `e0-` or containing `-baseline-`. Useful for reward-stack ablation deltas.
 - `vs_base_model` — before-vs-after comparison against the same model and probes evaluated *without* the LoRA adapter. Populated whenever `runs/<experiment_id>/baseline/eval_report.json` exists (produced by `eval.runner --baseline`). This is the actual "did finetuning help?" measurement and reports both Δ accuracy and Δ mean tokens.
 
 Reports include accuracy and bootstrap CIs on accuracy, mean token count, underthinking rate, and overthinking rate; the Pearson r between difficulty and length (with p-value); plus both baseline-delta blocks above when applicable.

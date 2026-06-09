@@ -22,11 +22,11 @@ Destroys and recreates `.venv` via `uv` (Python 3.12). Installs `unsloth`, a pin
 All run from `pipeline/` directory:
 
 ```bash
-python -m training.train --config configs/e0-baseline-math-1.5b.yaml
-python -m training.train --config configs/e0-baseline-math-1.5b.yaml --eval
-python -m eval.runner --config configs/e0-baseline-math-1.5b.yaml
-python -m eval.runner --config configs/e0-baseline-math-1.5b.yaml --checkpoint runs/e0-baseline-math-1.5b/checkpoint-final
-python -m eval.compare --runs runs/e0-baseline-math-1.5b runs/e1-token-entropy   # cross-experiment plots
+python -m training.train --config configs/e0-baseline-math-qwen-7b.yaml
+python -m training.train --config configs/e0-baseline-math-qwen-7b.yaml --eval
+python -m eval.runner --config configs/e0-baseline-math-qwen-7b.yaml
+python -m eval.runner --config configs/e0-baseline-math-qwen-7b.yaml --checkpoint runs/e0-baseline-math-qwen-7b/checkpoint-final
+python -m eval.compare --runs runs/e0-baseline-math-qwen-7b runs/e1-token-length-qwen-7b   # cross-experiment plots
 ```
 
 New experiment: `cp configs/_template.yaml configs/e4-my-experiment.yaml`, edit, run.

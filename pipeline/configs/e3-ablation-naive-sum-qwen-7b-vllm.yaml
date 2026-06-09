@@ -1,5 +1,5 @@
 experiment_id: e3-ablation-naive-sum-qwen-7b-vllm
-description: "E3 ablation: same as e2-multi-signal-qwen-7b-vllm but compose_method=naive_sum. Tests DIET advantage-weighting hypothesis at 7B with vLLM fast inference."
+description: "E3 ablation (cosine): identical to e2-multi-signal-qwen-7b-vllm but compose_method=naive_sum. Isolates the DIET advantage-weighting effect at 7B with vLLM. Under naive_sum the component scales are live (no z-scoring), so the cosine endpoints and reward_scale contribute directly."
 seed: 42
 
 model:
@@ -37,8 +37,14 @@ rewards:
   token_length:
     enabled: true
     weight: 0.5
-    alpha: 0.001
-    schedule: cosine
+    # Cosine shape: correct -> prefer shorter, wrong -> prefer longer. Matched to
+    # e2-multi-signal-cosine so the only difference vs E2 is the composer.
+    shape: cosine
+    max_len: 256
+    r_correct_short: 1.0
+    r_correct_long: 0.5
+    r_wrong_short: -1.0
+    r_wrong_long: -0.5
   token_entropy:
     enabled: true
     weight: 0.5
@@ -59,3 +65,10 @@ eval:
     near: EleutherAI/hendrycks_math
     far: MMLU
     capability_floor: simple
+  # T2.6: graded 50-problem capability floor from the GSM8K test tail (disjoint
+  # from the id_split head[:200]) so a collapse/over-compression regression
+  # drops the floor below 1.0 instead of saturating on the 6 toy prompts.
+  capability_floor_dataset: openai/gsm8k
+  capability_floor_hf_split: test
+  capability_floor_limit: 50
+  capability_floor_take: tail
