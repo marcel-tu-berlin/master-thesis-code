@@ -142,10 +142,11 @@ def main() -> None:
         print("⚠ Smoke mode: eval limited to 10 samples per split")
 
     from domains.math.loader import MathDomain
-    from domains.coding.loader import CodingDomain
 
     domain_name = config["training"].get("domain", "math")
-    domain = MathDomain() if domain_name == "math" else CodingDomain()
+    if domain_name != "math":
+        raise NotImplementedError(f"Domain: {domain_name}")
+    domain = MathDomain()
 
     exp_id = config["experiment_id"]
     run_dir = os.path.join("runs", exp_id)

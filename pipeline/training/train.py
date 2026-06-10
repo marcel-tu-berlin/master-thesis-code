@@ -10,7 +10,6 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from domains.math.loader import MathDomain
-from domains.coding.loader import CodingDomain
 from training.grpo_runner import GRPORunner
 from training.rewards import REWARD_REGISTRY
 from training.rewards.compose import build_composer
@@ -48,8 +47,6 @@ def build_domain(config: dict):
     name = config["training"].get("domain", "math")
     if name == "math":
         return MathDomain()
-    if name == "coding":
-        return CodingDomain()
     raise NotImplementedError(f"Domain: {name}")
 
 
