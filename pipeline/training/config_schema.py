@@ -161,6 +161,14 @@ def validate_config(config: dict) -> None:
             f"Unknown rewards keys: {sorted(unknown_rewards)}. Known: {sorted(_KNOWN_REWARD_KEYS)}"
         )
 
+    for reward_name in _KNOWN_REWARD_SUBKEYS:        # excludes compose_method (a string)
+        val = rewards.get(reward_name)
+        if val is not None and not isinstance(val, dict):
+            errors.append(
+                f"rewards.{reward_name} must be a mapping (e.g. {{enabled: false}}), "
+                f"got {type(val).__name__}: {val!r}"
+            )
+
     for reward_name, allowed in _KNOWN_REWARD_SUBKEYS.items():
         sub = rewards.get(reward_name)
         if not isinstance(sub, dict):
