@@ -6,9 +6,10 @@ subprocesses so each experiment gets a clean Python process (and clean
 GPU memory). Designed for overnight queues on a single-GPU box.
 
 Each phase is its own subprocess that mirrors the existing single-run CLIs
-(`training.train`, `eval.runner`). Baselines are deduplicated by model slug:
-the first config touching a given slug runs the baseline; later configs
-sharing that slug get a symlink into the shared baseline directory.
+(`training.train`, `eval.runner`). The base-model assessment for a slug lives
+at one canonical path, runs/_baselines/<slug>/: the first config touching a
+given slug writes it there, later same-slug configs find it and skip. The
+canonical path itself is the dedup — no per-experiment baseline dir to link.
 
 Usage:
     python -m training.batch configs/e0-*.yaml configs/e1-*.yaml --train --eval --baseline
@@ -34,6 +35,8 @@ import yaml
 # Allow running as: python -m training.batch
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+from eval.report import canonical_baseline_dir
+
 
 PHASE_TRAIN = "train"
 PHASE_EVAL = "eval"
@@ -50,7 +53,7 @@ class PhaseResult:
     duration_s: float = 0.0
     attempts: int = 0
     log_path: Optional[str] = None
-    note: str = ""         # e.g. "checkpoint exists", "symlinked from <slug>"
+    note: str = ""         # e.g. "checkpoint exists", "canonical baseline for <slug> exists"
 
 
 @dataclass
@@ -152,8 +155,12 @@ def _run_phase(cmd: list[str], log_path: str, retries: int) -> tuple[str, int, f
     return STATUS_FAIL, attempts, time.time() - t0
 
 
+def _runs_root() -> str:
+    return "runs"
+
+
 def _run_dir(exp_id: str) -> str:
-    return os.path.join("runs", exp_id)
+    return os.path.join(_runs_root(), exp_id)
 
 
 def _checkpoint_exists(exp_id: str) -> bool:
@@ -218,27 +225,6 @@ def _write_eval_stub(config_path: str, status: str, note: str = "") -> bool:
     return True
 
 
-def _ensure_baseline_symlink(target_run_dir: str, source_baseline_dir: str) -> bool:
-    """Make runs/<target>/baseline → runs/<source>/baseline.
-
-    Returns True if a symlink was created or replaced, False if a real
-    directory already exists at the target (left alone — the user may have
-    run a custom baseline). Replaces an existing symlink, which may point at
-    a stale location.
-    """
-    link_path = os.path.join(target_run_dir, "baseline")
-    os.makedirs(target_run_dir, exist_ok=True)
-
-    if os.path.islink(link_path):
-        os.unlink(link_path)
-    elif os.path.exists(link_path):
-        return False
-
-    rel = os.path.relpath(source_baseline_dir, start=target_run_dir)
-    os.symlink(rel, link_path)
-    return True
-
-
 def _run_train_phase(
     config_path: str,
     exp_id: str,
@@ -289,30 +275,19 @@ def _run_baseline_phase(
     config_path: str,
     exp_id: str,
     slug: str,
-    baseline_owners: dict[str, str],
     smoke: bool,
     force: bool,
     retries: int,
-    dedup: bool,
 ) -> PhaseResult:
-    """Run baseline assessment for this experiment's base model.
-
-    If `dedup` and the slug already has an owner (another experiment that ran
-    the baseline first), symlink this experiment's `baseline/` to the owner's
-    `baseline/` instead of re-running.
+    """Run base-model assessment for this experiment's slug into the canonical
+    runs/_baselines/<slug>/ dir. The canonical path is the dedup: same-slug runs
+    all skip once the first writes it. The subprocess command is unchanged
+    (`eval.runner --config <path> --baseline`); runner writes to the canonical
+    dir by slug.
     """
-    if dedup and slug in baseline_owners:
-        owner_exp = baseline_owners[slug]
-        source = os.path.join(_run_dir(owner_exp), "baseline")
-        if os.path.isdir(source):
-            linked = _ensure_baseline_symlink(_run_dir(exp_id), source)
-            note = (f"symlinked → {owner_exp}/baseline" if linked
-                    else f"kept existing baseline/ (would have symlinked → {owner_exp}/baseline)")
-            return PhaseResult(status=STATUS_SKIP, note=note)
-
-    if not force and _is_real_report(os.path.join(_run_dir(exp_id), "baseline", "eval_report.json")):
-        baseline_owners.setdefault(slug, exp_id)
-        return PhaseResult(status=STATUS_SKIP, note="baseline/eval_report.json exists")
+    canonical = os.path.join(canonical_baseline_dir(_runs_root(), slug), "eval_report.json")
+    if not force and _is_real_report(canonical):
+        return PhaseResult(status=STATUS_SKIP, note=f"canonical baseline for {slug} exists")
 
     cmd = [sys.executable, "-m", "eval.runner", "--config", config_path, "--baseline"]
     if smoke:
@@ -320,8 +295,6 @@ def _run_baseline_phase(
 
     log_path = os.path.join(_run_dir(exp_id), "batch_baseline.log")
     status, attempts, dur = _run_phase(cmd, log_path, retries)
-    if status == STATUS_OK:
-        baseline_owners[slug] = exp_id
     return PhaseResult(status=status, duration_s=dur, attempts=attempts, log_path=log_path)
 
 
@@ -421,7 +394,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--train", action="store_true", help="Train each config")
     parser.add_argument("--eval", action="store_true", help="Run eval.runner per config")
     parser.add_argument("--baseline", action="store_true",
-                        help="Run baseline (no-LoRA) eval per config; deduplicated by model slug")
+                        help="Run baseline (no-LoRA) eval; shared per model slug via the canonical runs/_baselines/<slug>/ dir")
     parser.add_argument("--seeds", nargs="+", type=int, default=None,
                         help="Replicate each config across these training seeds (e.g. --seeds 42 43 44). "
                              "Each seed gets its own run dir <experiment_id>-s<seed>; baselines stay "
@@ -435,8 +408,6 @@ def _parse_args() -> argparse.Namespace:
                         help="Retry count per failed phase before giving up")
     parser.add_argument("--no-compare", action="store_true",
                         help="Skip the auto eval.compare run at end of batch")
-    parser.add_argument("--no-baseline-dedup", action="store_true",
-                        help="Run baseline separately per config (do not share across configs with same model slug)")
     parser.add_argument("--compare-out", default="runs/comparison",
                         help="Output directory for eval.compare artifacts")
     parser.add_argument("--summary-dir", default="runs",
@@ -503,7 +474,6 @@ def main() -> None:
             headers.append((path, base_id, slug))
 
     results: list[ExperimentResult] = []
-    baseline_owners: dict[str, str] = {}      # slug -> exp_id that owns the canonical baseline dir
     t_start = time.time()
 
     def _ensure_result(path: str, exp_id: str, slug: str) -> ExperimentResult:
@@ -520,11 +490,10 @@ def main() -> None:
             r = _ensure_result(path, exp_id, slug)
             print(f"\n── BASELINE  {exp_id}  ({slug})")
             r.phases[PHASE_BASELINE] = _run_baseline_phase(
-                path, exp_id, slug, baseline_owners,
+                path, exp_id, slug,
                 smoke=args.smoke,
                 force=args.force,
                 retries=args.retries,
-                dedup=not args.no_baseline_dedup,
             )
 
     # Phase B: train + eval per experiment (eval inside the loop, not at end, so

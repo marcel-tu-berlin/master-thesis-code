@@ -103,22 +103,21 @@ Phase flags are independent and combinable. Default (no flag given) is `--train 
 |------|-----------|
 | `--train` | Run `training.train` for each config |
 | `--eval` | Run `eval.runner` for each config (after train if both given; standalone otherwise) |
-| `--baseline` | Run `eval.runner --baseline` per unique `model.slug` (other configs sharing that slug symlink into the same `baseline/` dir) |
+| `--baseline` | Run `eval.runner --baseline` per unique `model.slug` into the canonical `runs/_baselines/<slug>/` dir (other configs sharing that slug reuse it) |
 | `--smoke` | Pass `--smoke` through to every subprocess |
 | `--force` | Re-run phases even if their output artifacts already exist; passes `--overwrite` to train |
 | `--retries N` | Retry a failed phase N times before marking it failed (default `1`) |
 | `--no-compare` | Skip the auto `eval.compare` run at the end of the batch |
-| `--no-baseline-dedup` | Run baseline separately per config instead of sharing across configs with the same `model.slug` |
 | `--compare-out DIR` | Output directory for `eval.compare` artifacts (default `runs/comparison`) |
 | `--summary-dir DIR` | Where to write `batch_summary_<timestamp>.md` (default `runs`) |
 
 **Execution order** with all three phases enabled:
 
-1. **Baselines first** (deduplicated by `model.slug`). The first config touching a given slug runs the actual baseline; later configs sharing that slug get `runs/<their_exp>/baseline/` as a relative symlink into the canonical baseline directory. Baseline-first ordering means each trained eval report can pick up the `vs_base_model` delta block automatically.
+1. **Baselines first** (deduplicated by `model.slug`). The base-model assessment for a slug lives at one canonical path, `runs/_baselines/<slug>/`. The first config touching a given slug writes it there; later same-slug configs find the canonical report and skip. No symlinks, no per-experiment baseline dir. Baseline-first ordering means each trained eval report can pick up the `vs_base_model` delta block automatically.
 2. **Train + eval per config**, looped. Eval runs immediately after each train so a `tail -f` from another shell sees full reports land one experiment at a time.
 3. **Auto `eval.compare`** across every run that produced an `eval_report.json` this batch (skipped silently if fewer than two reports exist, or when `--no-compare` is passed).
 
-**Resume behaviour:** by default each phase is skipped if its output artifacts exist — `checkpoint-final/` for train, `eval_report.json` for eval, `baseline/eval_report.json` for baseline. Re-running the same batch command after a crash picks up where it left off. Pass `--force` to redo everything.
+**Resume behaviour:** by default each phase is skipped if its output artifacts exist — `checkpoint-final/` for train, `eval_report.json` for eval, the canonical `runs/_baselines/<slug>/eval_report.json` for baseline. Re-running the same batch command after a crash picks up where it left off. Pass `--force` to redo everything.
 
 **End-of-batch outputs:**
 
@@ -131,7 +130,8 @@ runs/
     checkpoint-final/
     eval_report.json
     eval_report.md
-    baseline/               # real dir on the owner, symlink on dedup'd peers
+  _baselines/
+    <slug>/                 # one canonical base-model assessment per model slug
       eval_report.json
       eval_report.md
   comparison/
@@ -326,7 +326,7 @@ Checks required keys (`experiment_id`, `model.slug`, `training.dataset`), numeri
 
 **`batch.py` - Multi-experiment runner**
 
-Queues N configs through train, eval, and/or baseline phases as subprocesses (one fresh Python process per phase). Reads `experiment_id` and `model.slug` from each YAML cheaply up front so a bad config fails the batch immediately, before any GPU work starts. Tees each subprocess's combined stdout/stderr to both the parent terminal and a per-phase log file under `runs/<exp_id>/`. Baseline phase deduplicates by `model.slug` (canonical baseline stored under the first owning experiment; later configs sharing the slug get relative symlinks). Auto-invokes `eval.compare` at end of batch when at least two eval reports were produced.
+Queues N configs through train, eval, and/or baseline phases as subprocesses (one fresh Python process per phase). Reads `experiment_id` and `model.slug` from each YAML cheaply up front so a bad config fails the batch immediately, before any GPU work starts. Tees each subprocess's combined stdout/stderr to both the parent terminal and a per-phase log file under `runs/<exp_id>/`. Baseline phase deduplicates by `model.slug` via one canonical `runs/_baselines/<slug>/` dir: the first config touching a slug writes it there, later same-slug configs find it and skip. Auto-invokes `eval.compare` at end of batch when at least two eval reports were produced.
 
 ### `training/rewards/`
 

@@ -18,9 +18,10 @@ def run_eval(
     """max_new_tokens: default budget; eval.max_new_tokens in config overrides.
 
     When baseline=True: skip LoRA adapter loading and run probes against the
-    raw base model. Artefacts are written to runs/<exp>/baseline/ instead of
-    the run root so a trained assessment can coexist with its before-finetune
-    counterpart.
+    raw base model. Artefacts are written to the canonical per-slug dir
+    runs/_baselines/<slug>/ instead of the run root, so every same-slug run
+    shares one base-model assessment (no per-experiment baseline dir, no
+    symlinks) and each trained eval can pick up its vs_base_model delta.
 
     A crashed or partial eval always leaves a stub eval_report.json behind
     (status:'error') so the run still appears in auto-compare instead of
@@ -28,8 +29,12 @@ def run_eval(
     still exits non-zero and the batch marks the phase failed.
     """
     # Computed up front so the except below can drop a stub in the right place
-    # (run root, or the baseline/ subdir) regardless of where the failure hit.
-    output_dir = os.path.join(run_dir, "baseline") if baseline else run_dir
+    # (run root, or the canonical baseline dir) regardless of where the failure hit.
+    if baseline:
+        from eval.report import canonical_baseline_dir
+        output_dir = canonical_baseline_dir(os.path.dirname(run_dir), config["model"]["slug"])
+    else:
+        output_dir = run_dir
     os.makedirs(output_dir, exist_ok=True)
 
     try:
@@ -131,7 +136,7 @@ def main() -> None:
                         help="Override eval.max_new_tokens from the config (default: config value or 512)")
     parser.add_argument("--smoke", action="store_true", help="Limit eval to 10 samples per split for quick sanity checks")
     parser.add_argument("--baseline", action="store_true",
-                        help="Skip the LoRA adapter and assess the base model. Writes to runs/<exp>/baseline/.")
+                        help="Skip the LoRA adapter and assess the base model. Writes to the canonical runs/_baselines/<slug>/.")
     args = parser.parse_args()
 
     with open(args.config) as f:

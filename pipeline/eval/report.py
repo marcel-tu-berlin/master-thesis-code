@@ -2,6 +2,12 @@ import json
 import os
 
 
+def canonical_baseline_dir(runs_root: str, slug: str) -> str:
+    """One shared base-model assessment per model slug, under runs/_baselines/<slug>/.
+    Same-slug runs reuse it instead of each computing or symlinking their own."""
+    return os.path.join(runs_root, "_baselines", slug)
+
+
 def _metrics_dict(metrics) -> dict:
     if metrics is None:
         return {}
@@ -72,7 +78,7 @@ def generate_report(
     experiment matrix.
 
     output_dir: where the markdown report is written. Defaults to run_dir.
-                Used by baseline mode to write under runs/<exp>/baseline/.
+                Baseline mode writes under the canonical runs/_baselines/<slug>/.
     skip_baseline_compare: when True, skip the sibling-run lookup. Set by
                            baseline mode (a baseline cannot be compared to
                            another baseline meaningfully).
@@ -128,7 +134,10 @@ def generate_report(
         # Compare against the pre-finetune base model assessment, if produced
         # by `eval.runner --baseline`. This is the before-and-after delta:
         # what the finetune did to *this* (model, config) combination.
-        base_model_path = os.path.join(run_dir, "baseline", "eval_report.json")
+        base_model_path = os.path.join(
+            canonical_baseline_dir(os.path.dirname(run_dir), config["model"]["slug"]),
+            "eval_report.json",
+        )
         if os.path.exists(base_model_path):
             with open(base_model_path) as f:
                 base_model_report = json.load(f)
