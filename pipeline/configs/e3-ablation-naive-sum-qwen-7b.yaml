@@ -1,5 +1,5 @@
 experiment_id: e3-ablation-naive-sum-qwen-7b
-description: "E3 ablation (cosine): identical to e2-multi-signal-qwen-7b but compose_method=naive_sum. Isolates the DIET advantage-weighting effect with the length shape held at cosine."
+description: "E3 ablation: identical reward stack to E2 (accuracy + format + cosine length + token entropy) but naive_sum composition. Contrast with E2 to isolate the advantage-weighting effect."
 seed: 42
 
 model:
@@ -34,10 +34,6 @@ rewards:
   token_length:
     enabled: true
     weight: 0.5
-    # Cosine shape: correct -> prefer shorter, wrong -> prefer longer. Matched to
-    # e2-multi-signal-qwen-7b so the only difference vs E2 is the composer
-    # (naive_sum). Under naive_sum the cosine endpoints contribute directly.
-    shape: cosine
     max_len: 256
     r_correct_short: 1.0
     r_correct_long: 0.5
@@ -46,16 +42,10 @@ rewards:
   token_entropy:
     enabled: true
     weight: 0.5
-    reward_scale: 0.1
-    fork_mask_top_frac: 0.2
-  effort_proxy:
-    enabled: false
 
 eval:
   temperature: 0.0
   do_sample: false
-  # Fixed over/under-thinking thresholds from the e0 baseline so thinking
-  # rates are comparable across the sweep (eval.metrics.load_reference_thresholds).
   reference_run: runs/e0-baseline-math-qwen-7b
   id_split: openai/gsm8k
   id_split_hf_split: test
@@ -63,3 +53,7 @@ eval:
     near: EleutherAI/hendrycks_math
     far: MMLU
     capability_floor: simple
+  capability_floor_dataset: openai/gsm8k
+  capability_floor_hf_split: test
+  capability_floor_limit: 50
+  capability_floor_take: tail

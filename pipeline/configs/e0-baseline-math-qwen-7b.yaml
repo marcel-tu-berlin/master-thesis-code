@@ -1,5 +1,5 @@
 experiment_id: e0-baseline-math-qwen-7b
-description: "accuracy-only GRPO baseline — reference for all delta_accuracy comparisons (Qwen2-7B)"
+description: "E0 baseline: accuracy + format rewards only (advantage-weighted, Qwen2-7B). Reference point for every efficiency-reward delta."
 seed: 42
 
 model:
@@ -31,12 +31,6 @@ rewards:
   numeric:
     enabled: true
     weight: 1.0
-  token_length:
-    enabled: false
-  token_entropy:
-    enabled: false
-  effort_proxy:
-    enabled: false
 
 eval:
   temperature: 0.0
@@ -47,3 +41,7 @@ eval:
     near: EleutherAI/hendrycks_math
     far: MMLU
     capability_floor: simple
+  capability_floor_dataset: openai/gsm8k
+  capability_floor_hf_split: test
+  capability_floor_limit: 50
+  capability_floor_take: tail
