@@ -182,6 +182,8 @@ def main() -> None:
     checkpoint_dir = os.path.join(run_dir, "checkpoint-final")
     runner.train(dataset, reward_fn, output_dir=run_dir, callbacks=callbacks)
     runner.save_lora(checkpoint_dir)
+    if config.get("_smoke"):
+        open(os.path.join(checkpoint_dir, ".smoke"), "w").close()
 
     if args.eval:
         from eval.runner import run_eval

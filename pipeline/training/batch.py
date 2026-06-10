@@ -164,8 +164,24 @@ def _eval_report_exists(exp_id: str) -> bool:
     return os.path.isfile(os.path.join(_run_dir(exp_id), "eval_report.json"))
 
 
-def _baseline_report_exists(exp_id: str) -> bool:
-    return os.path.isfile(os.path.join(_run_dir(exp_id), "baseline", "eval_report.json"))
+def _is_real_report(path: str) -> bool:
+    """True only for a finished, non-stub, non-smoke eval report. Existence
+    alone is insufficient: a status:'error'/'skipped' stub or a --smoke report
+    must not be mistaken for finished overnight work."""
+    if not os.path.isfile(path):
+        return False
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return False
+    return data.get("status") not in ("skipped", "error") and not data.get("smoke", False)
+
+
+def _is_real_checkpoint(exp_id: str) -> bool:
+    """checkpoint-final/ exists and is not a --smoke checkpoint."""
+    ckpt = os.path.join(_run_dir(exp_id), "checkpoint-final")
+    return os.path.isdir(ckpt) and not os.path.isfile(os.path.join(ckpt, ".smoke"))
 
 
 def _write_eval_stub(config_path: str, status: str, note: str = "") -> bool:
@@ -231,7 +247,7 @@ def _run_train_phase(
     retries: int,
     vllm: bool = False,
 ) -> PhaseResult:
-    if not force and _checkpoint_exists(exp_id):
+    if not force and _is_real_checkpoint(exp_id):
         return PhaseResult(status=STATUS_SKIP, note="checkpoint-final exists")
 
     cmd = [sys.executable, "-m", "training.train", "--config", config_path]
@@ -257,7 +273,7 @@ def _run_eval_phase(
 ) -> PhaseResult:
     if require_checkpoint and not _checkpoint_exists(exp_id):
         return PhaseResult(status=STATUS_SKIP, note="no checkpoint to eval")
-    if not force and _eval_report_exists(exp_id):
+    if not force and _is_real_report(os.path.join(_run_dir(exp_id), "eval_report.json")):
         return PhaseResult(status=STATUS_SKIP, note="eval_report.json exists")
 
     cmd = [sys.executable, "-m", "eval.runner", "--config", config_path]
@@ -294,7 +310,7 @@ def _run_baseline_phase(
                     else f"kept existing baseline/ (would have symlinked → {owner_exp}/baseline)")
             return PhaseResult(status=STATUS_SKIP, note=note)
 
-    if not force and _baseline_report_exists(exp_id):
+    if not force and _is_real_report(os.path.join(_run_dir(exp_id), "baseline", "eval_report.json")):
         baseline_owners.setdefault(slug, exp_id)
         return PhaseResult(status=STATUS_SKIP, note="baseline/eval_report.json exists")
 

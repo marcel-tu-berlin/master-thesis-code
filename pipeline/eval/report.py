@@ -92,6 +92,7 @@ def generate_report(
         # Self-describe a complete run so consumers can distinguish it from the
         # status:'error'/'skipped' stubs emitted on a failed/partial eval.
         "status": "ok",
+        "smoke": bool(config.get("_smoke", False)),
         "results": {
             "id_split": _metrics_dict(ood_results.id_split),
             "near_ood": _metrics_dict(ood_results.near_ood),
