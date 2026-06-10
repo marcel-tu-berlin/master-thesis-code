@@ -117,11 +117,10 @@ def main() -> None:
     # Refuse to clobber an existing run unless --overwrite is given. Without
     # this guard, a re-invocation with the same experiment_id silently
     # overwrites the prior frozen config and (later) trampling checkpoints.
-    existing_config = os.path.join(run_dir, "config.yaml")
     existing_final = os.path.join(run_dir, "checkpoint-final")
-    if (os.path.exists(existing_config) or os.path.isdir(existing_final)) and not args.overwrite:
+    if os.path.isdir(existing_final) and not args.overwrite:
         raise FileExistsError(
-            f"Run directory {run_dir!r} already contains artifacts. "
+            f"Run directory {run_dir!r} already has checkpoint-final/. "
             "Pass --overwrite to replace, or change experiment_id."
         )
     os.makedirs(run_dir, exist_ok=True)
