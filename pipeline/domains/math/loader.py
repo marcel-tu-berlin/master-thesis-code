@@ -66,7 +66,7 @@ class MathDomain(Domain):
                 "dataset": "gsm8k",
             },
             remove_columns=data.column_names,
-        )
+        ).filter(lambda x: x["answer"].strip() != "")
 
     _MATH_CONFIGS = [
         "algebra",
@@ -92,7 +92,7 @@ class MathDomain(Domain):
                 "dataset": "math",
             },
             remove_columns=data.column_names,
-        )
+        ).filter(lambda x: x["answer"].strip() != "")
 
     @staticmethod
     def _dapo_answer(raw: str) -> str:
@@ -132,7 +132,7 @@ class MathDomain(Domain):
                 "dataset": "dapo",
             },
             remove_columns=data.column_names,
-        )
+        ).filter(lambda x: x["answer"].strip() != "")
 
     def filter_by_prompt_length(self, dataset: Dataset, tokenizer, quantile: float = 0.9) -> Dataset:
         """Drop top (1-quantile) prompts by token length — matches notebook preprocessing."""
@@ -148,8 +148,12 @@ class MathDomain(Domain):
         return m.group(1).strip() if m else None
 
     def extract_number(self, text: str) -> str | None:
-        m = self._number_re.search(text)
-        return m.group(1) if m else None
+        from domains.base import _NUMBER_RE
+        sol = self.extract_answer(text)
+        if sol is None:
+            return None
+        m = _NUMBER_RE.search(sol)
+        return m.group(0) if m else None
 
     def difficulty(self, sample: dict) -> float | None:
         return sample.get("difficulty")

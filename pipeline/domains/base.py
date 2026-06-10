@@ -3,6 +3,8 @@ from abc import ABC, abstractmethod
 
 from datasets import Dataset
 
+_NUMBER_RE = re.compile(r"[-+]?(?:\d[\d,]*(?:\.\d+)?|\.\d+)")
+
 
 class Domain(ABC):
     system_prompt: str
@@ -22,10 +24,6 @@ class Domain(ABC):
             + r"(.+?)"
             + re.escape(self.solution_end),
             re.DOTALL,
-        )
-        self._number_re = re.compile(
-            re.escape(self.solution_start) + r".*?[\s]{0,}([-]?[\d\.,]{1,})",
-            re.MULTILINE | re.DOTALL,
         )
 
     @property
@@ -65,7 +63,7 @@ class Domain(ABC):
 
     def score_answer(self, extracted: str | None, truth: str) -> float:
         """Graded answer reward — magnitudes match thesis notebooks."""
-        if extracted is None:
+        if extracted is None or extracted.strip() == "":
             return -2.0
         if extracted == truth:
             return 5.0
@@ -74,13 +72,15 @@ class Domain(ABC):
         try:
             ext_num = float(extracted.strip().replace(",", ""))
             truth_num = float(truth.strip().replace(",", ""))
+            if truth_num == 0:
+                return 5.0 if abs(ext_num) < 1e-9 else -2.5
             ratio = ext_num / truth_num
             if 0.9 <= ratio <= 1.1:
                 return 2.0
             if 0.8 <= ratio <= 1.2:
                 return 1.5
             return -2.5
-        except (ValueError, ZeroDivisionError, AttributeError):
+        except (ValueError, AttributeError):
             return -4.5
 
     def score_numbers(self, extracted: str | None, truth: str) -> float:
@@ -89,7 +89,7 @@ class Domain(ABC):
             return -2.5
         try:
             a = float(extracted.strip().replace(",", ""))
-            b = float(truth.strip())
+            b = float(truth.strip().replace(",", ""))
             return 3.5 if a == b else -1.5
         except (ValueError, AttributeError):
             return -1.5
