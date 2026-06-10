@@ -6,8 +6,9 @@ logs. The composer stashes per-component raw mean/std and weighted contribution
 each step; pop_step_metrics() drains them (averaged across calls) for a
 TrainerCallback to log. The composed reward itself must be unchanged.
 
-NaiveSumComposer is torch-free, so its metrics are exercised here; the
-advantage-weighted path needs torch and is validated on the GPU box.
+NaiveSumComposer is torch-free, so its metrics are exercised here.
+AdvantageWeightedComposer imports torch lazily; torch is available in
+.venv-test, so its per-group z-scoring is covered locally as well.
 """
 import importlib.util
 import os
@@ -23,6 +24,7 @@ _spec = importlib.util.spec_from_file_location("_compose_under_test", _COMPOSE_P
 _compose = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_compose)
 NaiveSumComposer = _compose.NaiveSumComposer
+AdvantageWeightedComposer = _compose.AdvantageWeightedComposer
 
 
 def _const(name, value):
@@ -66,3 +68,28 @@ def test_pop_averages_across_calls_in_a_step():
     m = comp.pop_step_metrics()
     rm = [v for k, v in m.items() if k.endswith("/raw_mean")]
     assert len(rm) == 1 and abs(rm[0] - 1.0) < 1e-9
+
+
+def test_advantage_weighted_zscores_per_group():
+    # one component, two prompt-groups of size 2.
+    # group A raw [0,2] -> mean 1, Bessel std sqrt(2) -> z [-0.707, +0.707]
+    # group B raw [5,5] -> zero variance -> contributes 0
+    class Comp:
+        def __call__(self, prompts, completions, **kw):
+            return [0.0, 2.0, 5.0, 5.0]
+    comp = AdvantageWeightedComposer([(Comp(), 1.0)])
+    out = comp(["p", "p", "q", "q"], ["a", "b", "c", "d"])
+    inv = 2 ** 0.5
+    assert abs(out[0] + 1 / inv) < 1e-5
+    assert abs(out[1] - 1 / inv) < 1e-5
+    assert out[2] == 0.0 and out[3] == 0.0
+
+
+def test_advantage_weighted_weight_applies_after_zscoring():
+    class Comp:
+        def __call__(self, prompts, completions, **kw):
+            return [0.0, 2.0]
+    comp = AdvantageWeightedComposer([(Comp(), 2.0)])
+    out = comp(["p", "p"], ["a", "b"])
+    inv = 2 ** 0.5
+    assert abs(out[0] + 2 / inv) < 1e-5 and abs(out[1] - 2 / inv) < 1e-5
