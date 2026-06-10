@@ -71,7 +71,7 @@ Outputs land in `runs/comparison/`:
 ```
 runs/comparison/
   compare_accuracy.png     # grouped bar chart: accuracy per split per experiment
-  compare_efficiency.png   # accuracy vs mean token count Pareto plot — colour by reward family, marker by compose method, bold edge on Pareto-optimal points, error bars from bootstrap CIs
+  compare_efficiency.png   # accuracy vs mean token count Pareto plot — colour by reward family, marker by compose method, bold edge on Pareto-optimal points, error bars from Wilson/bootstrap CIs
   compare_summary.md       # markdown table with Δ-accuracy, token counts, underthinking + overthinking rates
   compare_pairwise.md      # paired-bootstrap Δ-accuracy matrix on the ID split with 95% CIs and two-sided p-values
 ```
@@ -86,7 +86,7 @@ Add `--facet-by model` to split the Pareto plot into one subplot per base model 
 
 ```bash
 python -m eval.compare --runs runs/e0-baseline-math-qwen-7b \
-  runs/e1-token-length-qwen-7b runs/e1-token-length-linear-ablation-qwen-7b --facet-by model
+  runs/e1-token-length-qwen-7b runs/e1-token-entropy-qwen-7b --facet-by model
 ```
 
 ### Batch run (overnight queue)
@@ -185,7 +185,7 @@ runs/e4-my-experiment/
   eval_report.json         # structured metrics (trained model)
   eval_report.md           # human-readable summary
   training_curves.png      # reward, KL, completion length, loss over steps
-  eval_accuracy.png        # accuracy with 95% CI across all eval splits
+  eval_accuracy.png        # accuracy with Wilson 95% CI across all eval splits
   token_distribution.png   # token count histogram: correct vs incorrect
   difficulty_scatter.png   # difficulty vs token count (MATH datasets only)
   baseline/                # populated by `eval.runner --baseline` (before-finetune assessment)
@@ -198,21 +198,17 @@ runs/e4-my-experiment/
 
 ### Experiment matrix
 
-Each reward family ships as a `qwen-7b` config in two inference backends: the plain `-qwen-7b` (HuggingFace generate) and a `-qwen-7b-vllm` twin. All other fields stay aligned so deltas across (backend × reward-stack) are directly comparable. Earlier `qwen-1.5b`/`qwen3-4b`/bare-name variants were retired to keep the matrix focused on the 7B target; the model registry still lists those slugs, so add configs for them if you want to sweep model size.
+Five configs ship, all targeting `qwen-7b`. Earlier `qwen-1.5b`/`qwen3-4b`/bare-name variants were retired to keep the matrix focused on the 7B target; the model registry still lists those slugs, so add configs for them if you want to sweep model size. vLLM is a runtime flag (`--vllm` on `training.train` / `training.batch`), not a separate config.
 
-The length-reward shape default is `cosine` (correctness-coupled; survives advantage_weighted z-scoring). The `e1-token-length` family therefore runs cosine, and a separate `e1-token-length-linear-ablation-*` keeps the old `-alpha*n` linear penalty as a documented negative control — it collapses under z-scoring, which is the point.
+`e1-token-length` uses the correctness-coupled cosine reward (`CosineLengthReward`, Wu/Yeo 2025), which survives advantage-weighted z-scoring with real structure intact.
 
-The `-vllm` twins (e.g. `e1-token-entropy-qwen-7b-vllm.yaml`) set `model.use_vllm: true`, `gpu_memory_utilization: 0.6`, and `enforce_eager: true`, routing GRPO rollout generation through vLLM via Unsloth's `fast_inference` path — much faster at 7B where rollout sampling dominates step time. The non-vLLM twins stay as throughput references. Pick `configs/*-vllm.yaml` for the fast set, or `configs/e*-qwen-7b.yaml | grep -v vllm` for the HF-generate set.
-
-| Config family | Reward signals | Compose method | Purpose |
+| Config | Reward signals | Compose method | Purpose |
 |--------|---------------|----------------|---------|
-| `e0-baseline-math` | accuracy only | advantage_weighted | Baseline for delta comparisons |
-| `e1-token-length` | accuracy + token_length (cosine) | advantage_weighted | Correctness-coupled length reward |
-| `e1-token-length-linear-ablation` | accuracy + token_length (linear) | advantage_weighted | Negative control: linear penalty collapses under z-scoring |
-| `e1-token-entropy` | accuracy + token_entropy | advantage_weighted | Entropy reward, no fork masking |
-| `e1-token-entropy-forkmask` | accuracy + token_entropy (top-20%) | advantage_weighted | Entropy reward with fork masking |
-| `e2-multi-signal` | accuracy + token_length + token_entropy | advantage_weighted | Combined efficiency signals |
-| `e3-ablation-naive-sum` | same as e2 | naive_sum | Ablation: tests advantage weighting |
+| `e0-baseline-math-qwen-7b` | accuracy only | advantage_weighted | Baseline for delta comparisons |
+| `e1-token-length-qwen-7b` | accuracy + token_length (cosine) | advantage_weighted | Correctness-coupled length reward |
+| `e1-token-entropy-qwen-7b` | accuracy + token_entropy | advantage_weighted | Entropy reward, no fork masking |
+| `e2-multi-signal-qwen-7b` | accuracy + token_length + token_entropy | advantage_weighted | Combined efficiency signals |
+| `e3-ablation-naive-sum-qwen-7b` | same as e2 | naive_sum | Ablation: tests advantage weighting |
 
 ## Architecture
 
@@ -223,7 +219,7 @@ Config YAML
 train.py:main()
     |
     +-- validate_config()            # schema check before anything runs
-    +-- build_domain()               # MathDomain | CodingDomain
+    +-- build_domain()               # MathDomain
     +-- GRPORunner(config)           # load model + tokenizer + LoRA
     +-- domain.build_chat_template() # inject reasoning tags into tokenizer
     +-- domain.load_dataset()        # HuggingFace dataset -> unified format
@@ -238,7 +234,7 @@ train.py:main()
     |       2. reward_fn(prompts, completions, **kwargs) -> list[float]
     |       3. Compute advantages + GRPO loss
     |       4. Backprop through LoRA
-    |       5. _RewardStepCallback advances reward schedulers
+    |       5. Advance any reward schedulers via callback
     |
     +-- runner.save_lora()
     |
@@ -266,10 +262,6 @@ Every reward signal has signature `(prompts, completions, **kwargs) -> list[floa
 #### Advantage-weighted composition
 
 Each reward component is z-scored per batch before the weighted sum (DIET §3.2). The motivation: binary accuracy has variance roughly C(1-C), which is much larger than the variance of a small length penalty, so a naive sum lets accuracy dominate no matter what weight you set. The `naive_sum` composer is kept around as the E3 ablation against E2 — that is how you measure whether the z-scoring actually mattered for your reward mix.
-
-#### Reward schedulers via callback
-
-Some rewards have time-dependent state. The DIET length penalty anneals its alpha from 0 across training, for example. Those rewards expose `step()`, and `_RewardStepCallback` calls them after each training step. The TRL trainer does not know about reward internals.
 
 ## Modules
 
@@ -302,15 +294,11 @@ Defines the interface every domain must implement:
 
 Supports GSM8K, Competition Math, and DAPO datasets. Extracts ground truth from `####` delimiters (GSM8K) or `\boxed{}` (MATH). Provides `filter_by_prompt_length()` to drop the top 10% longest prompts. Includes `extract_number()` for numeric reward.
 
-**`coding/loader.py` - `CodingDomain`**
-
-Supports HumanEval and MBPP. Loads `test_code` and `entry_point` fields for future execution-based verification. `is_correct()` and `score_answer()` currently raise `NotImplementedError` since string/float comparison is not valid for code correctness.
-
 ### `training/`
 
 **`train.py` - Main entry point**
 
-Orchestrates the full training pipeline: load config, validate schema, set seeds, build domain, load model, build reward components, compose reward function, train, save. The `_RewardStepCallback` class advances any reward schedulers that expose a `step()` method after each training step.
+Orchestrates the full training pipeline: load config, validate schema, set seeds, build domain, load model, build reward components, compose reward function, train, save.
 
 **`grpo_runner.py` - `GRPORunner`**
 
@@ -342,24 +330,15 @@ Each reward is a callable class with signature `(prompts, completions, **kwargs)
 **`accuracy.py`**
 
 - `AnswerReward` - Calls `domain.score_answer()` on the extracted answer. Graded from -4.5 to +5.0.
-- `NumericReward` - Calls `domain.score_numbers()` on the extracted number. Strict float equality: +3.5 or -1.5. Returns 0.0 if the domain has no `extract_number` method.
+- `NumericReward` - Calls `domain.score_numbers()` on the extracted number. Strict float equality: +3.5 or -1.5. Returns -2.5 if the domain has no `extract_number` method (MathDomain always provides one).
 
-**`token_length.py` - `TokenLengthReward`**
+**`cosine_length.py` - `CosineLengthReward`**
 
-Negative length penalty: `-alpha * num_tokens`. Two modes:
-- `constant` - fixed alpha throughout training
-- `cosine` - alpha annealed from 0 to `alpha` over training (DIET schedule). The model learns to reason first, then compresses. Requires `step()` to be called each training step (handled by `_RewardStepCallback`).
+Correctness-coupled cosine length reward (Wu/Yeo 2025). For a completion of `n_tokens`, interpolates between a short-end and long-end value based on correctness: correct completions are rewarded more when shorter; wrong completions are penalized less when longer (wrong-and-short is the most-penalized cell). Non-linear in length and gated by correctness, so it survives advantage-weighted z-scoring with real structure intact.
 
 **`token_entropy.py` - `TokenEntropyReward`**
 
 Mean per-token Shannon entropy from model logits. Batched forward pass over all completions. Rewards high-uncertainty tokens (genuine deliberation). Optional `fork_mask_top_pct` focuses reward on the top-X% highest-entropy tokens only, targeting actual decision points.
-
-**`effort_proxy.py` - `EffortProxyReward`**
-
-Penalizes compute effort per rollout. Three metrics:
-- `token_count` - raw token count (most reliable)
-- `flops` - estimated forward FLOPs per token (~12 · D² · L: 4·D² for QKVO matmul + 8·D² for FFN), normalized to GFLOPs (/ 1e9) so magnitude stays comparable to token_count while reflecting architecture differences
-- `gpu_time` - falls back to token_count (wall-clock timing unavailable during reward computation)
 
 **`compose.py`**
 
@@ -380,16 +359,16 @@ Loads a trained LoRA checkpoint, runs all OOD probes, and writes the evaluation 
 **`metrics.py`**
 
 - `SampleResult` - per-sample dataclass: correct, n_tokens, difficulty
-- `EvalMetrics` - aggregate metrics: accuracy, 95% bootstrap CI, mean token count, underthinking rate, overthinking rate (+ absolute token threshold), Pearson r (difficulty vs length) with p-value
-- `compute_metrics()` - computes all metrics from a list of SampleResults. Uses `scipy.stats.pearsonr` for correlation with statistical significance, and bootstrap resampling (n=2000) for accuracy confidence intervals. Underthinking is correct answers with ≤50 tokens (lucky guessing); overthinking is correct answers above the per-split P75 of all token counts (wasted reasoning). Both thresholds are configurable.
+- `EvalMetrics` - aggregate metrics: accuracy with Wilson 95% interval, mean token count with bootstrap CI, underthinking rate, overthinking rate (+ absolute token threshold), Pearson r (difficulty vs length) with p-value
+- `compute_metrics()` - computes all metrics from a list of SampleResults. Accuracy CI uses a Wilson score interval. Mean token count and thinking-rate CIs use bootstrap resampling (n=10,000). Underthinking is correct answers at or below the P10 token count of the split (or a fixed threshold pinned from a reference run); overthinking is above P75 similarly.
 
 **`ood_probes.py`**
 
 Runs four evaluation splits:
 - **ID split** - held-out portion of the training dataset (200 samples default, configurable via `eval.id_split_limit`)
 - **Near-OOD** - same domain, harder distribution (200 samples default, configurable via `eval.near_ood_limit`)
-- **Far-OOD** - MMLU (100 samples default, configurable via `eval.far_ood_limit`)
-- **Capability floor** - 5 fixed instruction-following questions (sanity check for catastrophic forgetting)
+- **Far-OOD** - MMLU, zero-shot multiple-choice (100 samples default, configurable via `eval.far_ood_limit`)
+- **Capability floor** - 6 default instruction-following prompts, or a graded GSM8K-tail slice (the mode the shipped configs use). Sanity check for catastrophic forgetting.
 
 Use `--smoke` to cap all splits to 10 samples for quick sanity checks. `--smoke` on `training.train --eval` propagates the cap into eval automatically.
 
@@ -404,14 +383,14 @@ Generates structured JSON and Markdown reports. Two independent baseline compari
 - `vs_reward_baseline` — trained-vs-trained comparison against an E0 reward-only baseline experiment (e.g., `e0-baseline-math-qwen-7b`). Discovery: explicit `baseline_id` from config first, then heuristic matching for entries starting with `e0-` or containing `-baseline-`. Useful for reward-stack ablation deltas.
 - `vs_base_model` — before-vs-after comparison against the same model and probes evaluated *without* the LoRA adapter. Populated whenever `runs/<experiment_id>/baseline/eval_report.json` exists (produced by `eval.runner --baseline`). This is the actual "did finetuning help?" measurement and reports both Δ accuracy and Δ mean tokens.
 
-Reports include accuracy and bootstrap CIs on accuracy, mean token count, underthinking rate, and overthinking rate; the Pearson r between difficulty and length (with p-value); plus both baseline-delta blocks above when applicable.
+Reports include accuracy (Wilson 95% CI), mean token count (bootstrap CI), underthinking rate, and overthinking rate; the Pearson r between difficulty and length (with p-value); plus both baseline-delta blocks above when applicable.
 
 **`plots.py`**
 
 Generates per-experiment PNG figures automatically at the end of each eval run:
 
 - `plot_training_curves` — 2×2 panel: reward (±1 std band), KL divergence, completion length, policy loss. Reads `trainer_state.json` from the most recent checkpoint.
-- `plot_accuracy_bars` — horizontal bar chart with 95% CI error bars, one bar per eval split.
+- `plot_accuracy_bars` — horizontal bar chart with Wilson 95% CI error bars, one bar per eval split.
 - `plot_token_distribution` — overlapping histograms of token counts for correct vs incorrect completions (ID split).
 - `plot_difficulty_scatter` — scatter of difficulty vs token count, coloured by correctness, annotated with Pearson r (MATH datasets only; skipped silently otherwise).
 - `plot_all` — top-level entry point that calls all four; individual failures are caught and logged without aborting eval.
@@ -428,7 +407,7 @@ python -m eval.compare --runs runs/e0-baseline runs/e1-token-entropy [--out runs
 
 Outputs:
 - `compare_accuracy.png` — grouped bar chart per experiment and split, with baseline dashed line.
-- `compare_efficiency.png` — Pareto plot: accuracy vs mean token count. Reward family encoded as colour, compose method as marker, Pareto-optimal points (non-dominated on accuracy↑ × tokens↓) drawn with a bold black edge. Error bars come from the bootstrap CIs on accuracy and mean token count. Use `--facet-by model` to render one subplot per base model.
+- `compare_efficiency.png` — Pareto plot: accuracy vs mean token count. Reward family encoded as colour, compose method as marker, Pareto-optimal points (non-dominated on accuracy↑ × tokens↓) drawn with a bold black edge. Error bars come from Wilson CIs on accuracy and bootstrap CIs on mean token count. Use `--facet-by model` to render one subplot per base model.
 - `compare_summary.md` — markdown table: experiment, accuracy, Δ vs baseline, mean tokens, underthinking rate, overthinking rate.
 - `compare_pairwise.md` — paired-bootstrap Δ-accuracy matrix on the ID split. For every ordered pair of experiments with matching `n_samples`, resamples per-sample correctness indices with replacement (n=2000, seeded) and reports Δ-accuracy, its 95% CI, and a two-sided p-value. Pairs without per-sample series (older reports) or with mismatched lengths are skipped explicitly rather than silently fabricated.
 
@@ -440,9 +419,8 @@ Outputs:
 | Format approx | `FormatApproxReward` | [-3.0, 1.5] | Default | `rewards.format_approx` |
 | Answer accuracy | `AnswerReward` | [-4.5, 5.0] | Default | `rewards.accuracy` |
 | Numeric equality | `NumericReward` | [-2.5, 3.5] | Default | `rewards.numeric` |
-| Token length | `TokenLengthReward` | (-inf, 0.0] | Opt-in | `rewards.token_length` |
+| Token length (cosine) | `CosineLengthReward` | [-1.0, 1.0] | Opt-in | `rewards.token_length` |
 | Token entropy | `TokenEntropyReward` | [0.0, +inf) | Opt-in | `rewards.token_entropy` |
-| Effort proxy | `EffortProxyReward` | (-inf, 0.0] | Opt-in | `rewards.effort_proxy` |
 
 ## Model registry
 

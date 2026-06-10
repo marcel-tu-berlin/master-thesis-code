@@ -53,7 +53,7 @@ Execution order with all three phases enabled: baselines first (deduplicated by 
 
 Per-phase logs land at `runs/<exp_id>/batch_{train,eval,baseline}.log`. End-of-batch summary is printed to stdout and written to `runs/batch_summary_<timestamp>.md`. When two or more eval reports exist after the batch, `eval.compare` is invoked automatically with output in `runs/comparison/`.
 
-**Domains:** `MathDomain` is fully implemented (GSM8K, Hendrycks MATH, DAPO). `CodingDomain` is a **stub** — it loads HumanEval/MBPP but `is_correct`/`score_answer` warn and return `False`/`0.0` (no sandboxed execution). Coding experiments will train against an all-zero reward signal until execution-based verification is added.
+**Domains:** `MathDomain` is the only implemented domain (GSM8K, Hendrycks MATH, DAPO).
 
 ## Architecture (Notebooks)
 
@@ -80,22 +80,16 @@ Four functions composed additively per completion:
 
 The pipeline (`pipeline/training/rewards/`) reimplements these as classes
 (`FormatExactReward`, `FormatApproxReward`, `AnswerReward`, `NumericReward`)
-plus opt-in efficiency signals (`TokenLengthReward`, `TokenEntropyReward`,
-`EffortProxyReward`). Pipeline `FormatApproxReward` counts `reasoning_end`
+plus opt-in efficiency signals (`CosineLengthReward`, `TokenEntropyReward`).
+Pipeline `FormatApproxReward` counts `reasoning_end`
 on the full text and the solution tags on the suffix to avoid CoT false
 positives — semantics differ from the notebook version.
 
-`TokenLengthReward` has two shapes via `rewards.token_length.shape`: `cosine`
-(default, `CosineLengthReward`, Wu/Yeo-2025): correct → prefer shorter, wrong →
-prefer longer; and `linear` (`-alpha * n_tokens`; opt-in, only meaningful under
-`naive_sum` where `alpha` is live, or as the linear-collapse ablation — `alpha`
-is inert under `advantage_weighted`, see Reward Composition). The cosine shape is
-non-linear in length and gated by correctness, so it survives per-group z-scoring
-and fixes the linear penalty's length-collapse (a wrong, ultra-short completion
-becomes the most-penalized cell instead of the most-rewarded). The `e1-token-length`
-experiments ship in both shapes: the default `e1-token-length-*` runs cosine, and
-`e1-token-length-linear-ablation-*` keeps the linear penalty as a documented
-negative control. `TokenEntropyReward.fork_mask_top_frac`
+`CosineLengthReward` (Wu/Yeo 2025) is the single token-length reward: correct
+completions are rewarded more when shorter, wrong completions are penalized less
+when longer, making wrong-and-short the most-penalized cell. The reward is
+non-linear in length and gated by correctness, so it survives per-group
+z-scoring with real structure intact. `TokenEntropyReward.fork_mask_top_frac`
 masks the *reward* (averages entropy over the top fraction of tokens by entropy),
 not the *gradient* over forking tokens — it is inspired by, but is not, the
 Wang-2025 gradient-masking mechanism.
@@ -115,7 +109,7 @@ Multiple reward components are combined via a composer selected by `rewards.comp
 - **`advantage_weighted`** (default) — `AdvantageWeightedComposer` in `pipeline/training/rewards/compose.py`. Per-prompt-group z-scoring of each component's raw rewards *before* the weighted sum. Motivated by DIET §3.2: raw variance σ²≈C(1-C) differs across components (high-variance binary accuracy would dominate a naive sum regardless of weight). Normalising per group preserves GRPO's within-group advantage semantics. A component with zero within-group variance contributes 0 — by design, since a constant signal carries no advantage information.
 - **`naive_sum`** — `NaiveSumComposer`. Plain weighted sum, no normalisation. Used as the E3 ablation baseline (`configs/e3-ablation-naive-sum-qwen-7b.yaml`) to isolate the advantage-weighting effect.
 
-**Scale-invariance (important).** Because `advantage_weighted` z-scores each component per prompt-group, it is invariant to any global scalar inside a component's raw reward. Under the default composer these knobs therefore do **nothing**: `token_length.alpha`, `token_length.schedule: cosine` (a per-step global scalar), `token_entropy.reward_scale`, `effort_proxy.alpha`, and `effort_proxy.metric` (`flops`/`gpu_time` differ from `token_count` only by a per-model constant, so every effort metric reduces to z-scored token count — identical to `token_length`). The only live levers are the component `weight`, the per-completion signal *shape*, and switching to `naive_sum`. `build_reward_components` prints a warning (`warn_inert_scalars` in `config_schema.py`) when a knob is inert as configured. It resolves `token_length.shape` the same way the registry builder does (default `cosine`) and flags two cases: linear-only knobs (`alpha`/`schedule`) set under `shape: cosine`, which the cosine reward never reads (warned under *any* composer); and the z-scoring-cancelled scalars above under `advantage_weighted` (quiet under `naive_sum`, where they are live).
+**Scale-invariance (important).** Because `advantage_weighted` z-scores each component per prompt-group, it is invariant to any global **positive** scalar inside a component's raw reward (a negative scalar flips the sign; zero silences the component). Under the default composer, `token_entropy.reward_scale` therefore does **nothing**. The only live levers are the component `weight`, the per-completion signal *shape*, and switching to `naive_sum`. `build_reward_components` prints a warning (`warn_inert_scalars` in `config_schema.py`) when a knob is inert as configured.
 
 ### Pipeline Evaluation
 
@@ -123,10 +117,10 @@ Multiple reward components are combined via a composer selected by `rewards.comp
 
 - **`id_split`** — held-out portion of the training dataset (HF split set by `eval.id_split_hf_split`, default `test`)
 - **`near_ood`** — same domain, different distribution (e.g. GSM-8K when trained on MATH); set via `eval.ood_probes.near`
-- **`far_ood`** — currently hardcoded to MMLU (`cais/mmlu`, 5-shot multiple-choice). Config string only needs to contain "mmlu" (case-insensitive); other values trigger a warning and skip
-- **`capability_floor`** — 5-question instruction-following sanity check; default prompts in `_DEFAULT_CAPABILITY_PROMPTS`, overrideable via `eval.capability_floor_prompts: [[q, a], ...]`
+- **`far_ood`** — currently hardcoded to MMLU (`cais/mmlu`, zero-shot multiple-choice). Config string only needs to contain "mmlu" (case-insensitive); other values trigger a warning and skip
+- **`capability_floor`** — 6 default instruction-following prompts (in `_DEFAULT_CAPABILITY_PROMPTS`), or a graded GSM8K-tail slice (the mode the shipped configs use). Overrideable via `eval.capability_floor_prompts: [[q, a], ...]`.
 
-Metrics per split: accuracy, 95 % bootstrap CI, mean token count, underthinking rate (fraction of *correct* completions with ≤50 tokens), Pearson(difficulty, length) when difficulty labels exist (Hendrycks MATH levels). See `pipeline/eval/metrics.py`.
+Metrics per split: accuracy with Wilson 95% interval, mean token count with bootstrap CI, underthinking rate (fraction of correct completions at or below the P10 token count, or a fixed threshold pinned from the reference run), overthinking rate (above P75 similarly), Pearson(difficulty, length) when difficulty labels exist (Hendrycks MATH levels). See `pipeline/eval/metrics.py`.
 
 ### Custom Chat Template
 

@@ -19,12 +19,11 @@ class CosineLengthReward:
     answers are penalized less when longer (don't punish the model for thinking
     before failing). Wrong-and-short is therefore the most-penalized cell.
 
-    Why this and not the linear `TokenLengthReward`: under the default
-    `advantage_weighted` composer every component is z-scored per prompt-group,
-    which cancels any global scalar. A linear penalty `-alpha * n` z-scores to
-    `-(n - mean) / std` — pure monotone "shorter ranks higher" — so the model
-    drives length to the format-envelope floor (the e1-token-length collapse).
-    This reward is non-linear in length *and* gated by correctness, so it
+    Under the default `advantage_weighted` composer every component is z-scored
+    per prompt-group, which cancels any global positive scalar. A purely monotone
+    signal (e.g. a plain length penalty) z-scores to pure rank order — "shorter
+    always ranks higher" — so the model drives length to the format-envelope
+    floor. This reward is non-linear in length *and* gated by correctness, so it
     survives z-scoring with real structure: a wrong 17-token completion lands in
     the worst cell instead of the best one.
 

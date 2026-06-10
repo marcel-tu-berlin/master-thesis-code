@@ -145,9 +145,10 @@ def run_ood_probes(
     Probe hierarchy (from config eval.ood_probes):
     id_split — held-out portion of the training dataset
     near_ood — same domain, different distribution (e.g. GSM-8K if trained on MATH)
-    far_ood — MMLU subset (5-shot multiple-choice). NOTE: hardcoded to MMLU; add
+    far_ood — MMLU subset (zero-shot multiple-choice). NOTE: hardcoded to MMLU; add
               a probe registry if more far-OOD datasets are needed.
-    capability — simple instruction-following floor (fixed 5-item set)
+    capability — instruction-following floor: 6 default prompts, or a graded
+                 GSM8K-tail slice when capability_floor_dataset is set
     """
     probes_cfg = eval_cfg.get("ood_probes", {})
     gk = _gen_kwargs(eval_cfg)
