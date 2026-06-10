@@ -340,7 +340,11 @@ def _capability_match(expected: str, extracted: str) -> bool:
     """
     exp = expected.strip()
     text = extracted.strip()
-    pattern = r"(?<![\w\d])" + re.escape(exp) + r"(?![\w\d])"
+    # Trailing lookahead also rejects a decimal continuation (`.` + digit) so an
+    # integer expected value does not spuriously match a longer decimal
+    # (expected '4' must NOT match '4.5'); the bare `.` is still tolerated so a
+    # trailing sentence period matches ('cold' matches 'cold.').
+    pattern = r"(?<![\w\d])" + re.escape(exp) + r"(?![\w\d]|\.\d)"
     if re.search(pattern, text, flags=re.IGNORECASE):
         return True
     try:

@@ -15,7 +15,7 @@ model:
   # vLLM is enabled at runtime via the --vllm flag (not a config key)
 
 training:
-  domain: math                  # math | coding
+  domain: math                  # only `math` is implemented
   dataset: openai/gsm8k         # HuggingFace dataset id
   split: train
   prompt_length_quantile: 0.9 # filter top 10% longest prompts
@@ -79,7 +79,7 @@ eval:
   ood_probes:
     near: EleutherAI/hendrycks_math   # near-OOD (same domain, different dist)
     far: MMLU                         # far-OOD (hardcoded; see eval/ood_probes.py)
-    capability_floor: simple          # fixed 5-question sanity check
+    capability_floor: simple          # fixed instruction-following sanity check
   # Graded capability floor: sample tail of a dataset for harder questions.
   # capability_floor_dataset: openai/gsm8k
   # capability_floor_hf_split: test

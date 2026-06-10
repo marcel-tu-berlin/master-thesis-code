@@ -28,6 +28,18 @@ def test_capability_match_decimal_equiv():
 def test_capability_match_substring_guard():
     assert _capability_match("4", "14") is False
 
+def test_capability_match_integer_does_not_match_longer_decimal():
+    # expected integer must not spuriously match a wrong decimal that starts
+    # with it: '4' is not '4.5'. (Tolerating the trailing period must not also
+    # tolerate a decimal continuation.)
+    assert _capability_match("4", "4.5") is False
+    assert _capability_match("7", "7.2") is False
+    assert _capability_match("4", "The answer is 4.5 dollars") is False
+    # but a value-equal decimal still matches via the numeric fallback, and an
+    # integer with a trailing sentence period still matches
+    assert _capability_match("4", "4.0") is True
+    assert _capability_match("4", "The answer is 4.") is True
+
 def test_final_answer_uses_last_line_when_no_solution():
     assert _final_answer(d, "Comparing 9.9 and 9.11...\n9.11") == "9.11"
 
