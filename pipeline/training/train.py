@@ -18,17 +18,6 @@ from training.config_schema import validate_config, warn_inert_scalars
 from transformers import TrainerCallback, set_seed
 
 
-class _RewardStepCallback(TrainerCallback):
-    """TRL TrainerCallback that advances reward schedulers after each step."""
-
-    def __init__(self, step_fns: list) -> None:
-        self.step_fns = step_fns
-
-    def on_step_end(self, args, state, control, **kwargs):
-        for fn in self.step_fns:
-            fn()
-
-
 class _ComponentMetricsCallback(TrainerCallback):
     """Drain the composer's per-component reward metrics into the trainer log.
 
@@ -176,9 +165,6 @@ def main() -> None:
     reward_fn = build_composer(components, method)
 
     callbacks = []
-    step_fns = [fn.step for fn, _ in components if hasattr(fn, "step") and callable(fn.step)]
-    if step_fns:
-        callbacks.append(_RewardStepCallback(step_fns))
     # The callback holds the same composer instance passed as the reward fn, so
     # it drains the very buffer the trainer's reward calls populate (T2.1).
     if hasattr(reward_fn, "pop_step_metrics"):

@@ -12,8 +12,6 @@ from training.rewards.accuracy import AnswerReward, NumericReward
 from training.rewards.cosine_length import CosineLengthReward
 from training.rewards.format import FormatApproxReward, FormatExactReward
 from training.rewards.token_entropy import TokenEntropyReward
-from training.rewards.token_length import TokenLengthReward
-
 
 def _build_format_exact(domain, runner, training_cfg, cfg):
     return FormatExactReward(domain)
@@ -37,31 +35,17 @@ def _build_numeric(domain, runner, training_cfg, cfg):
 
 
 def _build_token_length(domain, runner, training_cfg, cfg):
-    # `shape: cosine` (default) gives the correctness-coupled Wu/Yeo length
-    # reward, which survives the advantage_weighted z-scoring that nullifies the
-    # linear penalty's alpha/schedule. `shape: linear` opts back into the original
-    # global -alpha*n penalty — only meaningful under naive_sum (where alpha is
-    # live) or as the linear-collapse ablation; set it explicitly.
-    shape = cfg.get("shape", "cosine")
-    if shape == "cosine":
-        return CosineLengthReward(
-            runner.tokenizer,
-            domain,
-            max_len=int(cfg.get("max_len", 512)),
-            r_correct_short=cfg.get("r_correct_short", 1.0),
-            r_correct_long=cfg.get("r_correct_long", 0.5),
-            r_wrong_short=cfg.get("r_wrong_short", -1.0),
-            r_wrong_long=cfg.get("r_wrong_long", -0.5),
-        )
-    if shape != "linear":
-        raise ValueError(
-            f"rewards.token_length.shape must be 'linear' or 'cosine' (got {shape!r})"
-        )
-    return TokenLengthReward(
+    # Cosine length reward (Wu/Yeo 2025): correct -> prefer shorter, wrong ->
+    # prefer longer. Non-linear and correctness-gated, so it survives the
+    # advantage_weighted per-group z-scoring. This is the only length shape.
+    return CosineLengthReward(
         runner.tokenizer,
-        alpha=cfg.get("alpha", 0.001),
-        mode=cfg.get("schedule", "constant"),
-        total_steps=int(training_cfg.get("max_steps", 500)),
+        domain,
+        max_len=int(cfg.get("max_len", 256)),
+        r_correct_short=cfg.get("r_correct_short", 1.0),
+        r_correct_long=cfg.get("r_correct_long", 0.5),
+        r_wrong_short=cfg.get("r_wrong_short", -1.0),
+        r_wrong_long=cfg.get("r_wrong_long", -0.5),
     )
 
 

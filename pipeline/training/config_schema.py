@@ -38,10 +38,7 @@ _KNOWN_REWARD_SUBKEYS: dict[str, set[str]] = {
     "accuracy":      _COMMON_REWARD_SUBKEYS,
     "numeric":       _COMMON_REWARD_SUBKEYS,
     "token_length":  _COMMON_REWARD_SUBKEYS | {
-        # Linear-penalty knobs (used when shape=linear, e.g. under naive_sum):
-        "alpha", "schedule",
-        # Cosine-shape knobs (Wu/Yeo correctness-coupled length reward):
-        "shape", "max_len",
+        "max_len",
         "r_correct_short", "r_correct_long", "r_wrong_short", "r_wrong_long",
     },
     "token_entropy": _COMMON_REWARD_SUBKEYS | {
@@ -72,63 +69,18 @@ _NUMERIC_COERCIONS = {
 def warn_inert_scalars(rewards_cfg: dict, compose_method: str) -> list[str]:
     """Return warnings for reward knobs that do nothing as configured.
 
-    Two independent sources of inertness:
-
-    * **Wrong shape.** `token_length` resolves `shape` the same way the registry
-      builder does (default `cosine`). The cosine length reward uses
-      correctness-coupled endpoints and never reads `alpha`/`schedule`, so those
-      linear-only knobs are dead under *any* composer — a set value signals a
-      mistake (you probably meant `shape: linear`). This check is
-      composer-independent.
-    * **Z-scoring.** Under `advantage_weighted`, per-group z-scoring is invariant
-      to any global positive scalar, so the *linear* `token_length.alpha`/cosine
-      `schedule` and `token_entropy.reward_scale` cancel. These are live under
-      `naive_sum`, so they stay quiet there.
+    Under `advantage_weighted`, per-group z-scoring is invariant to any global
+    positive scalar, so `token_entropy.reward_scale` cancels. It is live under
+    `naive_sum`, so it stays quiet there.
 
     Default-valued scalars are not flagged (boilerplate); we warn only when a
-    value signals intent to tune (non-default alpha/reward_scale, an explicit
-    cosine schedule, or a flops/gpu_time metric). Disabled rewards are skipped.
+    value signals intent to tune (non-default reward_scale). Disabled rewards
+    are skipped.
     """
     rc = rewards_cfg or {}
     warnings: list[str] = []
     lever = "Use `weight`, the signal shape, or compose_method: naive_sum instead."
 
-    # token_length — resolve shape exactly as the builder does (default cosine)
-    # so the warning matches what actually runs.
-    tl = rc.get("token_length") or {}
-    if tl.get("enabled"):
-        shape = tl.get("shape", "cosine")
-        alpha_set = "alpha" in tl and tl["alpha"] != 0.001
-        cosine_schedule = tl.get("schedule") == "cosine"
-        if shape == "cosine":
-            # Composer-independent: the cosine reward never reads these knobs.
-            if alpha_set:
-                warnings.append(
-                    f"rewards.token_length.alpha={tl['alpha']} is ignored under shape: cosine "
-                    "(the cosine length reward uses correctness-coupled endpoints, not alpha). "
-                    "Set shape: linear if you meant the linear penalty."
-                )
-            if cosine_schedule:
-                warnings.append(
-                    "rewards.token_length.schedule: cosine is ignored under shape: cosine "
-                    "(schedule only modulates the linear penalty). Remove it, or set shape: linear."
-                )
-        elif shape == "linear" and compose_method == "advantage_weighted":
-            # Linear penalty: per-group z-scoring cancels the global scalars.
-            if alpha_set:
-                warnings.append(
-                    f"rewards.token_length.alpha={tl['alpha']} is inert under advantage_weighted "
-                    f"(per-group z-scoring cancels global scalars). {lever}"
-                )
-            if cosine_schedule:
-                warnings.append(
-                    "rewards.token_length.schedule: cosine is inert under advantage_weighted "
-                    "(the schedule is a per-step global scalar that z-scoring cancels). "
-                    "Anneal `weight`, or use shape: cosine / naive_sum."
-                )
-
-    # The remaining knobs are inert only under advantage_weighted (z-scoring);
-    # under naive_sum they are live.
     if compose_method == "advantage_weighted":
         te = rc.get("token_entropy") or {}
         if te.get("enabled") and "reward_scale" in te and te["reward_scale"] != 0.1:
