@@ -229,6 +229,7 @@ def _run_train_phase(
     smoke: bool,
     force: bool,
     retries: int,
+    vllm: bool = False,
 ) -> PhaseResult:
     if not force and _checkpoint_exists(exp_id):
         return PhaseResult(status=STATUS_SKIP, note="checkpoint-final exists")
@@ -238,6 +239,8 @@ def _run_train_phase(
         cmd.append("--smoke")
     if force:
         cmd.append("--overwrite")
+    if vllm:
+        cmd.append("--vllm")
 
     log_path = os.path.join(_run_dir(exp_id), "batch_train.log")
     status, attempts, dur = _run_phase(cmd, log_path, retries)
@@ -409,6 +412,7 @@ def _parse_args() -> argparse.Namespace:
                              "deduplicated by model slug (seeds share one base-model baseline). "
                              "Omit for a single run at the config's own seed.")
     parser.add_argument("--smoke", action="store_true", help="Pass --smoke to every subprocess")
+    parser.add_argument("--vllm", action="store_true", help="Pass --vllm to training subprocesses (route GRPO rollouts through vLLM)")
     parser.add_argument("--force", action="store_true",
                         help="Re-run phases even if their output already exists (train passes --overwrite)")
     parser.add_argument("--retries", type=int, default=1,
@@ -515,7 +519,7 @@ def main() -> None:
         if args.train:
             print(f"\n── TRAIN     {exp_id}  ({slug})")
             r.phases[PHASE_TRAIN] = _run_train_phase(
-                path, exp_id, smoke=args.smoke, force=args.force, retries=args.retries
+                path, exp_id, smoke=args.smoke, force=args.force, retries=args.retries, vllm=args.vllm
             )
             # If train failed and eval would need that checkpoint, skip eval rather
             # than launching it pointlessly.

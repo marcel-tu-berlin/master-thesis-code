@@ -94,11 +94,18 @@ def main() -> None:
     parser.add_argument("--eval", action="store_true", help="Run eval after training")
     parser.add_argument("--smoke", action="store_true", help="Override config for fast smoke test (3 steps, 2 rollouts, 512 seq)")
     parser.add_argument("--overwrite", action="store_true", help="Allow overwriting an existing run directory")
+    parser.add_argument("--vllm", action="store_true", help="Route GRPO rollouts through vLLM fast inference")
     args = parser.parse_args()
 
     config = load_config(args.config)
     if args.smoke:
         apply_smoke_overrides(config)
+    if args.vllm:
+        config.setdefault("model", {})
+        config["model"]["use_vllm"] = True
+        config["model"].setdefault("gpu_memory_utilization", 0.6)
+        config["model"]["enforce_eager"] = True
+        print("⚠  vLLM fast inference ON (--vllm): gpu_memory_utilization=0.6, enforce_eager=True")
     validate_config(config)
     seed = config.get("seed", 42)
     random.seed(seed)
