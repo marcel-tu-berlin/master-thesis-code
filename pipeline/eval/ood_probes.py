@@ -238,6 +238,10 @@ def _format_letter_answer(question: str, choices: list[str]) -> str:
 
 
 _LETTER_RE = re.compile(r"\b([ABCD])\b")
+# In free prose the bare letter "A" is usually the English article, followed by a
+# space + lowercase word ("A cyclist..."). Exclude that in the raw-text fallback so
+# baseline runs (low SOLUTION-tag compliance) aren't systematically biased to "A".
+_ANSWER_LETTER_RE = re.compile(r"\b([ABCD])\b(?!\s+[a-z])")
 
 
 def _extract_letter(domain, completion_text: str) -> str | None:
@@ -245,17 +249,16 @@ def _extract_letter(domain, completion_text: str) -> str | None:
 
     Strategy:
       1. Prefer the SOLUTION block. Match the first whole-word A/B/C/D inside it.
-      2. Fall back to the first whole-word A/B/C/D in the raw completion.
-    Whole-word match avoids picking up letters embedded in tokens like 'Asia'
-    or model prose like 'Option A is wrong, the answer is B' (still picks A
-    from raw completion fallback, but SOLUTION-block hits take priority).
+      2. Fall back to the first whole-word A/B/C/D in the raw completion,
+         excluding bare 'A' used as the English article (followed by a space
+         and a lowercase word) to avoid systematic A-bias in baseline runs.
     """
     extracted = domain.extract_answer(completion_text)
     if extracted:
         m = _LETTER_RE.search(extracted)
         if m:
             return m.group(1)
-    m = _LETTER_RE.search(completion_text)
+    m = _ANSWER_LETTER_RE.search(completion_text)
     return m.group(1) if m else None
 
 
@@ -284,10 +287,6 @@ def _run_mmlu(
     expected = ["ABCD"[s["answer"]] for s in rows]
 
     results = []
-    # MMLU answers live behind the SOLUTION tag, after a CoT chain. 256 tokens
-    # truncates many runs, producing false negatives. Use the configured
-    # budget as a floor; bump default to 512.
-    budget = max(max_new_tokens, 512)
     for i in range(0, len(rows), batch_size):
         chunk_prompts = prompts[i : i + batch_size]
         chunk_expected = expected[i : i + batch_size]
@@ -295,7 +294,7 @@ def _run_mmlu(
             tokenizer.apply_chat_template(p, add_generation_prompt=True, tokenize=False)
             for p in chunk_prompts
         ]
-        n_tokens_list, texts = _generate_batch(model, tokenizer, prompt_texts, budget, gen_kwargs)
+        n_tokens_list, texts = _generate_batch(model, tokenizer, prompt_texts, max_new_tokens, gen_kwargs)
         for n_tokens, text, ans in zip(n_tokens_list, texts, chunk_expected):
             pred = _extract_letter(domain, text)
             correct = pred == ans
@@ -338,7 +337,7 @@ def _capability_match(expected: str, extracted: str) -> bool:
     """
     exp = expected.strip()
     text = extracted.strip()
-    pattern = r"(?<![\w\d.])" + re.escape(exp) + r"(?![\w\d.])"
+    pattern = r"(?<![\w\d])" + re.escape(exp) + r"(?![\w\d])"
     if re.search(pattern, text, flags=re.IGNORECASE):
         return True
     try:
@@ -354,6 +353,17 @@ def _floor_slice_indices(n_total: int, limit: int, take: str) -> range:
     """
     n = min(limit, n_total)
     return range(n_total - n, n_total) if take == "tail" else range(n)
+
+
+def _final_answer(domain, text: str) -> str:
+    """The model's answer for capability-floor matching: prefer the SOLUTION
+    block; with no block, use the last non-empty line (the final answer) rather
+    than the whole completion, so a restated-question echo can't auto-pass."""
+    sol = domain.extract_answer(text)
+    if sol is not None:
+        return sol
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    return lines[-1] if lines else text
 
 
 def _run_capability_floor(
@@ -398,7 +408,6 @@ def _run_capability_floor(
     expected = [a for _, a in pair_iter]
 
     results = []
-    budget = max(max_new_tokens, 256)
     for i in range(0, len(prompt_msgs), batch_size):
         chunk = prompt_msgs[i : i + batch_size]
         chunk_expected = expected[i : i + batch_size]
@@ -406,9 +415,8 @@ def _run_capability_floor(
             tokenizer.apply_chat_template(p, add_generation_prompt=True, tokenize=False)
             for p in chunk
         ]
-        n_tokens_list, texts = _generate_batch(model, tokenizer, prompt_texts, budget, gen_kwargs)
+        n_tokens_list, texts = _generate_batch(model, tokenizer, prompt_texts, max_new_tokens, gen_kwargs)
         for n_tokens, text, exp in zip(n_tokens_list, texts, chunk_expected):
-            extracted = domain.extract_answer(text) or text
-            correct = _capability_match(exp, extracted)
+            correct = _capability_match(exp, _final_answer(domain, text))
             results.append(SampleResult(correct=correct, n_tokens=n_tokens))
     return compute_metrics(results)
