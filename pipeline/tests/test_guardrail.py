@@ -9,8 +9,8 @@ cosine), so a warning always matches what actually gets built. Two failure modes
 2. shape: linear under advantage_weighted: per-group z-scoring cancels the global
    alpha/schedule scalars, so they are inert. Under naive_sum they are live, quiet.
 
-token_entropy.reward_scale and effort_proxy knobs are inert only under
-advantage_weighted (z-scoring), so they stay gated on that composer.
+token_entropy.reward_scale is inert only under advantage_weighted (z-scoring),
+so it stays gated on that composer.
 """
 from training.config_schema import warn_inert_scalars
 
@@ -53,22 +53,17 @@ def test_linear_live_under_naive_sum():
     assert warn_inert_scalars(cfg, "naive_sum") == []
 
 
-def test_warns_reward_scale_and_effort_metric():
-    cfg = {
-        "token_entropy": {"enabled": True, "reward_scale": 0.5},
-        "effort_proxy": {"enabled": True, "metric": "flops"},
-    }
+def test_warns_reward_scale_under_advantage_weighted():
+    # token_entropy.reward_scale is inert under advantage_weighted (z-scoring
+    # cancels the global scalar).
+    cfg = {"token_entropy": {"enabled": True, "reward_scale": 0.5}}
     w = warn_inert_scalars(cfg, "advantage_weighted")
     assert any("reward_scale" in s for s in w)
-    assert any("metric" in s for s in w)
 
 
-def test_entropy_and_effort_quiet_under_naive_sum():
-    # These knobs are live under naive_sum -> no warning.
-    cfg = {
-        "token_entropy": {"enabled": True, "reward_scale": 0.5},
-        "effort_proxy": {"enabled": True, "metric": "flops"},
-    }
+def test_entropy_quiet_under_naive_sum():
+    # token_entropy.reward_scale is live under naive_sum -> no warning.
+    cfg = {"token_entropy": {"enabled": True, "reward_scale": 0.5}}
     assert warn_inert_scalars(cfg, "naive_sum") == []
 
 

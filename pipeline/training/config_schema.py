@@ -26,7 +26,6 @@ _KNOWN_REWARD_KEYS = {
     "numeric",
     "token_length",
     "token_entropy",
-    "effort_proxy",
 }
 
 # Whitelist of allowed sub-keys per reward. Catches typos in YAML (e.g.
@@ -50,7 +49,6 @@ _KNOWN_REWARD_SUBKEYS: dict[str, set[str]] = {
         # Deprecated alias: still accepted, builder warns.
         "fork_mask_top_pct",
     },
-    "effort_proxy":  _COMMON_REWARD_SUBKEYS | {"metric", "alpha"},
 }
 
 _NUMERIC_COERCIONS = {
@@ -84,8 +82,7 @@ def warn_inert_scalars(rewards_cfg: dict, compose_method: str) -> list[str]:
       composer-independent.
     * **Z-scoring.** Under `advantage_weighted`, per-group z-scoring is invariant
       to any global positive scalar, so the *linear* `token_length.alpha`/cosine
-      `schedule`, `token_entropy.reward_scale`, `effort_proxy.alpha`, and a
-      non-token_count effort `metric` all cancel. These are live under
+      `schedule` and `token_entropy.reward_scale` cancel. These are live under
       `naive_sum`, so they stay quiet there.
 
     Default-valued scalars are not flagged (boilerplate); we warn only when a
@@ -139,20 +136,6 @@ def warn_inert_scalars(rewards_cfg: dict, compose_method: str) -> list[str]:
                 f"rewards.token_entropy.reward_scale={te['reward_scale']} is inert under "
                 f"advantage_weighted (z-scoring cancels global scalars). {lever}"
             )
-
-        ep = rc.get("effort_proxy") or {}
-        if ep.get("enabled"):
-            if "alpha" in ep and ep["alpha"] != 0.001:
-                warnings.append(
-                    f"rewards.effort_proxy.alpha={ep['alpha']} is inert under advantage_weighted "
-                    f"(z-scoring cancels global scalars). {lever}"
-                )
-            if ep.get("metric") in ("flops", "gpu_time"):
-                warnings.append(
-                    f"rewards.effort_proxy.metric={ep['metric']!r} has no effect under advantage_weighted: "
-                    "flops/gpu_time differ from token_count only by a global scalar that z-scoring cancels, "
-                    "so all effort metrics reduce to z-scored token count (identical to token_length)."
-                )
 
     return warnings
 

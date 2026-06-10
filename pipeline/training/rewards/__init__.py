@@ -10,7 +10,6 @@ where reward_cfg is the dict under `rewards.<key>` from the YAML.
 """
 from training.rewards.accuracy import AnswerReward, NumericReward
 from training.rewards.cosine_length import CosineLengthReward
-from training.rewards.effort_proxy import EffortProxyReward
 from training.rewards.format import FormatApproxReward, FormatExactReward
 from training.rewards.token_entropy import TokenEntropyReward
 from training.rewards.token_length import TokenLengthReward
@@ -95,22 +94,6 @@ def _build_token_entropy(domain, runner, training_cfg, cfg):
     )
 
 
-def _build_effort_proxy(domain, runner, training_cfg, cfg):
-    model_cfg = None
-    inner = getattr(runner.model, "config", None)
-    if inner is not None and hasattr(inner, "to_dict"):
-        try:
-            model_cfg = inner.to_dict()
-        except (AttributeError, TypeError):
-            model_cfg = None
-    return EffortProxyReward(
-        runner.tokenizer,
-        metric=cfg.get("metric", "token_count"),
-        alpha=cfg.get("alpha", 0.001),
-        model_config=model_cfg,
-    )
-
-
 # key -> (default_enabled, default_weight, builder)
 REWARD_REGISTRY: dict[str, tuple[bool, float, callable]] = {
     "format_exact":  (True,  1.0, _build_format_exact),
@@ -119,5 +102,4 @@ REWARD_REGISTRY: dict[str, tuple[bool, float, callable]] = {
     "numeric":       (True,  1.0, _build_numeric),
     "token_length":  (False, 1.0, _build_token_length),
     "token_entropy": (False, 1.0, _build_token_entropy),
-    "effort_proxy":  (False, 1.0, _build_effort_proxy),
 }
