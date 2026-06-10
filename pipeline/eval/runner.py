@@ -61,7 +61,7 @@ def run_eval(
         cfg_budget = eval_cfg.get("max_new_tokens")
         if cfg_budget is not None:
             max_new_tokens = int(cfg_budget)
-        ood_results = run_ood_probes(model, tokenizer, domain, config, eval_cfg, max_new_tokens, smoke=smoke)
+        ood_results = run_ood_probes(model, tokenizer, domain, config, eval_cfg, max_new_tokens, smoke=smoke, lenient=baseline)
 
         # Baseline reports are themselves "before" measurements — comparing them
         # against another e0-* run would be nonsense, so suppress sibling search.

@@ -145,6 +145,7 @@ def generate_report(
                     "delta_accuracy": round(curr_acc - base_id, 4),
                     "baseline_mean_tokens": base_tokens,
                     "delta_mean_tokens": delta_tokens,
+                    "note": "baseline scored with a lenient (format-agnostic) extractor; trained model uses the tag-anchored grader",
                 }
 
     # Write human-readable markdown

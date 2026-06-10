@@ -79,6 +79,7 @@ def _run_split(
     batch_size: int = 8,
     underthinking_threshold: float | None = None,
     overthinking_threshold: float | None = None,
+    lenient: bool = False,
 ) -> EvalMetrics:
     """Generate completions for a dataset split (batched) and score them."""
     gen_kwargs = gen_kwargs or {"do_sample": False}
@@ -93,7 +94,7 @@ def _run_split(
         ]
         n_tokens_list, texts = _generate_batch(model, tokenizer, prompt_texts, max_new_tokens, gen_kwargs)
         for sample, n_tokens, completion_text in zip(chunk, n_tokens_list, texts):
-            correct = domain.is_correct(completion_text, sample["answer"])
+            correct = domain.is_correct(completion_text, sample["answer"], lenient=lenient)
             difficulty = domain.difficulty(sample)
             results.append(SampleResult(correct=correct, n_tokens=n_tokens, difficulty=difficulty))
 
@@ -136,6 +137,7 @@ def run_ood_probes(
     eval_cfg: dict,
     max_new_tokens: int = 512,
     smoke: bool = False,
+    lenient: bool = False,
 ) -> OODResults:
     """
     Run all OOD probe splits and return structured results.
@@ -178,7 +180,7 @@ def run_ood_probes(
         u, o = _thr("id_split")
         results.id_split = _run_split(
             model, tokenizer, domain, id_ds, max_new_tokens, gen_kwargs=gk, batch_size=batch_size,
-            underthinking_threshold=u, overthinking_threshold=o,
+            underthinking_threshold=u, overthinking_threshold=o, lenient=lenient,
         )
 
     # Near-OOD
@@ -190,7 +192,7 @@ def run_ood_probes(
         u, o = _thr("near_ood")
         results.near_ood = _run_split(
             model, tokenizer, domain, near_ds, max_new_tokens, gen_kwargs=gk, batch_size=batch_size,
-            underthinking_threshold=u, overthinking_threshold=o,
+            underthinking_threshold=u, overthinking_threshold=o, lenient=lenient,
         )
 
     # Far-OOD: MMLU. Match case-insensitively so configs may use 'mmlu',

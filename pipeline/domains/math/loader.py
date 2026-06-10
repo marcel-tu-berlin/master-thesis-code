@@ -155,5 +155,16 @@ class MathDomain(Domain):
         m = _NUMBER_RE.search(sol)
         return m.group(0) if m else None
 
+    def extract_answer_lenient(self, text: str) -> str | None:
+        from domains.base import _NUMBER_RE
+        sol = self.extract_answer(text)
+        if sol is not None:
+            return sol
+        boxed = _extract_boxed(text)
+        if boxed is not None:
+            return boxed
+        nums = _NUMBER_RE.findall(text)
+        return nums[-1] if nums else None
+
     def difficulty(self, sample: dict) -> float | None:
         return sample.get("difficulty")

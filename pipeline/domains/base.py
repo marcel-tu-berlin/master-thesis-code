@@ -94,9 +94,15 @@ class Domain(ABC):
         except (ValueError, AttributeError):
             return -1.5
 
-    def is_correct(self, completion: str, ground_truth: str) -> bool:
+    def extract_answer_lenient(self, text: str) -> str | None:
+        """Format-agnostic extraction for assessing an untrained base model that
+        doesn't emit the SOLUTION tags. Base implementation adds no fallback;
+        subclasses override."""
+        return self.extract_answer(text)
+
+    def is_correct(self, completion: str, ground_truth: str, lenient: bool = False) -> bool:
         """Binary correctness for evaluation (not training)."""
-        extracted = self.extract_answer(completion)
+        extracted = self.extract_answer_lenient(completion) if lenient else self.extract_answer(completion)
         if extracted is None:
             return False
         return self.check_exact(extracted, ground_truth) or self.check_numeric(extracted, ground_truth)
