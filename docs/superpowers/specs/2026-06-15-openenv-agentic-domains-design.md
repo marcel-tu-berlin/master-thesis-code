@@ -14,7 +14,7 @@ This is not a new `Domain` subclass. It changes the shape of the training loop, 
 
 ## Decisions (settled in the design interview)
 
-1. **Full migration to vanilla TRL.** Drop unsloth. One `GRPORunner` on vanilla TRL (>= 0.26) plus PEFT and bitsandbytes serves both single-turn and agentic modes. Rationale: unsloth's GRPOTrainer silently ignores `rollout_func` (unslothai/unsloth#3573), so the OpenEnv path needs vanilla TRL anyway. A single stack matches the project's preference for one principled default over two coexisting trainers. Cost: the existing math results must be re-validated on the new stack.
+1. **Full migration to vanilla TRL.** Drop unsloth. One `GRPORunner` on vanilla TRL (>= 0.26) plus PEFT and bitsandbytes serves both single-turn and agentic modes. Rationale: unsloth's GRPOTrainer silently ignores `rollout_func` (unslothai/unsloth#3573), so the OpenEnv path needs vanilla TRL anyway. A single stack matches the project's preference for one principled default over two coexisting trainers. Consequence: no captured e0 baseline exists to reproduce, so the migrated math results become the project baseline, validated for sanity (a clear gain over the base model, no collapse) rather than bit-parity with the old stack.
 
 2. **reasoning_gym is the first agentic domain.** Closest to the current math domain, so graders and efficiency rewards port most directly. It is single-step (one action per episode), which keeps the first OpenEnv integration simple. textarena and coding_env are the intended follow-ups and are genuinely multi-turn.
 
@@ -22,7 +22,7 @@ This is not a new `Domain` subclass. It changes the shape of the training loop, 
 
 4. **Integration path: `rollout_func`, not `environment_factory`.** The efficiency rewards need explicit access to `completion_ids` (model-token-only accounting). `rollout_func` returns those plus the environment reward as kwargs. `environment_factory` auto-masks the loss but does not reliably expose per-token masks to reward functions. For single-step reasoning_gym the manual rollout loop is short.
 
-5. **Agentic default model: `qwen3-1.7b` (`Qwen/Qwen3-1.7B`).** A 7B model does not fit colocated vLLM on a 24 GB RTX 4090. 1.7B leaves headroom; 4B is a stretch target. Existing 7B math configs keep running on the migrated stack.
+5. **Agentic default model: `qwen3-1.7b` (`Qwen/Qwen3-1.7B`).** A 7B model does not fit colocated vLLM on a 24 GB GPU. 1.7B leaves headroom; 4B is a stretch target. Existing 7B math configs keep running on the migrated stack.
 
 ## Goals
 
@@ -35,7 +35,7 @@ This is not a new `Domain` subclass. It changes the shape of the training loop, 
 ## Non-goals
 
 - Multi-turn environments beyond reasoning_gym (textarena, coding_env). The abstraction is designed for them; they are not built here.
-- Distributed or multi-GPU training. Single RTX 4090, colocate vLLM.
+- Distributed or multi-GPU training. Single 24 GB GPU (the L4 node described under Hardware and deployment), colocate vLLM.
 - Changing the reward composition math (advantage-weighted z-scoring stays as is).
 - Re-tuning math hyperparameters. The migration aims to reproduce, not improve, the existing results.
 
@@ -147,13 +147,27 @@ New reference config: `configs/e5-agentic-reasoning-gym-qwen3-1_7b.yaml`.
 - Keep a `vllm` compatible with TRL 0.26 colocate (current pin is the 0.19.1 cu130 wheel; compatibility is a spike).
 - Add `openenv[core]` and the reasoning_gym environment client (installed from its Hugging Face Space, or run via OpenEnv's local UV provider to isolate its dependencies from the training environment).
 
-## Regression gate
+## Hardware and deployment
 
-Full migration touches the working single-turn path, so a hard gate sits between migration and agentic work:
+Validation runs on an NVIDIA L4 node (DevPod, reachable over `ssh gpu-l4`), not the RTX 4090 the configs were first written against. The relevant facts:
 
-Re-run the e0 math baseline on the vanilla TRL stack and compare its eval report against the same run on the `pre-agentic-math-only` git tag. Tolerance, stated against the existing CI machinery so the gate is verifiable: the migrated id_split accuracy falls inside the reference run's Wilson 95% interval, and the migrated mean token count falls inside the reference run's bootstrap 95% interval. Agentic implementation does not start until this passes. unsloth and vanilla TRL + PEFT can differ in kernels and quantization, so this gate is what proves the migration did not silently regress the baseline the thesis compares against.
+- L4, 23 GB VRAM, idle. Same 24 GB class as the 4090, so the model-size reasoning holds (7B tight, 1.7B agentic with colocate headroom). The L4 is a slower inference-class card, so wall-clock is longer: unit tests and `--smoke` runs finish quickly, a full 500-step e0 is an overnight-class job.
+- CUDA 13.0 (driver 580.95), Python 3.12.3, uv 0.9.25. These match the pipeline's targets, so the cu130 wheels install without special handling.
+- 48 vCPU, 188 GB RAM, 3.2 TB free. CPU-side work (data loading, environment servers) is unconstrained.
 
-Caveat: the reference numbers were produced by the unsloth stack, which the migration removes. Generate them once before deleting the unsloth environment, by checking out `pre-agentic-math-only` and running e0 eval, and store that `eval_report.json` as the comparison anchor.
+Deployment: rsync the working tree (including `.git`, so the box carries the tag and branch) to `/workspace/master-thesis-code`, excluding `.venv*`, `runs/`, and caches. Two environments live on the box: `.venv-test` (CPU torch, the fast unit-test loop) and `.venv` (the full GPU stack from `setup.sh`). The 86-test unit suite runs in `.venv-test` in a few seconds.
+
+## Baseline establishment and sanity gate
+
+No e0 result exists in the repo, and the project holds no e0 numbers to reproduce. So the migration establishes the baseline rather than matching one: run e0 once on the vanilla TRL stack, and that `eval_report.json` becomes the project's reference for every later delta.
+
+A gate still sits between migration and agentic work, but it is a sanity check, not a parity check. The migrated e0 passes when:
+
+- id_split accuracy is clearly above the base-model baseline (the `--baseline` pass over the same probes),
+- the model has not collapsed: capability_floor stays near its base-model level, and mean token count sits in a sane range rather than at the format floor,
+- training curves show reward rising and KL bounded.
+
+Agentic implementation does not start until this passes. The `pre-agentic-math-only` tag remains the code snapshot of the pre-migration state; it is not used for numeric comparison.
 
 ## Risks and open questions
 
@@ -167,8 +181,8 @@ Caveat: the reference numbers were produced by the unsloth stack, which the migr
 
 Front-loaded so the migration risk and the regression gate come before agentic work. Each milestone has a verification gate. TDD applies to the pure-logic surfaces: write the CPU test first (runnable in `.venv-test`), then the implementation. GPU-dependent paths are verified by smoke runs on the GPU box.
 
-- **M0: capture the baseline anchor, then dependency and stack spike.** First, on the current unsloth environment (the `pre-agentic-math-only` tag), run e0 eval and store its `eval_report.json` as the regression anchor, unless a real e0 report already exists. This must happen before `setup.sh` removes unsloth. Then stand up the new environment, confirm it resolves, and confirm a 3-step vanilla GRPO run on GSM8K completes (proves the migrated single-turn path trains). Verify: the anchor report exists; the smoke train logs reward and loss.
-- **M1: single-turn migration and regression gate.** Rewrite `GRPORunner` and `eval/runner` on vanilla TRL + PEFT, keeping Domain, rewards, composer, and eval logic. Re-run full e0. Verify: e0 metrics within tolerance of `pre-agentic-math-only`. This gate blocks agentic work.
+- **M0: dependency and stack spike.** Build the new environment with the rewritten `setup.sh` (vanilla TRL, PEFT, bitsandbytes, accelerate, a TRL-0.26-compatible vLLM, openenv-core). Confirm it resolves on the L4, then confirm a 3-step vanilla GRPO run on GSM8K completes (proves the migrated single-turn path trains). Verify: the environment resolves; the smoke train logs reward and loss. No unsloth build (establish-fresh makes it unnecessary).
+- **M1: single-turn migration and sanity gate.** Rewrite `GRPORunner` and `eval/runner` on vanilla TRL + PEFT, keeping Domain, rewards, composer, and eval logic. Run full e0 plus its `--baseline` pass; the trained report becomes the project baseline. Verify: the sanity gate above passes (clear gain over base model, no collapse). This gate blocks agentic work.
 - **M2: OpenEnv reasoning_gym path.** `EnvDomain` plus reasoning_gym plus the `rollout_func` wiring plus the `train.py` dispatch. Verify: smoke agentic train (3 steps) runs, the environment reward flows into the composer, a checkpoint saves.
 - **M3: efficiency rewards in agentic.** Wire `CosineLengthReward` and `TokenEntropyReward` to model tokens in the agentic loop. Verify: efficiency components appear in the training log; an agentic config with `token_length` enabled trains.
 - **M4: agentic eval.** `_run_episodes` probe plus the `n_steps` metric. Verify: an `eval_report.json` for an agentic run with success rate and model-token efficiency.
@@ -185,7 +199,7 @@ Front-loaded so the migration risk and the regression gate come before agentic w
 ## Success criteria
 
 - One training stack (vanilla TRL + PEFT + bitsandbytes); unsloth removed from the pipeline.
-- The e0 math baseline reproduces within tolerance on the migrated stack.
+- e0 trains and evaluates sanely on the migrated vanilla-TRL stack (clear gain over the base model, no collapse) and is recorded as the project baseline.
 - An agentic reasoning_gym GRPO run trains end to end on a single RTX 4090, with the environment reward and at least one efficiency reward composed through the advantage-weighted composer.
 - An agentic eval report with episode success rate and model-token efficiency.
 - CLAUDE.md, the pipeline README, the config template, and setup.sh describe the agentic pipeline accurately.
