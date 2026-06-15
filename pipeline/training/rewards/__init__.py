@@ -12,6 +12,7 @@ from training.rewards.accuracy import AnswerReward, NumericReward
 from training.rewards.cosine_length import CosineLengthReward
 from training.rewards.format import FormatApproxReward, FormatExactReward
 from training.rewards.token_entropy import TokenEntropyReward
+from training.rewards.env_reward import EnvReward
 
 def _build_format_exact(domain, runner, training_cfg, cfg):
     return FormatExactReward(domain)
@@ -78,6 +79,12 @@ def _build_token_entropy(domain, runner, training_cfg, cfg):
     )
 
 
+def _build_env_reward(domain, runner, training_cfg, cfg):
+    # Task-success reward from the OpenEnv environment, passed to the composer
+    # via kwargs['env_reward'] by the agentic rollout_func.
+    return EnvReward()
+
+
 # key -> (default_enabled, default_weight, builder)
 REWARD_REGISTRY: dict[str, tuple[bool, float, callable]] = {
     "format_exact":  (True,  1.0, _build_format_exact),
@@ -86,4 +93,5 @@ REWARD_REGISTRY: dict[str, tuple[bool, float, callable]] = {
     "numeric":       (True,  1.0, _build_numeric),
     "token_length":  (False, 1.0, _build_token_length),
     "token_entropy": (False, 1.0, _build_token_entropy),
+    "env_reward":    (False, 1.0, _build_env_reward),
 }
