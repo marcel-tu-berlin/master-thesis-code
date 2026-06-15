@@ -78,13 +78,14 @@ class GRPORunner:
             bf16=torch.cuda.is_bf16_supported(),
             fp16=not torch.cuda.is_bf16_supported(),
             gradient_checkpointing=True,
-            per_device_train_batch_size=int(t.get("batch_size", 1)),
+            # TRL 1.6 counts per_device_train_batch_size in completions, and a
+            # full prompt-group is num_generations completions. Set it to
+            # batch_size * n_rollouts so one optimizer step consumes whole
+            # groups (1 prompt-group/step at batch_size=1) and max_steps tracks
+            # the number of prompts trained on, not micro-steps within a group.
+            per_device_train_batch_size=int(t.get("batch_size", 1)) * int(t.get("n_rollouts", 8)),
             gradient_accumulation_steps=int(t.get("gradient_accumulation_steps", 1)),
             num_generations=int(t.get("n_rollouts", 8)),
-            # TRL 1.6 derives generation_batch_size from batch x steps_per_generation
-            # and requires it divisible by num_generations. Pin it to one full
-            # prompt-group per round so batch_size=1, n_rollouts=8 is valid.
-            generation_batch_size=int(t.get("n_rollouts", 8)) * int(t.get("batch_size", 1)),
             max_completion_length=max_completion_len,
             max_steps=int(t.get("max_steps", 500)),
             save_steps=int(t.get("save_steps", 100)),
