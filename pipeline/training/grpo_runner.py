@@ -1,3 +1,9 @@
+import os
+
+# Reduce CUDA allocator fragmentation so vLLM colocate + training coexist on a
+# 24 GB GPU. Must be set before torch initializes the caching allocator.
+os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
@@ -68,6 +74,19 @@ class GRPORunner:
         t = self.config["training"]
         max_prompt_len = t.get("max_prompt_length", self._max_seq // 2)
         max_completion_len = self._max_seq - max_prompt_len
+
+        # Bound activation memory: forward/backward completions in small
+        # micro-batches and accumulate gradients over a full prompt-group
+        # (batch_size * n_rollouts) per optimizer step. GRPO advantages are
+        # unaffected (computed per group at reward time over the full generation
+        # batch), so max_steps still counts prompts, not micro-steps.
+        n_rollouts = int(t.get("n_rollouts", 8))
+        total_completions = int(t.get("batch_size", 1)) * n_rollouts
+        micro = int(t.get("micro_batch_size", 2))
+        if micro < 1 or total_completions % micro != 0:
+            micro = 1
+        grad_accum = total_completions // micro
+
         kwargs = dict(
             temperature=float(t.get("temperature", 1.0)),
             learning_rate=float(t.get("learning_rate", 5e-6)),
@@ -86,9 +105,9 @@ class GRPORunner:
             # batch_size * n_rollouts so one optimizer step consumes whole
             # groups (1 prompt-group/step at batch_size=1) and max_steps tracks
             # the number of prompts trained on, not micro-steps within a group.
-            per_device_train_batch_size=int(t.get("batch_size", 1)) * int(t.get("n_rollouts", 8)),
-            gradient_accumulation_steps=int(t.get("gradient_accumulation_steps", 1)),
-            num_generations=int(t.get("n_rollouts", 8)),
+            per_device_train_batch_size=micro,
+            gradient_accumulation_steps=grad_accum,
+            num_generations=n_rollouts,
             max_completion_length=max_completion_len,
             max_steps=int(t.get("max_steps", 500)),
             save_steps=int(t.get("save_steps", 100)),
