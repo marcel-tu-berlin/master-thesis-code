@@ -61,10 +61,17 @@ class CosineLengthReward:
 
     def __call__(self, prompts, completions, answer=None, **kwargs) -> list[float]:
         truths = _require_answers(answer, len(completions), "CosineLengthReward")
+        # Prefer the exact model-generated token ids TRL/the rollout_func provide
+        # over re-encoding decoded text. In the agentic loop this is what makes
+        # the length signal count model tokens only. Falls back to re-encoding.
+        provided_ids = kwargs.get("completion_ids")
         scores = []
-        for completion, truth in zip(completions, truths):
+        for i, (completion, truth) in enumerate(zip(completions, truths)):
             text = extract_content(completion)
-            n_tokens = len(self.tokenizer.encode(text, add_special_tokens=False))
+            if provided_ids is not None and i < len(provided_ids):
+                n_tokens = len(provided_ids[i])
+            else:
+                n_tokens = len(self.tokenizer.encode(text, add_special_tokens=False))
             correct = self.domain.is_correct(text, truth)
             scores.append(self._reward(n_tokens, correct))
         return scores
