@@ -28,4 +28,24 @@ GRPO needs `num_generations` completions for the *same* question (to compute wit
 
 3. **`environment_factory` instead of `rollout_func`.** TRL's env-driven path handles reset/step/grouping internally and auto-builds the token mask. Cleaner for single-step reasoning_gym; the reason we picked `rollout_func` (efficiency-reward mask control) does not bite here because the completion is entirely model tokens. Trade-off: less explicit control, and the efficiency rewards depend on `completion_ids` reaching reward funcs (needs a quick check).
 
-Recommendation: start with (1) for a robust first agentic-domain result, and reserve the live rollout loop (2) for the first genuinely multi-turn env, where the mask and per-step interaction are essential. Revisit (3) if we want the canonical TRL env loop for reasoning_gym specifically. Decision pending.
+Recommendation: start with (1) for a robust first agentic-domain result, and reserve the live rollout loop (2) for the first genuinely multi-turn env, where the mask and per-step interaction are essential. Revisit (3) if we want the canonical TRL env loop for reasoning_gym specifically.
+
+## Decision: environment_factory (option 3). Verified contract (trl 1.6)
+
+`GRPOTrainer(environment_factory=...)` is a real param in trl 1.6 (`grpo_trainer.py`). Verified contract:
+
+- **Requires transformers >= 5.2.0** (we have 5.12.0). Experimental; set `TRL_EXPERIMENTAL_SILENCE=1`.
+- The trainer creates one env per rollout: `self.environments = [environment_factory() for _ in range(generation_batch_size)]`. So `environment_factory` is a zero-arg callable returning a fresh env instance.
+- Each env's **public methods are introspected as tools** (`inspect.getmembers(env, predicate=ismethod)`) and added to `self.tools`. The model interacts by emitting **tool calls**; the trainer runs the tool loop and auto-builds the `tool_mask` (model tokens vs tool-response tokens). Needs the tokenizer's tool-calling support.
+- Each env must define a callable **`reset`**. The trainer resets each env with **per-dataset-row kwargs**: `for prompt, environment, reset_kwargs in zip(prompts, self.environments, inputs, ...)`. So the train_dataset rows carry the reset params (e.g. a distinct `seed` per row -> a distinct reasoning_gym question), and `reset(**row)` returns the observation that becomes the prompt.
+- **Reward funcs receive `environments`**: `reward_kwargs["environments"] = self.environments`. So a reward func reads `[env.reward for env in environments]`.
+
+### Implications / rework for this pipeline
+
+- **EnvReward (B3)**: change from reading `kwargs["env_reward"]` to `[e.reward for e in kwargs["environments"]]`. Small.
+- **EnvDomain / reasoning_gym (B5)**: instead of the reasoning-tag chat template, provide an **env adapter class** for the factory: wraps the OpenEnv `ReasoningGymEnv` client; `reset(**row)` resets it (row carries dataset_name/config/seed/size) and returns the question; an `answer(answer: str)` tool method calls the client's `step` and stores `self.reward = obs.score`; exposes `self.reward`. The agentic configs (e5) already drop the SOLUTION-format rewards and use `env_reward` + efficiency, so the tool-calling format does not clash with the format-reward stack.
+- **Efficiency rewards**: the auto `tool_mask` marks model tokens; the model's tool-call tokens are the completion. Verify `completion_ids` reach reward funcs under the env-factory path (quick smoke check) so CosineLength/TokenEntropy count model tokens.
+- **Dataset (B7)**: build a small train_dataset of rows each carrying the reset kwargs (distinct seeds) so each row is a distinct reasoning_gym question; no pre-harvested answers needed (the env scores live).
+- **Model/template**: needs a tool-calling-capable tokenizer template. Qwen3-1.7B tool-calling support must be confirmed; the base model may need the instruct chat template or a tool-call template rather than the custom reasoning-tag one.
+
+Next implementation steps (GPU-blocked until the e0-1.7b baseline frees the GPU + the reasoning_gym env client is installed): write the env-factory adapter, rework EnvReward/EnvDomain, build the seed-row dataset, wire `environment_factory` into the runner + train.py dispatch, then agentic smoke.
