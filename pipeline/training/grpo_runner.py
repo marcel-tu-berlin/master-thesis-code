@@ -1,18 +1,14 @@
-import os
-from typing import Callable
-
-from unsloth import FastLanguageModel, PatchFastRL, is_bfloat16_supported
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from trl import GRPOConfig, GRPOTrainer
 
 from training.registry import LORA_TARGET_MODULES, get_model_config
 
-PatchFastRL("GRPO", FastLanguageModel)
-
 
 class GRPORunner:
-    """
-    Thin wrapper around Unsloth + TRL GRPOTrainer.
-    Keeps model loading, LoRA setup, and training config separate from business logic.
+    """Vanilla TRL + PEFT GRPO. Loads the model (optionally 4-bit nf4), applies
+    LoRA, and runs GRPOTrainer. The agentic rollout_func branch is added later.
     """
 
     def __init__(self, config: dict) -> None:
@@ -24,51 +20,52 @@ class GRPORunner:
         load_4bit = config["model"].get("load_in_4bit", model_cfg["load_in_4bit"])
         max_seq = int(config["model"].get("max_seq_length", model_cfg["max_seq_length"]))
         use_vllm = config["model"].get("use_vllm", False)
-        enforce_eager = config["model"].get("enforce_eager", False)
 
-        load_kwargs = dict(
-            model_name=model_cfg["model_name"],
-            max_seq_length=max_seq,
-            load_in_4bit=load_4bit,
-            fast_inference=use_vllm,
-            max_lora_rank=lora_rank,
-        )
-        # Only forward vLLM-specific kwargs when fast inference is on; passing
-        # gpu_memory_utilization=None to the non-vLLM path can confuse Unsloth.
-        if use_vllm:
-            load_kwargs["gpu_memory_utilization"] = float(
-                config["model"].get("gpu_memory_utilization", 0.6)
+        dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+
+        quant_config = None
+        if load_4bit:
+            quant_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_compute_dtype=dtype,
             )
-            load_kwargs["enforce_eager"] = enforce_eager
-            # Thread the experiment seed into the vLLM engine. Without this the
-            # engine initializes at seed 0 regardless of `seed:` in the config
-            # (arg_utils.py global-seed-0 + engine seed=0), which makes rollouts
-            # non-reproducible across runs and is the cause of the cross-batch
-            # baseline shift. FastLanguageModel forwards this to the vLLM engine.
-            load_kwargs["seed"] = int(config.get("seed", 42))
 
-        self.model, self.tokenizer = FastLanguageModel.from_pretrained(**load_kwargs)
-
-        self.model = FastLanguageModel.get_peft_model(
-            self.model,
-            r=lora_rank,
-            target_modules=LORA_TARGET_MODULES,
-            lora_alpha=lora_alpha,
-            use_gradient_checkpointing="unsloth",
-            random_state=config.get("seed", 42),
+        self.tokenizer = AutoTokenizer.from_pretrained(model_cfg["model_name"])
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model_cfg["model_name"],
+            quantization_config=quant_config,
+            torch_dtype=dtype,
+            device_map="auto",
         )
+        self.model.config.use_cache = False
+
+        if load_4bit:
+            self.model = prepare_model_for_kbit_training(
+                self.model, use_gradient_checkpointing=True
+            )
+
+        lora_config = LoraConfig(
+            r=lora_rank,
+            lora_alpha=lora_alpha,
+            target_modules=LORA_TARGET_MODULES,
+            lora_dropout=0.0,
+            bias="none",
+            task_type="CAUSAL_LM",
+        )
+        self.model = get_peft_model(self.model, lora_config)
+        self.model.enable_input_require_grads()
 
         self._lora_rank = lora_rank
         self._max_seq = max_seq
         self._use_vllm = use_vllm
 
-    def train(self, dataset, reward_fn: Callable, output_dir: str, callbacks: list | None = None) -> None:
+    def _grpo_config(self, output_dir: str) -> GRPOConfig:
         t = self.config["training"]
         max_prompt_len = t.get("max_prompt_length", self._max_seq // 2)
         max_completion_len = self._max_seq - max_prompt_len
-
-        grpo_args = GRPOConfig(
-            use_vllm=self._use_vllm,
+        kwargs = dict(
             temperature=float(t.get("temperature", 1.0)),
             learning_rate=float(t.get("learning_rate", 5e-6)),
             adam_beta1=0.9,
@@ -78,8 +75,9 @@ class GRPORunner:
             lr_scheduler_type="cosine",
             optim="paged_adamw_8bit",
             logging_steps=1,
-            bf16=is_bfloat16_supported(),
-            fp16=not is_bfloat16_supported(),
+            bf16=torch.cuda.is_bf16_supported(),
+            fp16=not torch.cuda.is_bf16_supported(),
+            gradient_checkpointing=True,
             per_device_train_batch_size=int(t.get("batch_size", 1)),
             gradient_accumulation_steps=int(t.get("gradient_accumulation_steps", 1)),
             num_generations=int(t.get("n_rollouts", 8)),
@@ -90,17 +88,22 @@ class GRPORunner:
             output_dir=output_dir,
             report_to="none",
             beta=float(t.get("kl_beta", 0.001)),
-            # Belt-and-suspenders: seed the TRL trainer + colocate sampler too,
-            # so data shuffling and any non-vLLM sampling path are reproducible
-            # alongside the vLLM engine seed set in __init__.
             seed=int(self.config.get("seed", 42)),
         )
+        if self._use_vllm:
+            kwargs["use_vllm"] = True
+            kwargs["vllm_mode"] = "colocate"
+            kwargs["vllm_gpu_memory_utilization"] = float(
+                self.config["model"].get("gpu_memory_utilization", 0.3)
+            )
+        return GRPOConfig(**kwargs)
 
+    def train(self, dataset, reward_fn, output_dir: str, callbacks=None) -> None:
         trainer = GRPOTrainer(
             model=self.model,
             processing_class=self.tokenizer,
             reward_funcs=[reward_fn],
-            args=grpo_args,
+            args=self._grpo_config(output_dir),
             train_dataset=dataset,
             callbacks=callbacks or [],
         )
