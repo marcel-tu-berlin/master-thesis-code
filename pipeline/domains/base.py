@@ -6,6 +6,31 @@ from datasets import Dataset
 _NUMBER_RE = re.compile(r"[-+]?(?:\d[\d,]*(?:\.\d+)?|\.\d+)")
 
 
+def build_reasoning_chat_template(tokenizer, system_prompt: str, reasoning_start: str) -> None:
+    """Assign a Jinja2 chat template that emits the reasoning tags. Shared by the
+    dataset `Domain` and the agentic `EnvDomain` so both render prompts identically
+    (add_generation_prompt prepends reasoning_start to force reasoning mode)."""
+    sp = system_prompt.replace("\\", "\\\\").replace("'", "\\'")
+    rs = reasoning_start.replace("\\", "\\\\").replace("'", "\\'")
+    tokenizer.chat_template = (
+        "{% if messages[0]['role'] == 'system' %}"
+        "{{ messages[0]['content'] + eos_token }}"
+        "{% set loop_messages = messages[1:] %}"
+        "{% else %}"
+        f"{{{{ '{sp}' + eos_token }}}}"
+        "{% set loop_messages = messages %}"
+        "{% endif %}"
+        "{% for message in loop_messages %}"
+        "{% if message['role'] == 'user' %}"
+        "{{ message['content'] }}"
+        "{% elif message['role'] == 'assistant' %}"
+        "{{ message['content'] + eos_token }}"
+        "{% endif %}"
+        "{% endfor %}"
+        f"{{% if add_generation_prompt %}}{{{{ '{rs}' }}}}{{% endif %}}"
+    )
+
+
 class Domain(ABC):
     system_prompt: str
     reasoning_start: str = "<start_working_out>"
@@ -107,31 +132,6 @@ class Domain(ABC):
             return False
         return self.check_exact(extracted, ground_truth) or self.check_numeric(extracted, ground_truth)
 
-    @staticmethod
-    def _jinja_escape(s: str) -> str:
-        # Escape backslashes and single quotes so the value can be embedded in
-        # a Jinja single-quoted literal without breaking the template parser.
-        return s.replace("\\", "\\\\").replace("'", "\\'")
-
     def build_chat_template(self, tokenizer) -> None:
-        """Inject domain-specific Jinja2 chat template into tokenizer."""
-        sp = self._jinja_escape(self.system_prompt)
-        rs = self._jinja_escape(self.reasoning_start)
-        chat_template = (
-            "{% if messages[0]['role'] == 'system' %}"
-            "{{ messages[0]['content'] + eos_token }}"
-            "{% set loop_messages = messages[1:] %}"
-            "{% else %}"
-            f"{{{{ '{sp}' + eos_token }}}}"
-            "{% set loop_messages = messages %}"
-            "{% endif %}"
-            "{% for message in loop_messages %}"
-            "{% if message['role'] == 'user' %}"
-            "{{ message['content'] }}"
-            "{% elif message['role'] == 'assistant' %}"
-            "{{ message['content'] + eos_token }}"
-            "{% endif %}"
-            "{% endfor %}"
-            f"{{% if add_generation_prompt %}}{{{{ '{rs}' }}}}{{% endif %}}"
-        )
-        tokenizer.chat_template = chat_template
+        """Inject the reasoning-tag Jinja2 chat template into the tokenizer."""
+        build_reasoning_chat_template(tokenizer, self.system_prompt, self.reasoning_start)
