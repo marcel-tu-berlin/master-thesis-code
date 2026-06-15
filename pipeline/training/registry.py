@@ -1,7 +1,13 @@
-# slug → kwargs for FastLanguageModel.from_pretrained
+# slug -> kwargs for the model loader (AutoModelForCausalLM + LoRA)
 MODEL_REGISTRY: dict[str, dict] = {
+    "qwen3-1.7b": {
+        "model_name": "Qwen/Qwen3-1.7B",
+        "load_in_4bit": True,
+        "max_seq_length": 2048,
+        "max_lora_rank": 32,
+    },
     "qwen3-4b": {
-        "model_name": "unsloth/Qwen3-4B-Base",
+        "model_name": "Qwen/Qwen3-4B-Base",
         "load_in_4bit": False,
         "max_seq_length": 2048,
         "max_lora_rank": 32,
