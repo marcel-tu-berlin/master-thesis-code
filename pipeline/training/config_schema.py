@@ -1,7 +1,8 @@
 _REQUIRED_KEYS = {
     "experiment_id": "experiment_id (str)",
     "model.slug": "model.slug (str) — must match a key in training/registry.py",
-    "training.dataset": "training.dataset (str) — HuggingFace dataset id",
+    # training.dataset / training.env are required conditionally on training.mode
+    # (see validate_config), since agentic configs have an env, not a dataset.
 }
 
 _KNOWN_TOP_LEVEL_KEYS = {
@@ -26,6 +27,7 @@ _KNOWN_REWARD_KEYS = {
     "numeric",
     "token_length",
     "token_entropy",
+    "env_reward",
 }
 
 # Whitelist of allowed sub-keys per reward. Catches typos in YAML (e.g.
@@ -46,6 +48,7 @@ _KNOWN_REWARD_SUBKEYS: dict[str, set[str]] = {
         # Deprecated alias: still accepted, builder warns.
         "fork_mask_top_pct",
     },
+    "env_reward":    _COMMON_REWARD_SUBKEYS,
 }
 
 _NUMERIC_COERCIONS = {
@@ -114,6 +117,16 @@ def validate_config(config: dict) -> None:
     for key, label in _REQUIRED_KEYS.items():
         if _get_nested(config, key) is None:
             errors.append(f"Missing required field: {label}")
+
+    # Mode-conditional requirements: dataset mode needs a HF dataset, agentic
+    # mode needs an OpenEnv environment id.
+    mode = (config.get("training") or {}).get("mode", "dataset")
+    if mode not in ("dataset", "agentic"):
+        errors.append(f"training.mode={mode!r} must be 'dataset' or 'agentic'")
+    if mode == "dataset" and _get_nested(config, "training.dataset") is None:
+        errors.append("Missing required field: training.dataset (str) - HuggingFace dataset id")
+    if mode == "agentic" and _get_nested(config, "training.env") is None:
+        errors.append("Missing required field: training.env (str) - OpenEnv environment id")
 
     for key, (lo, hi) in _NUMERIC_COERCIONS.items():
         val = _get_nested(config, key)
