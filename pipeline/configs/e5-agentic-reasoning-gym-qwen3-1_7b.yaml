@@ -1,0 +1,39 @@
+experiment_id: e5-agentic-reasoning-gym-qwen3-1_7b
+description: "E5: agentic GRPO on reasoning_gym via OpenEnv (env reward + cosine length), Qwen3-1.7B, vLLM colocate."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 2048
+  # bf16 + vLLM colocate are the defaults (registry / runner).
+
+training:
+  mode: agentic
+  env: reasoning_gym
+  env_config:
+    dataset: chain_sum        # a reasoning-gym task family; pinned against the installed lib in B6
+    size: 500
+  n_rollouts: 8
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    enabled: true
+    weight: 1.0
+    max_len: 256
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 100
+  ood_probes:
+    far: MMLU
+    capability_floor: simple
