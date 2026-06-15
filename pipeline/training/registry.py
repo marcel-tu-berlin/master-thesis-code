@@ -2,7 +2,7 @@
 MODEL_REGISTRY: dict[str, dict] = {
     "qwen3-1.7b": {
         "model_name": "Qwen/Qwen3-1.7B",
-        "load_in_4bit": True,
+        "load_in_4bit": False,   # bf16: fits 24 GB easily, plays cleanly with vLLM colocate
         "max_seq_length": 2048,
         "max_lora_rank": 32,
     },

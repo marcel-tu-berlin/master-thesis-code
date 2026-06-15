@@ -19,7 +19,10 @@ class GRPORunner:
         lora_alpha = int(config["model"].get("lora_alpha", lora_rank * 2))
         load_4bit = config["model"].get("load_in_4bit", model_cfg["load_in_4bit"])
         max_seq = int(config["model"].get("max_seq_length", model_cfg["max_seq_length"]))
-        use_vllm = config["model"].get("use_vllm", False)
+        # vLLM colocate is the default generation backend for training. It is
+        # required for the agentic rollout path and is the only tractable option
+        # for GRPO on a single GPU. Set model.use_vllm: false to fall back to HF.
+        use_vllm = config["model"].get("use_vllm", True)
 
         dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
 
@@ -100,6 +103,9 @@ class GRPORunner:
             kwargs["vllm_gpu_memory_utilization"] = float(
                 self.config["model"].get("gpu_memory_utilization", 0.3)
             )
+            # Cap vLLM's context to the training seq length. Qwen3's native 40k
+            # context would demand a ~4 GiB KV cache and OOM the colocated engine.
+            kwargs["vllm_max_model_length"] = self._max_seq
         return GRPOConfig(**kwargs)
 
     def train(self, dataset, reward_fn, output_dir: str, callbacks=None) -> None:

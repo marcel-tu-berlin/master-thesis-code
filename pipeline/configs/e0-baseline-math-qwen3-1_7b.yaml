@@ -1,12 +1,12 @@
-experiment_id: e0-baseline-math-qwen-7b
-description: "E0 baseline: accuracy + format rewards only (advantage-weighted, Qwen2-7B). Reference point for every efficiency-reward delta."
+experiment_id: e0-baseline-math-qwen3-1_7b
+description: "E0 baseline: accuracy + format rewards only (advantage-weighted, Qwen3-1.7B, vLLM colocate). Project math baseline."
 seed: 42
 
 model:
-  slug: qwen-7b
+  slug: qwen3-1.7b
   lora_r: 16
-  load_in_4bit: true
   max_seq_length: 2048
+  # bf16 (registry load_in_4bit: false) and vLLM colocate (runner default) are implicit.
 
 training:
   domain: math
