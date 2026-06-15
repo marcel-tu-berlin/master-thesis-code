@@ -81,7 +81,10 @@ class GRPORunner:
             per_device_train_batch_size=int(t.get("batch_size", 1)),
             gradient_accumulation_steps=int(t.get("gradient_accumulation_steps", 1)),
             num_generations=int(t.get("n_rollouts", 8)),
-            max_prompt_length=max_prompt_len,
+            # TRL 1.6 derives generation_batch_size from batch x steps_per_generation
+            # and requires it divisible by num_generations. Pin it to one full
+            # prompt-group per round so batch_size=1, n_rollouts=8 is valid.
+            generation_batch_size=int(t.get("n_rollouts", 8)) * int(t.get("batch_size", 1)),
             max_completion_length=max_completion_len,
             max_steps=int(t.get("max_steps", 500)),
             save_steps=int(t.get("save_steps", 100)),
