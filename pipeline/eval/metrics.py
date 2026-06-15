@@ -15,6 +15,9 @@ class SampleResult:
     correct: bool
     n_tokens: int
     difficulty: float | None = None
+    # Env steps for an agentic episode (1 for single-step reasoning_gym);
+    # None for dataset-mode eval, where the notion of a step does not apply.
+    n_steps: int | None = None
 
 
 @dataclass
@@ -43,6 +46,8 @@ class EvalMetrics:
     overthinking_threshold: float | None = None  # absolute token threshold (P75 of all samples)
     pearson_difficulty_length: float | None = None
     pearson_p_value: float | None = None
+    # Mean env steps per episode (agentic eval); None for dataset eval.
+    mean_steps: float | None = None
     n_samples: int = 0
     n_correct: int = 0
     raw: list[SampleResult] = field(default_factory=list)
@@ -186,6 +191,9 @@ def compute_metrics(
     mean_tokens = float(all_tokens.mean())
     tokens_ci_low, tokens_ci_high = _bootstrap_ci(all_tokens, n_bootstrap=n_bootstrap)
 
+    steps = [r.n_steps for r in results if r.n_steps is not None]
+    mean_steps = float(np.mean(steps)) if steps else None
+
     correct_results = [r for r in results if r.correct]
 
     # Absolute-threshold overrides (e.g. from a fixed reference run via
@@ -260,6 +268,7 @@ def compute_metrics(
         overthinking_threshold=overthinking_threshold,
         pearson_difficulty_length=pearson_val,
         pearson_p_value=pearson_p,
+        mean_steps=mean_steps,
         n_samples=n,
         n_correct=n_correct,
         raw=results,
