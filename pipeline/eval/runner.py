@@ -38,16 +38,26 @@ def run_eval(
     os.makedirs(output_dir, exist_ok=True)
 
     try:
-        from unsloth import FastLanguageModel
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
         from training.registry import get_model_config
 
         model_cfg = get_model_config(config["model"]["slug"])
-        max_seq = config["model"].get("max_seq_length", model_cfg["max_seq_length"])
+        load_4bit = config["model"].get("load_in_4bit", model_cfg["load_in_4bit"])
+        dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        quant_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=dtype,
+        ) if load_4bit else None
 
-        model, tokenizer = FastLanguageModel.from_pretrained(
-            model_name=model_cfg["model_name"],
-            max_seq_length=max_seq,
-            load_in_4bit=config["model"].get("load_in_4bit", model_cfg["load_in_4bit"]),
+        tokenizer = AutoTokenizer.from_pretrained(model_cfg["model_name"])
+        model = AutoModelForCausalLM.from_pretrained(
+            model_cfg["model_name"],
+            quantization_config=quant_config,
+            torch_dtype=dtype,
+            device_map="auto",
         )
         if baseline:
             print(f"Baseline mode: assessing base model {model_cfg['model_name']} (no LoRA)")
@@ -57,7 +67,7 @@ def run_eval(
             model = PeftModel.from_pretrained(model, checkpoint_dir)
         domain.build_chat_template(tokenizer)
 
-        FastLanguageModel.for_inference(model)
+        model.eval()
 
         eval_cfg = config.get("eval", {})
         smoke = config.get("_smoke", False)
