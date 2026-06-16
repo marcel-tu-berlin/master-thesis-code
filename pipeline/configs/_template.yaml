@@ -1,93 +1,67 @@
-# GRPO Pipeline — Config Template
-# Common fields shown; most have defaults. Copy + modify for each experiment.
+# GRPO Pipeline - Agentic Config Template
+# Copy + modify for each experiment. Most fields have defaults; the ones shown
+# are the common levers. The pipeline is agentic-only: the model is driven
+# through its native tool-calling template and rewarded by a live OpenEnv
+# environment, not graded against a dataset answer column.
 
-experiment_id: eX-my-experiment-qwen-7b
-description: "accuracy-only GRPO baseline, math domain, Qwen2-7B"
+experiment_id: eX-my-experiment-qwen3-1_7b
+description: "agentic GRPO on reasoning_gym via OpenEnv, Qwen3-1.7B, vLLM colocate"
 seed: 42
-baseline_id: null  # explicit baseline experiment_id for eval comparison (e.g. e0-baseline-math-qwen-7b)
 
 model:
-  slug: qwen-7b                 # key into training/registry.py
+  slug: qwen3-1.7b              # key into training/registry.py
   lora_r: 16
-  lora_alpha: 32                # optional override; defaults to lora_r * 2
-  load_in_4bit: true
   max_seq_length: 2048
-  # vLLM is enabled at runtime via the --vllm flag (not a config key)
+  # bf16 + vLLM colocate are the registry/runner defaults.
 
 training:
-  domain: math                  # only `math` is implemented
-  dataset: openai/gsm8k         # HuggingFace dataset id
-  split: train
-  prompt_length_quantile: 0.9 # filter top 10% longest prompts
-  dataset_size_limit: null # null = full dataset; set int to truncate (useful for smoke tests)
-  n_rollouts: 8                 # GRPO group size (DIET default)
-  max_steps: 500
-  save_steps: 100
+  mode: agentic                # only `agentic` is supported
+  env: reasoning_gym           # only `reasoning_gym` is implemented
+  env_config:
+    dataset: chain_sum         # reasoning-gym task family
+    size: 500                  # number of distinct training prompts (one seed each)
+  env_server:
+    # OpenEnv env launched locally (no Docker) by the runner as a subprocess.
+    repo_path: /workspace/OpenEnv/envs   # clone of meta-pytorch/OpenEnv
+    port: 8077
+  n_rollouts: 8                # GRPO group size
+  max_steps: 300
   learning_rate: 5e-6
-  weight_decay: 0.1
-  warmup_ratio: 0.1
   kl_beta: 0.001
-  batch_size: 1
-  gradient_accumulation_steps: 1
 
 rewards:
   compose_method: advantage_weighted   # advantage_weighted | naive_sum
 
-  format_exact:
+  # Task-success signal from the environment. The live signal in agentic mode.
+  env_reward:
     enabled: true
     weight: 1.0
 
-  format_approx:
-    enabled: true
-    weight: 0.5
-
-  accuracy:
-    enabled: true
-    weight: 1.0
-
-  numeric:
-    enabled: true
-    weight: 1.0
-
+  # Cosine length shape (Wu/Yeo): correct -> prefer shorter, wrong -> prefer
+  # longer. Correctness comes from env.reward > 0. Survives advantage_weighted
+  # per-group z-scoring because it is non-linear in length and correctness-gated.
   token_length:
     enabled: false
     weight: 1.0
-    # Cosine shape (Wu/Yeo): correct -> prefer shorter, wrong -> prefer longer.
-    # Survives advantage_weighted per-group z-scoring.
-    max_len: 256                # length normalizer: progress = min(n_tokens/max_len, 1)
-    r_correct_short: 1.0        # correct & short -> highest reward
+    max_len: 256
+    r_correct_short: 1.0
     r_correct_long: 0.5
-    r_wrong_short: -1.0         # wrong & short -> most penalized
+    r_wrong_short: -1.0
     r_wrong_long: -0.5
 
+  # Token-entropy shaping (mask the reward to the top-fraction of tokens by
+  # entropy). reward_scale is inert under advantage_weighted (z-scoring cancels
+  # global positive scalars); use `weight` or compose_method: naive_sum.
   token_entropy:
     enabled: false
     weight: 1.0
     reward_scale: 0.1
-    fork_mask_top_frac: 0.0     # 0.0 = all tokens; 0.2 = top-20% by entropy (range [0, 1])
+    fork_mask_top_frac: 0.0    # 0.0 = all tokens; 0.2 = top-20% by entropy
 
 eval:
   temperature: 0.0
   do_sample: false
-  batch_size: 8                       # generation batch size for OOD probes
-  max_new_tokens: 512                 # generation budget per sample (CLI --max_new_tokens overrides)
-  id_split: openai/gsm8k              # dataset name for ID held-out eval
-  id_split_hf_split: test
-  id_split_limit: 200                 # samples for ID split (--smoke caps to 10)
-  near_ood_limit: 200
-  far_ood_limit: 100
-  ood_probes:
-    near: EleutherAI/hendrycks_math   # near-OOD (same domain, different dist)
-    far: MMLU                         # far-OOD (hardcoded; see eval/ood_probes.py)
-    capability_floor: simple          # fixed instruction-following sanity check
-  # Graded capability floor: sample tail of a dataset for harder questions.
-  # capability_floor_dataset: openai/gsm8k
-  # capability_floor_hf_split: test
-  # capability_floor_limit: 50        # how many samples to draw
-  # capability_floor_take: tail       # tail | head | random
-  # Optional override of the capability-floor prompts. Each entry is
-  # [question, expected]. Expected matched by whole-word case-insensitive
-  # regex (numeric fallback). Defaults used when omitted.
-  # capability_floor_prompts:
-  #   - ["What is 2+2?", "4"]
-  #   - ["Capital of France?", "Paris"]
+  # max_new_tokens defaults to the training completion budget (max_seq -
+  # max_prompt_length); set explicitly only to override.
+  agentic:
+    n_episodes: 100            # held-out episodes (seeds disjoint from training)
