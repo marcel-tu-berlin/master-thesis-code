@@ -21,6 +21,21 @@ _TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
 _EVAL_SEED_OFFSET = 100_000
 
 
+def _completion_budget(config, model_max_seq):
+    """Max new tokens for eval generation. Defaults to the SAME completion
+    budget training used (max_seq - max_prompt_length), so eval never truncates
+    reasoning the model was trained to produce. A hardcoded smaller cap silently
+    guillotines long completions before the tool call and tanks the success rate.
+    eval.max_new_tokens overrides.
+    """
+    eval_cfg = config.get("eval", {}) or {}
+    if eval_cfg.get("max_new_tokens") is not None:
+        return int(eval_cfg["max_new_tokens"])
+    max_seq = int((config.get("model") or {}).get("max_seq_length", model_max_seq))
+    max_prompt = int((config.get("training") or {}).get("max_prompt_length", max_seq // 2))
+    return max_seq - max_prompt
+
+
 def _parse_answer(text: str) -> str | None:
     """Return the answer from the first valid `answer` tool call, else None."""
     for m in _TOOL_CALL_RE.finditer(text):
@@ -112,7 +127,7 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
     n = int(n_episodes if n_episodes is not None else agentic_cfg.get("n_episodes", 100))
     if config.get("_smoke"):
         n = min(n, 10)
-    max_new = int(eval_cfg.get("max_new_tokens", 512))
+    max_new = _completion_budget(config, model_cfg["max_seq_length"])
     do_sample = bool(eval_cfg.get("do_sample", False))
     env_config = config["training"].get("env_config", {}) or {}
     seed_base = int(config.get("seed", 42)) + _EVAL_SEED_OFFSET

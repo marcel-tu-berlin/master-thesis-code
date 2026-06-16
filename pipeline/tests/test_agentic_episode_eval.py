@@ -1,5 +1,23 @@
-from eval.agentic_eval import _parse_answer, _run_episodes, _metrics_to_dict
+from eval.agentic_eval import _parse_answer, _run_episodes, _metrics_to_dict, _completion_budget
 from eval.metrics import SampleResult, compute_metrics
+
+
+# --- _completion_budget: eval must match the training generation budget ---
+
+def test_completion_budget_defaults_to_training_budget():
+    # max_seq 2048, default max_prompt = 1024 -> completion budget 1024 (NOT 512).
+    cfg = {"model": {"max_seq_length": 2048}, "training": {}}
+    assert _completion_budget(cfg, 2048) == 1024
+
+
+def test_completion_budget_respects_explicit_override():
+    cfg = {"model": {"max_seq_length": 2048}, "eval": {"max_new_tokens": 700}}
+    assert _completion_budget(cfg, 2048) == 700
+
+
+def test_completion_budget_honors_max_prompt_length():
+    cfg = {"model": {"max_seq_length": 2048}, "training": {"max_prompt_length": 256}}
+    assert _completion_budget(cfg, 2048) == 1792
 
 
 # --- _parse_answer: extract the answer from a model tool call ---
