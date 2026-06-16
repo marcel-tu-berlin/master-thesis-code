@@ -28,6 +28,23 @@ Add `--smoke` to override the config for a fast sanity check (3 steps, 2 rollout
 python -m training.train --config configs/e0-baseline-math-qwen-7b.yaml --smoke
 ```
 
+### Agentic mode (OpenEnv)
+
+The pipeline also trains against live agentic environments through OpenEnv. Set `training.mode: agentic` and name an env (`training.env: reasoning_gym`). The model learns by calling tools; reward comes from the environment, not a graded answer string.
+
+```bash
+cd pipeline
+python -m training.train --config configs/e5-agentic-reasoning-gym-qwen3-1_7b.yaml --smoke
+```
+
+How it runs:
+
+- The runner launches the OpenEnv env server as a local subprocess (no Docker) and stops it when training ends. Point `training.env_server.repo_path` at your OpenEnv clone (default `/workspace/OpenEnv/envs`, created by `setup.sh`).
+- Each training prompt is one environment question, picked by a seed. TRL's `environment_factory` drives the model through its native tool-calling template: the model emits a tool call, the env scores the answer, and `EnvReward` reads that score off the env instance.
+- Format and answer rewards need a ground-truth column and reasoning tags, so they default off in agentic mode. The live signals are `env_reward` plus the efficiency rewards (`token_length`, `token_entropy`); `CosineLengthReward` takes correctness from the environment instead of an answer column.
+
+Agentic episode evaluation is not wired yet, so `--eval` is a no-op in agentic mode.
+
 ### Evaluate a trained checkpoint
 
 ```bash
@@ -302,7 +319,7 @@ Orchestrates the full training pipeline: load config, validate schema, set seeds
 
 **`grpo_runner.py` - `GRPORunner`**
 
-Wraps Unsloth `FastLanguageModel` and TRL `GRPOTrainer`. Handles model loading (4-bit or 16-bit), LoRA application (rank, alpha, target modules), and GRPOConfig construction. Accepts optional `callbacks` parameter for trainer callbacks.
+Wraps TRL `GRPOTrainer` with PEFT LoRA. Loads the model via `AutoModelForCausalLM` (bf16, or 4-bit nf4 via bitsandbytes when the registry sets `load_in_4bit`), applies LoRA (rank, alpha, target modules), builds the `GRPOConfig` (vLLM colocate generation, micro-batch + grad-accum to fit 24 GB), and runs the trainer. In agentic mode it also owns the env-server subprocess lifecycle and passes TRL an `environment_factory`. Accepts optional `callbacks`.
 
 **`registry.py` - Model registry**
 
@@ -426,11 +443,12 @@ Outputs:
 
 | Slug | Model | Quantization | Max seq | Max LoRA rank |
 |------|-------|-------------|---------|---------------|
-| `qwen3-4b` | unsloth/Qwen3-4B-Base | 16-bit | 2048 | 32 |
+| `qwen3-1.7b` | Qwen/Qwen3-1.7B | bf16 | 2048 | 32 |
+| `qwen3-4b` | Qwen/Qwen3-4B-Base | bf16 | 2048 | 32 |
 | `qwen-1.5b` | Qwen/Qwen2.5-1.5B | 4-bit | 2048 | 32 |
 | `qwen-7b` | Qwen/Qwen2-7B | 4-bit | 2048 | 64 |
 
-To add a new model, add an entry to `MODEL_REGISTRY` in `training/registry.py`.
+`qwen3-1.7b` is the current default target (bf16, plays cleanly with vLLM colocate). To add a new model, add an entry to `MODEL_REGISTRY` in `training/registry.py`.
 
 ## Output format
 

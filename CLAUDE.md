@@ -53,7 +53,17 @@ Execution order with all three phases enabled: baselines first (deduplicated by 
 
 Per-phase logs land at `runs/<exp_id>/batch_{train,eval,baseline}.log`. End-of-batch summary is printed to stdout and written to `runs/batch_summary_<timestamp>.md`. When two or more eval reports exist after the batch, `eval.compare` is invoked automatically with output in `runs/comparison/`.
 
-**Domains:** `MathDomain` is the only implemented domain (GSM8K, Hendrycks MATH, DAPO).
+**Domains:** `MathDomain` (dataset mode: GSM8K, Hendrycks MATH, DAPO) and `ReasoningGymDomain` (agentic mode, via OpenEnv).
+
+### Agentic mode (OpenEnv)
+
+Set `training.mode: agentic` and `training.env: reasoning_gym` to train against a live OpenEnv environment instead of a HF dataset (`e5-agentic-reasoning-gym-qwen3-1_7b.yaml`). The model is driven through its native tool-calling template and rewarded by the environment, not by a graded answer string. Architecture:
+
+- **Server lifecycle (runner-owned).** `EnvServerProcess` (`training/env_server.py`) launches the OpenEnv reasoning_gym env as a local HTTP server subprocess (no Docker: `python -m reasoning_gym_env.server.app`), waits for the port, and stops it after training. The server code is not on PyPI; it lives in a clone of `meta-pytorch/OpenEnv` at `training.env_server.repo_path` (default `/workspace/OpenEnv/envs`, cloned by `setup.sh`). One server serves all rollout-slot clients; `MAX_CONCURRENT_ENVS` is sized to `batch_size * n_rollouts`.
+- **Env-factory adapter.** `ReasoningGymEnvAdapter` (`domains/reasoning_gym/adapter.py`) wraps the OpenEnv sync client (`ReasoningGymEnv(base_url).sync()`). TRL's `GRPOTrainer(environment_factory=...)` builds one adapter per rollout slot, calls `reset(**row)` (its return is appended to the prompt), and exposes every *other* public method as a tool. The adapter's public surface is exactly `{reset, answer}` so the model sees one tool, `answer(answer: str)`; the tool docstring needs a Google-style `Args:` entry (transformers builds the tool JSON schema from it). The adapter stores the env score on `self.reward`.
+- **Dataset.** `build_seed_dataset` returns rows of `{prompt, seed}`; each seed is a distinct reasoning_gym question (deterministic). TRL repeats each row `num_generations` times to form a GRPO group.
+- **Rewards.** `EnvReward` reads `[e.reward for e in kwargs["environments"]]`. The dataset-only rewards (`format_exact`, `format_approx`, `accuracy`, `numeric`) need answers/tags and so default *off* in agentic mode (`default_enabled(key, agentic)` in `training/rewards/__init__.py`); `env_reward` + the efficiency rewards are the live signals. `CosineLengthReward` takes correctness from `environments` (env reward > 0) instead of an answer column.
+- **Validated** end-to-end on an L4 (24 GB) with `Qwen/Qwen3-1.7B` + vLLM colocate: the smoke trains, the model calls the tool (`tools/failure_frequency: 0`), and env reward flows into the composer. Agentic episode eval is not yet wired (`--eval` is a no-op in agentic mode).
 
 ## Architecture (Notebooks)
 
