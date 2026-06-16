@@ -80,8 +80,9 @@ def _build_token_entropy(domain, runner, training_cfg, cfg):
 
 
 def _build_env_reward(domain, runner, training_cfg, cfg):
-    # Task-success reward from the OpenEnv environment, passed to the composer
-    # via kwargs['env_reward'] by the agentic rollout_func.
+    # Task-success reward from the OpenEnv environment. TRL's environment_factory
+    # path passes the live env instances as kwargs['environments']; EnvReward
+    # reads env.reward off each.
     return EnvReward()
 
 

@@ -1,18 +1,23 @@
 class EnvReward:
     """Task-success reward computed by the OpenEnv environment.
 
-    In agentic mode the rollout_func attaches the per-completion environment
-    reward as kwargs['env_reward']; this component surfaces it to the composer
-    so it is z-scored and weighted exactly like any code-computed reward.
+    Under TRL's environment_factory path the trainer passes the live env
+    instances to every reward function as kwargs['environments']. Each env has
+    stored its episode reward on `env.reward` (set by the adapter's answer tool
+    when the model submitted its answer). This component surfaces that
+    per-completion reward to the composer so it is z-scored and weighted exactly
+    like any code-computed reward.
     """
 
-    def __call__(self, prompts, completions, env_reward=None, **kwargs):
-        if env_reward is None:
+    def __call__(self, prompts, completions, **kwargs):
+        environments = kwargs.get("environments")
+        if environments is None:
             raise ValueError(
-                "EnvReward requires kwargs['env_reward'] from the agentic rollout_func"
+                "EnvReward requires kwargs['environments'] from the agentic "
+                "environment_factory path (TRL GRPOTrainer)."
             )
-        if len(env_reward) != len(completions):
+        if len(environments) != len(completions):
             raise ValueError(
-                f"env_reward length {len(env_reward)} != completions {len(completions)}"
+                f"environments length {len(environments)} != completions {len(completions)}"
             )
-        return [float(x) for x in env_reward]
+        return [float(env.reward) for env in environments]
