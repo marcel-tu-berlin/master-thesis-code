@@ -1,31 +1,42 @@
 from domains.env_base import EnvDomain
+from domains.reasoning_gym.adapter import ReasoningGymEnvAdapter
 
-SYSTEM_PROMPT = (
-    "You are given a reasoning problem.\n"
-    "Think about the problem and provide your working out.\n"
-    "Place it between <start_working_out> and <end_working_out>.\n"
-    "Then, provide your solution between <SOLUTION></SOLUTION>"
+# Brief task framing prepended to each prompt's user message. The tool spec
+# itself is injected by the model's native chat template (tools=...), so this
+# only nudges the model to actually call the answer tool. reset() appends the
+# reasoning_gym question after this lead-in.
+_LEAD_IN = (
+    "Solve the following problem. When you have the final answer, "
+    "call the answer tool with it.\n\n"
 )
 
 
 class ReasoningGymDomain(EnvDomain):
     """First agentic domain: Reasoning Gym tasks served through OpenEnv.
 
-    reasoning_gym is single-step (one action per episode), so the completion is
-    entirely model-generated and the efficiency rewards apply without a
-    multi-turn token mask.
+    Single-step (one answer per episode), so the completion is entirely
+    model-generated and the efficiency rewards apply without a multi-turn token
+    mask. The model is driven through its native tool-calling template; the
+    adapter exposes exactly one tool (answer).
     """
 
-    system_prompt = SYSTEM_PROMPT
-
-    def make_client(self, env_config: dict | None = None):
-        # Lazy import so the unit tests exercise the domain logic with a fake
-        # StepResult and need neither the OpenEnv install nor a running server.
-        # The exact client class and constructor are pinned against the installed
-        # package during the rollout-wiring task (B6) before any live call.
-        from envs.reasoning_gym_env import ReasoningGymEnv  # noqa: E402 (verified in B6)
-
-        env_config = env_config or {}
-        return ReasoningGymEnv.from_docker_image(
-            env_config.get("image", "reasoning-gym-env:latest")
+    def make_env_factory(self, base_url, env_config=None, client_factory=None):
+        env_config = dict(env_config or {})
+        if client_factory is None:
+            return lambda: ReasoningGymEnvAdapter(base_url, env_config)
+        # Test/injection path: build the adapter around a supplied client.
+        return lambda: ReasoningGymEnvAdapter(
+            base_url, env_config, client=client_factory()
         )
+
+    def build_seed_dataset(self, env_config=None, n=500, seed_base=0):
+        # Each row is one training prompt: a fixed user lead-in plus a distinct
+        # seed. TRL repeats each row num_generations times to form a GRPO group,
+        # and reset(seed=...) turns the seed into a deterministic question.
+        from datasets import Dataset
+
+        rows = [
+            {"prompt": [{"role": "user", "content": _LEAD_IN}], "seed": seed_base + i}
+            for i in range(int(n))
+        ]
+        return Dataset.from_list(rows)
