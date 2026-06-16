@@ -23,3 +23,27 @@ def test_falls_back_to_text_without_ids():
     r = CosineLengthReward(_Tok(), _Dom(), max_len=10)
     out = r(["p"], ["a b c"], answer=["x"])
     assert len(out) == 1
+
+
+class _Env:
+    def __init__(self, reward):
+        self.reward = reward
+
+
+def test_agentic_correctness_from_environments():
+    # Agentic mode: no `answer` kwarg; correctness comes from env.reward > 0,
+    # not domain.is_correct. Same length, so the correct env must outrank the
+    # wrong env purely on the correctness gate.
+    r = CosineLengthReward(_Tok(), _Dom(), max_len=10)
+    out = r(
+        ["p", "p"], ["a b", "a b"],
+        environments=[_Env(1.0), _Env(0.0)], completion_ids=[[1, 2], [1, 2]],
+    )
+    assert out[0] > out[1]
+
+
+def test_agentic_does_not_require_answer():
+    # environments present -> must not call _require_answers (which would raise).
+    r = CosineLengthReward(_Tok(), _Dom(), max_len=10)
+    out = r(["p"], ["a b"], environments=[_Env(1.0)])
+    assert len(out) == 1

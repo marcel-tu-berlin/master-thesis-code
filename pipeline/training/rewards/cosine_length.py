@@ -60,18 +60,28 @@ class CosineLengthReward:
         return lo + 0.5 * (hi - lo) * (1.0 + c)
 
     def __call__(self, prompts, completions, answer=None, **kwargs) -> list[float]:
-        truths = _require_answers(answer, len(completions), "CosineLengthReward")
+        # Correctness source depends on mode. Agentic (environment_factory):
+        # TRL passes the live env instances as kwargs['environments'] and there
+        # is no ground-truth answer column, so correctness is env.reward > 0.
+        # Dataset mode: correctness is domain.is_correct against the answer column.
+        environments = kwargs.get("environments")
+        if environments is not None:
+            correct_flags = [float(getattr(e, "reward", 0.0)) > 0.0 for e in environments]
+            truths = None
+        else:
+            truths = _require_answers(answer, len(completions), "CosineLengthReward")
+            correct_flags = None
         # Prefer the exact model-generated token ids TRL/the rollout_func provide
         # over re-encoding decoded text. In the agentic loop this is what makes
         # the length signal count model tokens only. Falls back to re-encoding.
         provided_ids = kwargs.get("completion_ids")
         scores = []
-        for i, (completion, truth) in enumerate(zip(completions, truths)):
+        for i, completion in enumerate(completions):
             text = extract_content(completion)
             if provided_ids is not None and i < len(provided_ids):
                 n_tokens = len(provided_ids[i])
             else:
                 n_tokens = len(self.tokenizer.encode(text, add_special_tokens=False))
-            correct = self.domain.is_correct(text, truth)
+            correct = correct_flags[i] if correct_flags is not None else self.domain.is_correct(text, truths[i])
             scores.append(self._reward(n_tokens, correct))
         return scores
