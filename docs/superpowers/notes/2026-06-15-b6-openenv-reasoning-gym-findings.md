@@ -49,3 +49,28 @@ Recommendation: start with (1) for a robust first agentic-domain result, and res
 - **Model/template**: needs a tool-calling-capable tokenizer template. Qwen3-1.7B tool-calling support must be confirmed; the base model may need the instruct chat template or a tool-call template rather than the custom reasoning-tag one.
 
 Next implementation steps (GPU-blocked until the e0-1.7b baseline frees the GPU + the reasoning_gym env client is installed): write the env-factory adapter, rework EnvReward/EnvDomain, build the seed-row dataset, wire `environment_factory` into the runner + train.py dispatch, then agentic smoke.
+
+## VALIDATED on L4 (2026-06-16): Option B chosen + de-risked end to end
+
+Decision (user): **Option B - OpenEnv HTTP server, launched locally (no Docker).** All facts below proven on the L4 box, not assumed. Supersedes the stale `from envs.reasoning_gym_env import ...` path (that was the repo `src/` layout) and the Docker assumption.
+
+**Packages.** `openenv-core==0.3.0` (ships top packages `openenv` + `openenv_core` - framework only: `Environment`, `EnvClient`, `HTTPEnvServer`, MCP types; **no env implementations, no `envs` package**) and `reasoning-gym==0.1.25`. The reasoning_gym env code is **not on PyPI** - it lives in the GitHub repo `meta-pytorch/OpenEnv` under top-level `envs/reasoning_gym_env/` (cloned to `/workspace/OpenEnv` on the box). `NO_DOCKER` on this DevPod.
+
+**Server launch (no Docker), proven.** `app.py` blesses `python -m server.app` / `uvicorn server.app:app`. Working invocation from the repo `envs/` dir:
+`cd /workspace/OpenEnv/envs && MAX_CONCURRENT_ENVS=N python -m reasoning_gym_env.server.app --port P`
+One server serves up to `MAX_CONCURRENT_ENVS` concurrent WebSocket sessions (default 8); each session gets a fresh `ReasoningGymEnvironment` (own dataset iterator). Server deps (fastapi, uvicorn, websockets, httpx) already in `.venv`.
+
+**Client, proven.** With repo `envs/` on `sys.path`: `from reasoning_gym_env import ReasoningGymEnv, ReasoningGymAction`. `EnvClient.reset/step` are **async coroutines**; call `.sync()` to get a `SyncEnvClient` (sync `reset`/`step`/`close`) - required because TRL rejects async tools. Lifecycle our adapter uses (no `with`): `client = ReasoningGymEnv(base_url="http://localhost:P").sync()`, then `client.reset(...)`, later `client.step(...)`. API: `reset(dataset_name=, dataset_config=, seed=, size=)` -> StepResult; `result.observation.question`. `step(ReasoningGymAction(answer=str))` -> `result.observation.score` (1.0/0.0) + `.correct_answer` (revealed post-step). Deterministic by seed. Round-trip proven: wrong->0.0+reveal, correct->1.0, two concurrent sessions on one server (the `generation_batch_size` pattern).
+
+**Tokenizer, proven.** `Qwen/Qwen3-1.7B` native template renders a `tools=` spec (Hermes `<tools>`/`<tool_call>`) and greedily emits a parseable `<tool_call>` (thinks in `<think>` first, then calls). It is the *post-trained thinking* model - which is why e0 math (custom `<SOLUTION>` tags) collapsed but agentic (native tool calls) works. No custom chat template for the agentic path; use the native one with `tools=`.
+
+**TRL sync `GRPOTrainer` env-factory contract (verified in installed `trainer/grpo_trainer.py`).** `environment_factory()` -> fresh env per rollout slot, `generation_batch_size` of them (lines 496-497). `inspect.getmembers(env, ismethod)`: `reset` is required and **excluded** from tools; every *other* public method (incl. inherited) becomes a tool (501-508). `reset(**reset_kwargs)` is called per dataset row and the returned observation **becomes the prompt** (1836-1838). Reward funcs receive `reward_kwargs["environments"]` (1249-1250); read `[e.reward for e in environments]`. Needs `TRL_EXPERIMENTAL_SILENCE=1` (warns otherwise, 459) and transformers>=5.2.0 (have 5.12). vLLM 0.19.1 is one patch above TRL's tested 0.12-0.19 range - warn-only, e0 proved colocate works.
+
+**Adapter shape (forced by the introspection rule).** A minimal-surface local class wrapping the sync client; only `reset` + one tool are public, so the model sees exactly one tool:
+- `__init__(self, base_url, env_config)`: `self._client = ReasoningGymEnv(base_url).sync()`; `self.reward = 0.0`.
+- `reset(self, **row)`: `obs = self._client.reset(**reset_kwargs_from_row); self.reward = 0.0; return <prompt from obs.question>`.
+- `answer(self, answer: str)`: `r = self._client.step(ReasoningGymAction(answer=answer)); self.reward = float(r.observation.score); return <short confirmation>` (single-step; episode ends).
+- `reward` is a plain attribute (not a method -> not exposed as a tool). EnvReward (B3) reworks to `[e.reward for e in kwargs["environments"]]`.
+Do **not** subclass `openenv_core.Environment` / the raw client - their public methods (`step`/`state`/`close`/...) would leak to the model as tools.
+
+**Server lifecycle (recommended, not yet built).** `grpo_runner` launches the env server as a subprocess before `trainer.train()` and tears it down after (self-contained for unattended batch runs); `base_url`/port/`MAX_CONCURRENT_ENVS` from config (set `MAX_CONCURRENT_ENVS >= generation_batch_size`). The repo `envs/` path must be importable by both server and adapter - decide vendor-vs-clone in B12 (currently a raw clone at `/workspace/OpenEnv`).
