@@ -343,7 +343,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "configs",
         nargs="+",
-        help="Config paths or shell globs (e.g. configs/e0-*.yaml configs/e1-token-length-qwen-7b.yaml)",
+        help="Config paths or shell globs (e.g. configs/e5-*.yaml)",
     )
     parser.add_argument("--train", action="store_true", help="Train each config")
     parser.add_argument("--eval", action="store_true", help="Run eval.runner per config")
@@ -361,9 +361,9 @@ def _parse_args() -> argparse.Namespace:
                         help="Directory to write batch_summary_<timestamp>.md")
     args = parser.parse_args()
 
-    # Default to train+eval when no phase flag is given — the most common
-    # overnight invocation. Explicit `--baseline` alone, or `--eval` alone,
-    # only does that one phase.
+    # Default to train+eval when no phase flag is given - the most common
+    # overnight invocation. Explicit `--eval` alone (or `--train` alone) only
+    # does that one phase.
     if not (args.train or args.eval):
         args.train = True
         args.eval = True

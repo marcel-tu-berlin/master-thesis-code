@@ -2,8 +2,7 @@
 
 Runs the trained policy against the live OpenEnv environment for N held-out
 episodes (seeds disjoint from training), parses each tool call, scores it via
-the env, and reports success rate + token-efficiency metrics. This is the
-agentic counterpart to eval/ood_probes.py (which is dataset-probe oriented).
+the env, and reports success rate + token-efficiency metrics.
 """
 import json
 import os
