@@ -1,8 +1,7 @@
 _REQUIRED_KEYS = {
     "experiment_id": "experiment_id (str)",
     "model.slug": "model.slug (str) — must match a key in training/registry.py",
-    # training.dataset / training.env are required conditionally on training.mode
-    # (see validate_config), since agentic configs have an env, not a dataset.
+    # training.env (OpenEnv environment id) is required; see validate_config.
 }
 
 _KNOWN_TOP_LEVEL_KEYS = {
@@ -21,10 +20,6 @@ _KNOWN_TOP_LEVEL_KEYS = {
 
 _KNOWN_REWARD_KEYS = {
     "compose_method",
-    "format_exact",
-    "format_approx",
-    "accuracy",
-    "numeric",
     "token_length",
     "token_entropy",
     "env_reward",
@@ -35,10 +30,6 @@ _KNOWN_REWARD_KEYS = {
 # otherwise pass through silently and use the default.
 _COMMON_REWARD_SUBKEYS = {"enabled", "weight"}
 _KNOWN_REWARD_SUBKEYS: dict[str, set[str]] = {
-    "format_exact":  _COMMON_REWARD_SUBKEYS | {"reward"},
-    "format_approx": _COMMON_REWARD_SUBKEYS | {"per_tag", "penalty", "missing_penalty"},
-    "accuracy":      _COMMON_REWARD_SUBKEYS,
-    "numeric":       _COMMON_REWARD_SUBKEYS,
     "token_length":  _COMMON_REWARD_SUBKEYS | {
         "max_len",
         "r_correct_short", "r_correct_long", "r_wrong_short", "r_wrong_long",
@@ -118,14 +109,11 @@ def validate_config(config: dict) -> None:
         if _get_nested(config, key) is None:
             errors.append(f"Missing required field: {label}")
 
-    # Mode-conditional requirements: dataset mode needs a HF dataset, agentic
-    # mode needs an OpenEnv environment id.
-    mode = (config.get("training") or {}).get("mode", "dataset")
-    if mode not in ("dataset", "agentic"):
-        errors.append(f"training.mode={mode!r} must be 'dataset' or 'agentic'")
-    if mode == "dataset" and _get_nested(config, "training.dataset") is None:
-        errors.append("Missing required field: training.dataset (str) - HuggingFace dataset id")
-    if mode == "agentic" and _get_nested(config, "training.env") is None:
+    # Agentic-only: every config runs against an OpenEnv environment.
+    mode = (config.get("training") or {}).get("mode", "agentic")
+    if mode != "agentic":
+        errors.append(f"training.mode={mode!r}: only 'agentic' is supported")
+    if _get_nested(config, "training.env") is None:
         errors.append("Missing required field: training.env (str) - OpenEnv environment id")
 
     for key, (lo, hi) in _NUMERIC_COERCIONS.items():

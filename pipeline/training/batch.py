@@ -1,20 +1,15 @@
 """
 Batch experiment runner.
 
-Runs N configs through training, eval, and/or baseline assessment as
-subprocesses so each experiment gets a clean Python process (and clean
-GPU memory). Designed for overnight queues on a single-GPU box.
-
-Each phase is its own subprocess that mirrors the existing single-run CLIs
-(`training.train`, `eval.runner`). The base-model assessment for a slug lives
-at one canonical path, runs/_baselines/<slug>/: the first config touching a
-given slug writes it there, later same-slug configs find it and skip. The
-canonical path itself is the dedup — no per-experiment baseline dir to link.
+Runs N configs through training and/or eval as subprocesses so each experiment
+gets a clean Python process (and clean GPU memory). Designed for overnight
+ablation/seed sweeps on a single-GPU box. Each phase is its own subprocess that
+mirrors the single-run CLIs (`training.train`, `eval.runner`).
 
 Usage:
-    python -m training.batch configs/e0-*.yaml configs/e1-*.yaml --train --eval --baseline
-    python -m training.batch configs/e0-baseline-math-qwen-7b.yaml --eval
-    python -m training.batch configs/e2-*.yaml --train --eval --smoke --retries 2
+    python -m training.batch configs/e5-*.yaml --train --eval
+    python -m training.batch configs/e5-agentic-reasoning-gym-qwen3-1_7b.yaml --eval
+    python -m training.batch configs/e5-*.yaml --train --eval --seeds 42 43 44 --smoke
 """
 
 from __future__ import annotations
@@ -35,12 +30,8 @@ import yaml
 # Allow running as: python -m training.batch
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from eval.report import canonical_baseline_dir
-
-
 PHASE_TRAIN = "train"
 PHASE_EVAL = "eval"
-PHASE_BASELINE = "baseline"
 
 STATUS_OK = "ok"
 STATUS_SKIP = "skip"
@@ -271,43 +262,6 @@ def _run_eval_phase(
     return PhaseResult(status=status, duration_s=dur, attempts=attempts, log_path=log_path)
 
 
-def _run_baseline_phase(
-    config_path: str,
-    exp_id: str,
-    slug: str,
-    smoke: bool,
-    force: bool,
-    retries: int,
-) -> PhaseResult:
-    """Run base-model assessment for this experiment's slug into the canonical
-    runs/_baselines/<slug>/ dir. The canonical path is the dedup: same-slug runs
-    all skip once the first writes it. The subprocess command is unchanged
-    (`eval.runner --config <path> --baseline`); runner writes to the canonical
-    dir by slug.
-    """
-    canonical = os.path.join(canonical_baseline_dir(_runs_root(), slug), "eval_report.json")
-    if not force and _is_real_report(canonical):
-        return PhaseResult(status=STATUS_SKIP, note=f"canonical baseline for {slug} exists")
-
-    cmd = [sys.executable, "-m", "eval.runner", "--config", config_path, "--baseline"]
-    if smoke:
-        cmd.append("--smoke")
-
-    log_path = os.path.join(_run_dir(exp_id), "batch_baseline.log")
-    status, attempts, dur = _run_phase(cmd, log_path, retries)
-    return PhaseResult(status=status, duration_s=dur, attempts=attempts, log_path=log_path)
-
-
-def _run_compare(eval_run_dirs: list[str], out_dir: str) -> int:
-    if len(eval_run_dirs) < 2:
-        print(f"Skipping compare: only {len(eval_run_dirs)} eval report(s) available (need ≥2)")
-        return 0
-    cmd = [sys.executable, "-m", "eval.compare", "--runs", *eval_run_dirs, "--out", out_dir]
-    log_path = os.path.join(out_dir, "batch_compare.log")
-    os.makedirs(out_dir, exist_ok=True)
-    return _tee_subprocess(cmd, log_path)
-
-
 def _format_duration(sec: float) -> str:
     if sec < 60:
         return f"{sec:.0f}s"
@@ -383,7 +337,7 @@ def _print_summary(results: list[ExperimentResult], enabled_phases: list[str]) -
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Batch runner: train and/or eval and/or baseline-assess a list of configs.",
+        description="Batch runner: train and/or eval a list of configs.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -393,12 +347,9 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--train", action="store_true", help="Train each config")
     parser.add_argument("--eval", action="store_true", help="Run eval.runner per config")
-    parser.add_argument("--baseline", action="store_true",
-                        help="Run baseline (no-LoRA) eval; shared per model slug via the canonical runs/_baselines/<slug>/ dir")
     parser.add_argument("--seeds", nargs="+", type=int, default=None,
                         help="Replicate each config across these training seeds (e.g. --seeds 42 43 44). "
-                             "Each seed gets its own run dir <experiment_id>-s<seed>; baselines stay "
-                             "deduplicated by model slug (seeds share one base-model baseline). "
+                             "Each seed gets its own run dir <experiment_id>-s<seed>. "
                              "Omit for a single run at the config's own seed.")
     parser.add_argument("--smoke", action="store_true", help="Pass --smoke to every subprocess")
     parser.add_argument("--vllm", action="store_true", help="Pass --vllm to training subprocesses (route GRPO rollouts through vLLM)")
@@ -406,10 +357,6 @@ def _parse_args() -> argparse.Namespace:
                         help="Re-run phases even if their output already exists (train passes --overwrite)")
     parser.add_argument("--retries", type=int, default=1,
                         help="Retry count per failed phase before giving up")
-    parser.add_argument("--no-compare", action="store_true",
-                        help="Skip the auto eval.compare run at end of batch")
-    parser.add_argument("--compare-out", default="runs/comparison",
-                        help="Output directory for eval.compare artifacts")
     parser.add_argument("--summary-dir", default="runs",
                         help="Directory to write batch_summary_<timestamp>.md")
     args = parser.parse_args()
@@ -417,7 +364,7 @@ def _parse_args() -> argparse.Namespace:
     # Default to train+eval when no phase flag is given — the most common
     # overnight invocation. Explicit `--baseline` alone, or `--eval` alone,
     # only does that one phase.
-    if not (args.train or args.eval or args.baseline):
+    if not (args.train or args.eval):
         args.train = True
         args.eval = True
 
@@ -434,7 +381,6 @@ def main() -> None:
         sys.exit(2)
 
     enabled = [p for p, on in (
-        (PHASE_BASELINE, args.baseline),
         (PHASE_TRAIN, args.train),
         (PHASE_EVAL, args.eval),
     ) if on]
@@ -484,20 +430,8 @@ def main() -> None:
         results.append(new)
         return new
 
-    # Phase A: baselines first so trained eval reports can pick up vs_base_model deltas.
-    if args.baseline:
-        for path, exp_id, slug in headers:
-            r = _ensure_result(path, exp_id, slug)
-            print(f"\n── BASELINE  {exp_id}  ({slug})")
-            r.phases[PHASE_BASELINE] = _run_baseline_phase(
-                path, exp_id, slug,
-                smoke=args.smoke,
-                force=args.force,
-                retries=args.retries,
-            )
-
-    # Phase B: train + eval per experiment (eval inside the loop, not at end, so
-    # an experiment's report exists before the next one starts — useful for tail -f).
+    # Train + eval per experiment (eval inside the loop, not at end, so an
+    # experiment's report exists before the next one starts - useful for tail -f).
     for path, exp_id, slug in headers:
         r = _ensure_result(path, exp_id, slug)
 
@@ -545,17 +479,6 @@ def main() -> None:
     _write_summary(results, enabled, summary_path, total)
     print(f"\nSummary written: {summary_path}")
     print(f"Total wall time: {_format_duration(total)}")
-
-    # Auto-compare across every run that produced an eval_report.json this batch.
-    if args.eval and not args.no_compare:
-        eval_dirs = [
-            _run_dir(r.experiment_id) for r in results
-            if _eval_report_exists(r.experiment_id)
-        ]
-        print(f"\n── COMPARE   {len(eval_dirs)} run(s)")
-        rc = _run_compare(eval_dirs, args.compare_out)
-        if rc != 0:
-            print(f"⚠  eval.compare exited {rc}")
 
     # Exit non-zero if any experiment had a hard failure, so wrapping shell
     # scripts / cron jobs can detect it.
