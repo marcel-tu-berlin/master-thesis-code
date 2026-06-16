@@ -12,8 +12,12 @@ training:
   mode: agentic
   env: reasoning_gym
   env_config:
-    dataset: chain_sum        # a reasoning-gym task family; pinned against the installed lib in B6
-    size: 500
+    dataset: chain_sum        # reasoning-gym task family (validated in B6 round-trip)
+    size: 500                 # number of distinct training prompts (one seed each)
+  env_server:
+    # OpenEnv reasoning_gym server launched locally (no Docker) by the runner.
+    repo_path: /workspace/OpenEnv/envs   # clone of meta-pytorch/OpenEnv
+    port: 8077
   n_rollouts: 8
   max_steps: 300
   learning_rate: 5e-6

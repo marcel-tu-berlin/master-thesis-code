@@ -127,16 +127,37 @@ class GRPORunner:
             kwargs["vllm_max_model_length"] = self._max_seq
         return GRPOConfig(**kwargs)
 
-    def train(self, dataset, reward_fn, output_dir: str, callbacks=None) -> None:
-        trainer = GRPOTrainer(
-            model=self.model,
-            processing_class=self.tokenizer,
-            reward_funcs=[reward_fn],
-            args=self._grpo_config(output_dir),
-            train_dataset=dataset,
-            callbacks=callbacks or [],
-        )
-        trainer.train()
+    def train(self, dataset, reward_fn, output_dir: str, callbacks=None,
+              *, server=None, make_factory=None) -> None:
+        # Agentic path: the runner owns the env-server subprocess lifecycle.
+        # `server` is an unstarted EnvServerProcess; once it is up, build the
+        # TRL environment_factory against its base_url. Dataset path: both stay
+        # None and the trainer runs without environments.
+        environment_factory = None
+        if server is not None:
+            if make_factory is None:
+                raise ValueError("train(server=...) requires make_factory(base_url)")
+            # environment_factory is an experimental TRL feature; silence its warn.
+            os.environ.setdefault("TRL_EXPERIMENTAL_SILENCE", "1")
+            server.start()
+            server.wait_until_ready()
+            environment_factory = make_factory(server.base_url)
+        try:
+            kwargs = dict(
+                model=self.model,
+                processing_class=self.tokenizer,
+                reward_funcs=[reward_fn],
+                args=self._grpo_config(output_dir),
+                train_dataset=dataset,
+                callbacks=callbacks or [],
+            )
+            if environment_factory is not None:
+                kwargs["environment_factory"] = environment_factory
+            trainer = GRPOTrainer(**kwargs)
+            trainer.train()
+        finally:
+            if server is not None:
+                server.stop()
 
     def save_lora(self, path: str) -> None:
         self.model.save_pretrained(path)

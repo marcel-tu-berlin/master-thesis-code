@@ -94,3 +94,23 @@ class EnvServerProcess:
 
     def __exit__(self, *exc) -> None:
         self.stop()
+
+
+def build_env_server(config, domain, python=None) -> EnvServerProcess:
+    """Construct (unstarted) the env server for an agentic config.
+
+    Sizes MAX_CONCURRENT_ENVS to the trainer's generation_batch_size
+    (batch_size * n_rollouts) so every rollout-slot client gets its own session,
+    with a floor of the server's own default (8). Repo path and port come from
+    training.env_server (defaults target the L4 box clone).
+    """
+    t = config.get("training", {}) or {}
+    es = t.get("env_server", {}) or {}
+    n_envs = int(t.get("batch_size", 1)) * int(t.get("n_rollouts", 8))
+    return EnvServerProcess(
+        env_module=domain.server_module,
+        port=int(es.get("port", 8077)),
+        repo_envs_path=es.get("repo_path", "/workspace/OpenEnv/envs"),
+        max_concurrent=max(8, n_envs),
+        python=python,
+    )
