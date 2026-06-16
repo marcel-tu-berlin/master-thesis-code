@@ -9,9 +9,7 @@ import yaml
 # Allow running as: python -m training.train
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from domains.math.loader import MathDomain
 from training.grpo_runner import GRPORunner
-from training.mode import select_mode
 from training.env_server import build_env_server
 from training.rewards import REWARD_REGISTRY
 from training.rewards.compose import build_composer
@@ -46,16 +44,11 @@ def load_config(path: str) -> dict:
 
 
 def build_domain(config: dict):
-    if select_mode(config) == "agentic":
-        env = config["training"]["env"]
-        if env == "reasoning_gym":
-            from domains.reasoning_gym import ReasoningGymDomain
-            return ReasoningGymDomain()
-        raise NotImplementedError(f"Env: {env}")
-    name = config["training"].get("domain", "math")
-    if name == "math":
-        return MathDomain()
-    raise NotImplementedError(f"Domain: {name}")
+    env = config["training"].get("env")
+    if env == "reasoning_gym":
+        from domains.reasoning_gym import ReasoningGymDomain
+        return ReasoningGymDomain()
+    raise NotImplementedError(f"Env: {env!r} (only 'reasoning_gym' is implemented)")
 
 
 def build_reward_components(config: dict, domain, runner: GRPORunner) -> list:
@@ -142,7 +135,6 @@ def main() -> None:
 
     domain = build_domain(config)
     runner = GRPORunner(config)
-    mode = select_mode(config)
 
     # Build composed reward function (shared by both modes; the enabled set
     # differs per config — agentic configs enable env_reward + token_length).
@@ -160,59 +152,32 @@ def main() -> None:
         callbacks.append(_ComponentMetricsCallback(reward_fn))
     callbacks = callbacks or None
 
-    print(f"Experiment: {exp_id}  (mode={mode})")
+    print(f"Experiment: {exp_id}  (agentic)")
     print(f"Reward components: {[type(fn).__name__ for fn, _ in components]}")
     print(f"Compose method: {method}")
 
     checkpoint_dir = os.path.join(run_dir, "checkpoint-final")
 
-    if mode == "agentic":
-        # Native tool-calling template (NOT the reasoning-tag one). Each seed-row
-        # is a distinct reasoning_gym question; the runner owns the env-server
-        # subprocess and builds the TRL environment_factory against its base_url.
-        env_config = config["training"].get("env_config", {}) or {}
-        n_prompts = int(env_config.get("size", 500))
-        dataset = domain.build_seed_dataset(env_config, n=n_prompts, seed_base=seed)
-        server = build_env_server(config, domain, python=sys.executable)
-        make_factory = lambda base_url: domain.make_env_factory(base_url, env_config)  # noqa: E731
-        print(f"Agentic env: {config['training']['env']}  seed-rows: {len(dataset)}  "
-              f"server: {server.base_url} (max_concurrent={server.max_concurrent})")
-        runner.train(dataset, reward_fn, output_dir=run_dir, callbacks=callbacks,
-                     server=server, make_factory=make_factory)
-    else:
-        # Dataset mode: reasoning-tag template + a HF dataset. Truncate FIRST so
-        # the (slow) prompt-length filter runs only over the kept slice.
-        domain.build_chat_template(runner.tokenizer)
-        ds_cfg = config["training"].get("dataset", "openai/gsm8k")
-        dataset = domain.load_dataset(ds_cfg, split=config["training"].get("split", "train"))
-
-        size_limit = config["training"].get("dataset_size_limit")
-        if size_limit is not None and len(dataset) > size_limit:
-            size_limit = int(size_limit)
-            # Shuffle before truncation so the subset is representative across the
-            # source distribution. DAPO and Hendrycks MATH are clustered by
-            # difficulty/category — range(0, N) would exclude later categories.
-            dataset = dataset.shuffle(seed=seed).select(range(size_limit))
-            print(f"Dataset shuffled and truncated to {size_limit} samples (dataset_size_limit, seed={seed})")
-
-        if hasattr(domain, "filter_by_prompt_length"):
-            dataset = domain.filter_by_prompt_length(
-                dataset, runner.tokenizer, quantile=config["training"].get("prompt_length_quantile", 0.9)
-            )
-        print(f"Dataset size: {len(dataset)}")
-        runner.train(dataset, reward_fn, output_dir=run_dir, callbacks=callbacks)
+    # Native tool-calling template (NOT a reasoning-tag one). Each seed-row is a
+    # distinct reasoning_gym question; the runner owns the env-server subprocess
+    # and builds the TRL environment_factory against its base_url.
+    env_config = config["training"].get("env_config", {}) or {}
+    n_prompts = int(env_config.get("size", 500))
+    dataset = domain.build_seed_dataset(env_config, n=n_prompts, seed_base=seed)
+    server = build_env_server(config, domain, python=sys.executable)
+    make_factory = lambda base_url: domain.make_env_factory(base_url, env_config)  # noqa: E731
+    print(f"Agentic env: {config['training']['env']}  seed-rows: {len(dataset)}  "
+          f"server: {server.base_url} (max_concurrent={server.max_concurrent})")
+    runner.train(dataset, reward_fn, output_dir=run_dir, callbacks=callbacks,
+                 server=server, make_factory=make_factory)
 
     runner.save_lora(checkpoint_dir)
     if config.get("_smoke"):
         open(os.path.join(checkpoint_dir, ".smoke"), "w").close()
 
     if args.eval:
-        if mode == "agentic":
-            from eval.agentic_eval import run_agentic_eval
-            run_agentic_eval(config, checkpoint_dir, domain, run_dir)
-        else:
-            from eval.runner import run_eval
-            run_eval(config, checkpoint_dir, domain, run_dir)
+        from eval.agentic_eval import run_agentic_eval
+        run_agentic_eval(config, checkpoint_dir, domain, run_dir)
 
 
 if __name__ == "__main__":
