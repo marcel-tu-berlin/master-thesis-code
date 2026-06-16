@@ -156,12 +156,7 @@ def main() -> None:
         config["_smoke"] = True
         print("⚠ Smoke mode: eval limited to 10 samples per split")
 
-    from domains.math.loader import MathDomain
-
-    domain_name = config["training"].get("domain", "math")
-    if domain_name != "math":
-        raise NotImplementedError(f"Domain: {domain_name}")
-    domain = MathDomain()
+    from training.mode import select_mode
 
     exp_id = config["experiment_id"]
     run_dir = os.path.join("runs", exp_id)
@@ -170,6 +165,23 @@ def main() -> None:
     # CLI > config > 512 default. CLI explicit overrides config.
     if args.max_new_tokens is not None:
         config.setdefault("eval", {})["max_new_tokens"] = args.max_new_tokens
+
+    if select_mode(config) == "agentic":
+        if args.baseline:
+            raise NotImplementedError("--baseline is not supported in agentic mode")
+        env = config["training"]["env"]
+        if env != "reasoning_gym":
+            raise NotImplementedError(f"Env: {env}")
+        from domains.reasoning_gym import ReasoningGymDomain
+        from eval.agentic_eval import run_agentic_eval
+        run_agentic_eval(config, checkpoint, ReasoningGymDomain(), run_dir)
+        return
+
+    from domains.math.loader import MathDomain
+    domain_name = config["training"].get("domain", "math")
+    if domain_name != "math":
+        raise NotImplementedError(f"Domain: {domain_name}")
+    domain = MathDomain()
     run_eval(config, checkpoint, domain, run_dir, baseline=args.baseline)
 
 

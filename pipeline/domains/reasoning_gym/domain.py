@@ -43,3 +43,9 @@ class ReasoningGymDomain(EnvDomain):
             for i in range(int(n))
         ]
         return Dataset.from_list(rows)
+
+    def episode_messages(self, question):
+        """Eval-time prompt for one episode. Mirrors the training framing: the
+        same lead-in the seed rows carry, with the env question appended (in
+        training, TRL appends the question to the row's lead-in via reset)."""
+        return [{"role": "user", "content": _LEAD_IN + question}]

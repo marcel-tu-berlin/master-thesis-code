@@ -209,8 +209,8 @@ def main() -> None:
 
     if args.eval:
         if mode == "agentic":
-            # Agentic episode eval (run policy against the env) is B11.
-            print("Agentic episode eval is not yet implemented (B11); skipping --eval.")
+            from eval.agentic_eval import run_agentic_eval
+            run_agentic_eval(config, checkpoint_dir, domain, run_dir)
         else:
             from eval.runner import run_eval
             run_eval(config, checkpoint_dir, domain, run_dir)
