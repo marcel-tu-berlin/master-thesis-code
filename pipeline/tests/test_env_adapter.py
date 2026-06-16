@@ -99,3 +99,17 @@ def test_minimal_public_surface_only_reset_and_answer():
     public = {n for n, _ in inspect.getmembers(a, predicate=inspect.ismethod)
               if not n.startswith("_")}
     assert public == {"reset", "answer"}
+
+
+def test_answer_tool_schema_is_generatable():
+    # TRL builds the tool spec from the answer() docstring via transformers'
+    # get_json_schema, which raises unless every parameter has a Google-style
+    # Args description. Guards against silently dropping that docstring section.
+    try:
+        from transformers.utils.chat_template_utils import get_json_schema
+    except Exception:
+        import pytest
+        pytest.skip("transformers not available in this venv")
+    fn = get_json_schema(_adapter().answer)["function"]
+    assert fn["name"] == "answer"
+    assert fn["parameters"]["properties"]["answer"]["description"]

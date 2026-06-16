@@ -96,3 +96,17 @@ REWARD_REGISTRY: dict[str, tuple[bool, float, callable]] = {
     "token_entropy": (False, 1.0, _build_token_entropy),
     "env_reward":    (False, 1.0, _build_env_reward),
 }
+
+# Rewards that score against a ground-truth answer column or the reasoning-tag
+# format. They are meaningless in agentic mode (the env scores success; there is
+# no answer column and the model uses its native tool-calling template), and
+# AnswerReward/NumericReward would in fact raise without an `answer` column. So
+# they default OFF in agentic mode - still opt-in-able via `enabled: true`.
+DATASET_ONLY_REWARDS = {"format_exact", "format_approx", "accuracy", "numeric"}
+
+
+def default_enabled(key: str, agentic: bool) -> bool:
+    """Effective default-enabled for a reward given the training mode."""
+    if agentic and key in DATASET_ONLY_REWARDS:
+        return False
+    return REWARD_REGISTRY[key][0]

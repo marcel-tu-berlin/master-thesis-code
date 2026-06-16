@@ -1,4 +1,5 @@
 import os
+import sys
 
 # Reduce CUDA allocator fragmentation so vLLM colocate + training coexist on a
 # 24 GB GPU. Must be set before torch initializes the caching allocator.
@@ -141,6 +142,11 @@ class GRPORunner:
             os.environ.setdefault("TRL_EXPERIMENTAL_SILENCE", "1")
             server.start()
             server.wait_until_ready()
+            # The env client (adapter._connect) imports `reasoning_gym_env` from
+            # the OpenEnv repo's envs/ dir, which is not on PyPI - put it on the
+            # training process's path (the server subprocess got it via PYTHONPATH).
+            if server.repo_envs_path not in sys.path:
+                sys.path.insert(0, server.repo_envs_path)
             environment_factory = make_factory(server.base_url)
         try:
             kwargs = dict(

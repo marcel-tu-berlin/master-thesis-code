@@ -58,7 +58,16 @@ class ReasoningGymEnvAdapter:
         return result.observation.question
 
     def answer(self, answer: str) -> str:
-        """Tool: submit the final answer. Scores via the env, stores the reward."""
+        """Submit your final answer to the current problem.
+
+        TRL renders this method into the tool spec the model sees, so the
+        summary above and the Args description below are the tool's
+        model-facing documentation. transformers' get_json_schema requires a
+        Google-style Args entry for every parameter.
+
+        Args:
+            answer: The final answer to submit for the current question.
+        """
         result = self._client.step(self._action(answer))
         self.reward = float(result.observation.score)
         return f"Recorded answer: {answer}"
