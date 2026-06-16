@@ -13,7 +13,7 @@ from domains.math.loader import MathDomain
 from training.grpo_runner import GRPORunner
 from training.mode import select_mode
 from training.env_server import build_env_server
-from training.rewards import REWARD_REGISTRY, default_enabled as reward_default_enabled
+from training.rewards import REWARD_REGISTRY
 from training.rewards.compose import build_composer
 from training.config_schema import validate_config, warn_inert_scalars
 from transformers import TrainerCallback, set_seed
@@ -67,12 +67,11 @@ def build_reward_components(config: dict, domain, runner: GRPORunner) -> list:
     for w in warn_inert_scalars(rewards_cfg, method):
         print(f"⚠  {w}")
 
-    agentic = select_mode(config) == "agentic"
     components = []
 
     for key, (_reg_enabled, default_weight, builder) in REWARD_REGISTRY.items():
         cfg = rewards_cfg.get(key) or {}
-        if not cfg.get("enabled", reward_default_enabled(key, agentic)):
+        if not cfg.get("enabled", _reg_enabled):
             continue
         weight = float(cfg.get("weight", default_weight))
         components.append((builder(domain, runner, training_cfg, cfg), weight))

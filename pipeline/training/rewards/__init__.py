@@ -1,47 +1,28 @@
 """
 Reward registry. Maps a config key (under `rewards:`) to a default weight and
 a builder. `train.build_reward_components` iterates this registry instead of
-hard-coding seven branches; new signals only require a builder + entry here
-plus the matching key in `config_schema._KNOWN_REWARD_KEYS`.
+hard-coding branches; new signals only require a builder + entry here plus the
+matching key in `config_schema._KNOWN_REWARD_KEYS`.
 
 Each builder has the signature:
     build(domain, runner, training_cfg, reward_cfg) -> Callable
 where reward_cfg is the dict under `rewards.<key>` from the YAML.
+
+Agentic-only: `env_reward` is the task-success signal; `token_length` and
+`token_entropy` are the token-efficiency signals. All three default off and are
+enabled explicitly per config.
 """
-from training.rewards.accuracy import AnswerReward, NumericReward
 from training.rewards.cosine_length import CosineLengthReward
-from training.rewards.format import FormatApproxReward, FormatExactReward
 from training.rewards.token_entropy import TokenEntropyReward
 from training.rewards.env_reward import EnvReward
-
-def _build_format_exact(domain, runner, training_cfg, cfg):
-    return FormatExactReward(domain)
-
-
-def _build_format_approx(domain, runner, training_cfg, cfg):
-    return FormatApproxReward(
-        domain,
-        per_tag=cfg.get("per_tag", 0.5),
-        penalty=cfg.get("penalty", -1.0),
-        missing_penalty=cfg.get("missing_penalty"),
-    )
-
-
-def _build_accuracy(domain, runner, training_cfg, cfg):
-    return AnswerReward(domain)
-
-
-def _build_numeric(domain, runner, training_cfg, cfg):
-    return NumericReward(domain)
 
 
 def _build_token_length(domain, runner, training_cfg, cfg):
     # Cosine length reward (Wu/Yeo 2025): correct -> prefer shorter, wrong ->
-    # prefer longer. Non-linear and correctness-gated, so it survives the
-    # advantage_weighted per-group z-scoring. This is the only length shape.
+    # prefer longer. Non-linear and correctness-gated (correctness comes from the
+    # env), so it survives the advantage_weighted per-group z-scoring.
     return CosineLengthReward(
         runner.tokenizer,
-        domain,
         max_len=int(cfg.get("max_len", 256)),
         r_correct_short=cfg.get("r_correct_short", 1.0),
         r_correct_long=cfg.get("r_correct_long", 0.5),
@@ -64,9 +45,9 @@ def _build_token_entropy(domain, runner, training_cfg, cfg):
     # forward pass doesn't silently exceed the configured context.
     model_cfg = getattr(runner, "config", {}).get("model", {}) if hasattr(runner, "config") else {}
     max_seq = model_cfg.get("max_seq_length") or training_cfg.get("max_seq_length")
-    # chunk_size default: vLLM co-resident → 1 (tight VRAM, see token_entropy
-    # OOM); otherwise 4 (Qwen-7B 4-bit on 24 GB has ample headroom). Override
-    # per-config via `rewards.token_entropy.chunk_size`.
+    # chunk_size default: vLLM co-resident -> 1 (tight VRAM, see token_entropy
+    # OOM); otherwise 4 (ample headroom on 24 GB). Override per-config via
+    # `rewards.token_entropy.chunk_size`.
     default_chunk = 1 if model_cfg.get("use_vllm") else 4
     chunk_size = int(cfg.get("chunk_size", default_chunk))
     return TokenEntropyReward(
@@ -86,27 +67,10 @@ def _build_env_reward(domain, runner, training_cfg, cfg):
     return EnvReward()
 
 
-# key -> (default_enabled, default_weight, builder)
+# key -> (default_enabled, default_weight, builder). All default off; agentic
+# configs enable env_reward + the efficiency signals explicitly.
 REWARD_REGISTRY: dict[str, tuple[bool, float, callable]] = {
-    "format_exact":  (True,  1.0, _build_format_exact),
-    "format_approx": (True,  0.5, _build_format_approx),
-    "accuracy":      (True,  1.0, _build_accuracy),
-    "numeric":       (True,  1.0, _build_numeric),
     "token_length":  (False, 1.0, _build_token_length),
     "token_entropy": (False, 1.0, _build_token_entropy),
     "env_reward":    (False, 1.0, _build_env_reward),
 }
-
-# Rewards that score against a ground-truth answer column or the reasoning-tag
-# format. They are meaningless in agentic mode (the env scores success; there is
-# no answer column and the model uses its native tool-calling template), and
-# AnswerReward/NumericReward would in fact raise without an `answer` column. So
-# they default OFF in agentic mode - still opt-in-able via `enabled: true`.
-DATASET_ONLY_REWARDS = {"format_exact", "format_approx", "accuracy", "numeric"}
-
-
-def default_enabled(key: str, agentic: bool) -> bool:
-    """Effective default-enabled for a reward given the training mode."""
-    if agentic and key in DATASET_ONLY_REWARDS:
-        return False
-    return REWARD_REGISTRY[key][0]

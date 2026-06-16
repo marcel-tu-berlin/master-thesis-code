@@ -1,6 +1,6 @@
 import math
 
-from training.rewards.utils import _require_answers, extract_content
+from training.rewards.utils import extract_content
 
 
 class CosineLengthReward:
@@ -8,7 +8,7 @@ class CosineLengthReward:
     Long CoT"; Kimi-style length scaling).
 
     For a completion of `n_tokens`, let progress = min(n_tokens / max_len, 1)
-    and c = cos(progress * pi) — so c = +1 for an empty completion and c = -1
+    and c = cos(progress * pi) - so c = +1 for an empty completion and c = -1
     at the length cap. The reward interpolates between a short-end and a
     long-end value, with the endpoints chosen by correctness:
 
@@ -21,21 +21,23 @@ class CosineLengthReward:
 
     Under the default `advantage_weighted` composer every component is z-scored
     per prompt-group, which cancels any global positive scalar. A purely monotone
-    signal (e.g. a plain length penalty) z-scores to pure rank order — "shorter
-    always ranks higher" — so the model drives length to the format-envelope
+    signal (e.g. a plain length penalty) z-scores to pure rank order - "shorter
+    always ranks higher" - so the model drives length to the format-envelope
     floor. This reward is non-linear in length *and* gated by correctness, so it
     survives z-scoring with real structure: a wrong 17-token completion lands in
     the worst cell instead of the best one.
 
     Tradeoff: the length signal now carries correctness information, partially
-    overlapping the `accuracy`/`numeric` components. That is acceptable under
-    independent per-component z-scoring and is the intended Wu/Yeo coupling.
+    overlapping the `env_reward` component. That is acceptable under independent
+    per-component z-scoring and is the intended Wu/Yeo coupling.
+
+    Agentic-only: correctness is read from the live OpenEnv instances TRL passes
+    as kwargs['environments'] (env.reward > 0). There is no answer column.
     """
 
     def __init__(
         self,
         tokenizer,
-        domain,
         max_len: int,
         r_correct_short: float = 1.0,
         r_correct_long: float = 0.5,
@@ -43,7 +45,6 @@ class CosineLengthReward:
         r_wrong_long: float = -0.5,
     ) -> None:
         self.tokenizer = tokenizer
-        self.domain = domain
         self.max_len = max(int(max_len), 1)
         self.r_correct_short = r_correct_short
         self.r_correct_long = r_correct_long
@@ -59,29 +60,26 @@ class CosineLengthReward:
             lo, hi = self.r_wrong_long, self.r_wrong_short
         return lo + 0.5 * (hi - lo) * (1.0 + c)
 
-    def __call__(self, prompts, completions, answer=None, **kwargs) -> list[float]:
-        # Correctness source depends on mode. Agentic (environment_factory):
-        # TRL passes the live env instances as kwargs['environments'] and there
-        # is no ground-truth answer column, so correctness is env.reward > 0.
-        # Dataset mode: correctness is domain.is_correct against the answer column.
+    def __call__(self, prompts, completions, **kwargs) -> list[float]:
+        # Agentic (environment_factory): TRL passes the live env instances as
+        # kwargs['environments']; correctness is env.reward > 0 (no answer column).
         environments = kwargs.get("environments")
-        if environments is not None:
-            correct_flags = [float(getattr(e, "reward", 0.0)) > 0.0 for e in environments]
-            truths = None
-        else:
-            truths = _require_answers(answer, len(completions), "CosineLengthReward")
-            correct_flags = None
+        if environments is None:
+            raise ValueError(
+                "CosineLengthReward requires kwargs['environments'] (agentic mode). "
+                "TRL's environment_factory path supplies the live env instances."
+            )
+        correct_flags = [float(getattr(e, "reward", 0.0)) > 0.0 for e in environments]
         # Prefer the exact model-generated token ids TRL/the rollout_func provide
-        # over re-encoding decoded text. In the agentic loop this is what makes
-        # the length signal count model tokens only. Falls back to re-encoding.
+        # over re-encoding decoded text, so the length signal counts model tokens
+        # only. Falls back to re-encoding the decoded completion.
         provided_ids = kwargs.get("completion_ids")
         scores = []
         for i, completion in enumerate(completions):
-            text = extract_content(completion)
             if provided_ids is not None and i < len(provided_ids):
                 n_tokens = len(provided_ids[i])
             else:
+                text = extract_content(completion)
                 n_tokens = len(self.tokenizer.encode(text, add_special_tokens=False))
-            correct = correct_flags[i] if correct_flags is not None else self.domain.is_correct(text, truths[i])
-            scores.append(self._reward(n_tokens, correct))
+            scores.append(self._reward(n_tokens, correct_flags[i]))
         return scores
