@@ -1,0 +1,40 @@
+experiment_id: e6-agentic-env-only-qwen3-1_7b
+description: "E6: ablation baseline - env reward only (cosine length OFF), Qwen3-1.7B, vLLM colocate. Pairs with e5 (env+cosine) to isolate the cosine length reward's effect on completion length."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 2048
+  # bf16 + vLLM colocate are the defaults (registry / runner).
+
+training:
+  mode: agentic
+  env: reasoning_gym
+  env_config:
+    dataset: chain_sum        # same task as e5 (controlled ablation)
+    size: 500
+  env_server:
+    repo_path: /workspace/OpenEnv/envs   # clone of meta-pytorch/OpenEnv
+    port: 8077
+  n_rollouts: 8
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    # Ablation arm: cosine length reward OFF. e5 enables it (env+cosine); this
+    # run is env-only, so any completion-length difference between the two is the
+    # cosine reward's causal effect, not a task or capacity artifact.
+    enabled: false
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 100

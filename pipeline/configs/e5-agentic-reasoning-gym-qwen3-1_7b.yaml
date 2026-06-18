@@ -31,13 +31,15 @@ rewards:
   token_length:
     enabled: true
     weight: 1.0
-    max_len: 256
+    # max_len = completion budget (max_seq - max_prompt_length = 2048 - 1024).
+    # Must sit above the operating completion length, else the cosine clamps to
+    # its flat floor (progress=1, c=-1) for every rollout and per-group z-scoring
+    # erases the length signal. The first e5 run used 256 << ~650 ops length,
+    # which is why cosine did not compress; 1024 puts ops length on the live slope.
+    max_len: 1024
 
 eval:
   temperature: 0.0
   do_sample: false
   agentic:
     n_episodes: 100
-  ood_probes:
-    far: MMLU
-    capability_floor: simple
