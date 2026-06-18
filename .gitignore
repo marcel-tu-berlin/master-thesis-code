@@ -4,3 +4,4 @@ grpo_trainer_lora_model
 .venv
 .venv-test
 __pycache__
+.DS_Store
