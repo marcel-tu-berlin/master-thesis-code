@@ -1,4 +1,5 @@
 import os
+import json
 import sys
 
 # Reduce CUDA allocator fragmentation so vLLM colocate + training coexist on a
@@ -168,6 +169,7 @@ class GRPORunner:
                 kwargs["environment_factory"] = environment_factory
             trainer = GRPOTrainer(**kwargs)
             trainer.train()
+            self._save_train_log(trainer, output_dir)
         finally:
             if server is not None:
                 server.stop()
@@ -176,3 +178,20 @@ class GRPORunner:
         self.model.save_pretrained(path)
         self.tokenizer.save_pretrained(path)
         print(f"LoRA saved to {path}")
+
+    @staticmethod
+    def _save_train_log(trainer, output_dir: str) -> None:
+        """Persist TRL's in-memory log_history to train_log.json.
+
+        save_strategy is off (we save only the final LoRA), so TRL never writes
+        trainer_state.json and the per-step curves - reward/kl/loss/completion
+        length plus the per-component reward metrics the callback merged in -
+        would vanish on exit. Dump them so eval.plots can draw training curves.
+        """
+        log = getattr(getattr(trainer, "state", None), "log_history", None)
+        if not log:
+            return
+        path = os.path.join(output_dir, "train_log.json")
+        with open(path, "w") as f:
+            json.dump(log, f, indent=2)
+        print(f"Training log saved to {path}")
