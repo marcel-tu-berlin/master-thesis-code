@@ -1,6 +1,6 @@
 import math
 
-from training.rewards.utils import extract_content
+from training.rewards.utils import model_token_count
 
 
 class CosineLengthReward:
@@ -76,10 +76,24 @@ class CosineLengthReward:
         provided_ids = kwargs.get("completion_ids")
         scores = []
         for i, completion in enumerate(completions):
-            if provided_ids is not None and i < len(provided_ids):
-                n_tokens = len(provided_ids[i])
-            else:
-                text = extract_content(completion)
-                n_tokens = len(self.tokenizer.encode(text, add_special_tokens=False))
+            ids_i = provided_ids[i] if (provided_ids is not None and i < len(provided_ids)) else None
+            n_tokens = self._n_tokens(completion, ids_i)
             scores.append(self._reward(n_tokens, correct_flags[i]))
         return scores
+
+    @staticmethod
+    def _is_multiturn(completion) -> bool:
+        # Multi-turn iff TRL interleaved a tool-result (game feedback) message.
+        # In that case completion_ids over-counts (it includes tool tokens), so
+        # fall back to the assistant-only re-encode.
+        return isinstance(completion, list) and any(
+            isinstance(m, dict) and m.get("role") == "tool" for m in completion
+        )
+
+    def _n_tokens(self, completion, completion_ids_i) -> int:
+        # Single-turn: prefer the exact model-generated ids TRL provides (no
+        # re-encode) - keeps reasoning_gym numbers identical. Multi-turn: count
+        # assistant tokens only, excluding injected feedback.
+        if not self._is_multiturn(completion) and completion_ids_i is not None:
+            return len(completion_ids_i)
+        return model_token_count(completion, self.tokenizer)

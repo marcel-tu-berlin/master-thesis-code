@@ -49,3 +49,7 @@ class ReasoningGymDomain(EnvDomain):
         same lead-in the seed rows carry, with the env question appended (in
         training, TRL appends the question to the row's lead-in via reset)."""
         return [{"role": "user", "content": _LEAD_IN + question}]
+
+    def eval_tools(self, env):
+        """Single tool for the single-step answer env."""
+        return [env.answer]

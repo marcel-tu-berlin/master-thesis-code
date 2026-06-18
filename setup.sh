@@ -16,6 +16,7 @@ uv pip install \
   "trl>=0.26" peft bitsandbytes accelerate \
   https://github.com/vllm-project/vllm/releases/download/v0.19.1/vllm-0.19.1+cu130-cp38-abi3-manylinux_2_35_x86_64.whl \
   openenv-core reasoning-gym \
+  "textarena>=0.6.1" nltk \
   datasets scipy matplotlib ipywidgets \
   --torch-backend=auto
 
@@ -27,3 +28,9 @@ OPENENV_DIR="${OPENENV_DIR:-/workspace/OpenEnv}"
 if [ ! -d "$OPENENV_DIR" ]; then
   git clone --depth 1 https://github.com/meta-pytorch/OpenEnv "$OPENENV_DIR"
 fi
+
+# TextArena word games (Wordle) need NLTK corpora. Pre-fetch so the first
+# env-server start does not block on a download mid-training. Best-effort:
+# textarena also self-downloads on first start if these are missing and the box
+# has network. Exact corpora confirmed against the env at the first smoke.
+python -c "import nltk; nltk.download('words'); nltk.download('brown')" || true

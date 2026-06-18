@@ -53,3 +53,19 @@ def test_build_seed_dataset_distinct_seeds_and_prompt():
     assert len(ds) == 4
     assert [r["seed"] for r in ds] == [10, 11, 12, 13]
     assert all(r["prompt"][0]["role"] == "user" for r in ds)
+
+
+def test_base_defaults_server_env_empty_and_single_turn():
+    from domains.env_base import EnvDomain
+    d = EnvDomain()
+    assert d.server_env({"anything": 1}) == {}
+    assert d.multi_turn is False
+
+
+def test_reasoning_gym_eval_tools_is_answer():
+    d = ReasoningGymDomain()
+    factory = d.make_env_factory("http://x", {"dataset": "chain_sum"}, client_factory=_FakeClient)
+    env = factory()
+    tools = d.eval_tools(env)
+    assert tools == [env.answer]
+    assert d.multi_turn is False

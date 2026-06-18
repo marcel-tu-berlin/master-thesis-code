@@ -49,6 +49,23 @@ def _parse_answer(text: str) -> str | None:
     return None
 
 
+def _parse_tool_call(text: str) -> tuple | None:
+    """Return (name, arguments) from the FIRST valid <tool_call> JSON, else None.
+
+    General form used by the multi-turn loop (any tool name). The single-step
+    reasoning_gym path keeps its own _parse_answer (first `answer` call only).
+    """
+    for m in _TOOL_CALL_RE.finditer(text):
+        try:
+            payload = json.loads(m.group(1))
+        except (ValueError, TypeError):
+            continue
+        name = payload.get("name")
+        if name is not None:
+            return str(name), (payload.get("arguments") or {})
+    return None
+
+
 def _run_episodes(env, n: int, seed_base: int, gen_fn) -> list[SampleResult]:
     """Run n single-step episodes. gen_fn(question) -> (answer_str|None, n_tokens).
 
@@ -61,6 +78,42 @@ def _run_episodes(env, n: int, seed_base: int, gen_fn) -> list[SampleResult]:
         answer, n_tokens = gen_fn(question)
         env.answer(answer if answer is not None else "")
         results.append(SampleResult(correct=env.reward > 0, n_tokens=n_tokens, n_steps=1))
+    return results
+
+
+def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messages):
+    """Run n multi-turn episodes greedily.
+
+    turn_fn(messages) -> (tool_name|None, arguments|None, n_tokens) produces one
+    greedy model turn given the running message list. Per episode: reset, then up
+    to max_turns turns; each turn that is a `move` call steps the env and appends
+    the assistant + feedback messages; the episode ends when the model stops
+    calling move or the env reports done. n_tokens is the per-turn generated
+    token count (model-only, exact - no re-encode); n_steps is the move count.
+    """
+    results = []
+    for i in range(n):
+        obs = env.reset(seed=seed_base + i)
+        messages = list(make_messages(obs))
+        total_tokens = 0
+        moves = 0
+        for _ in range(max_turns):
+            name, args, n_tok = turn_fn(messages)
+            total_tokens += int(n_tok)
+            if name != "move":
+                break
+            message = (args or {}).get("message", "")
+            feedback = env.move(message)
+            moves += 1
+            messages.append({
+                "role": "assistant", "content": "",
+                "tool_calls": [{"type": "function",
+                                "function": {"name": "move", "arguments": args or {}}}],
+            })
+            messages.append({"role": "tool", "content": feedback})
+            if getattr(env, "done", False):
+                break
+        results.append(SampleResult(correct=env.reward > 0, n_tokens=total_tokens, n_steps=moves))
     return results
 
 
@@ -138,7 +191,7 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
         sys.path.insert(0, server.repo_envs_path)
     try:
         env = domain.make_env_factory(server.base_url, env_config)()
-        tools = [env.answer]
+        tools = domain.eval_tools(env)
 
         def gen_fn(question):
             messages = domain.episode_messages(question)
@@ -153,8 +206,31 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
             text = tokenizer.decode(comp_ids, skip_special_tokens=False)
             return _parse_answer(text), int(comp_ids.shape[0])
 
+        def gen_turn(messages):
+            enc = tokenizer.apply_chat_template(
+                messages, tools=tools, add_generation_prompt=True,
+                return_tensors="pt", return_dict=True,
+            ).to(model.device)
+            plen = enc["input_ids"].shape[1]
+            with torch.no_grad():
+                out = model.generate(**enc, max_new_tokens=max_new, do_sample=do_sample)
+            comp_ids = out[0][plen:]
+            text = tokenizer.decode(comp_ids, skip_special_tokens=False)
+            parsed = _parse_tool_call(text)
+            if parsed is None:
+                return None, None, int(comp_ids.shape[0])
+            name, call_args = parsed
+            return name, call_args, int(comp_ids.shape[0])
+
         print(f"Agentic eval: {n} episodes (seed_base={seed_base}, max_new_tokens={max_new})")
-        results = _run_episodes(env, n, seed_base, gen_fn)
+        if getattr(domain, "multi_turn", False):
+            max_turns = int(env_config.get("max_turns", 6))
+            results = _run_multiturn_episodes(
+                env, n, seed_base, gen_turn,
+                max_turns=max_turns, make_messages=domain.episode_messages,
+            )
+        else:
+            results = _run_episodes(env, n, seed_base, gen_fn)
     finally:
         server.stop()
 

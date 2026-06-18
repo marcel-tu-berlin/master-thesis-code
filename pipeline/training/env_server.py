@@ -16,13 +16,14 @@ class EnvServerProcess:
     """
 
     def __init__(self, *, env_module, port, repo_envs_path, max_concurrent,
-                 host="127.0.0.1", python=None):
+                 host="127.0.0.1", python=None, server_env=None):
         self.env_module = env_module          # e.g. "reasoning_gym_env.server.app"
         self.port = int(port)
         self.repo_envs_path = repo_envs_path  # dir containing the env package
         self.max_concurrent = int(max_concurrent)
         self.host = host
         self.python = python or sys.executable
+        self.server_env = dict(server_env or {})  # extra per-domain process env vars
         self._proc = None
 
     @property
@@ -39,6 +40,8 @@ class EnvServerProcess:
         # envs/ dir; put it on PYTHONPATH so both the launch and the adapter's
         # client import (`from reasoning_gym_env import ...`) find it.
         env["PYTHONPATH"] = self.repo_envs_path + os.pathsep + env.get("PYTHONPATH", "")
+        # Per-domain server vars last, so a domain can override (e.g. set its game id).
+        env.update(self.server_env)
         return env
 
     def start(self) -> "EnvServerProcess":
@@ -106,11 +109,13 @@ def build_env_server(config, domain, python=None) -> EnvServerProcess:
     """
     t = config.get("training", {}) or {}
     es = t.get("env_server", {}) or {}
+    env_config = t.get("env_config", {}) or {}
     n_envs = int(t.get("batch_size", 1)) * int(t.get("n_rollouts", 8))
     return EnvServerProcess(
         env_module=domain.server_module,
         port=int(es.get("port", 8077)),
         repo_envs_path=es.get("repo_path", "/workspace/OpenEnv/envs"),
         max_concurrent=max(8, n_envs),
+        server_env=domain.server_env(env_config),
         python=python,
     )

@@ -1,0 +1,51 @@
+experiment_id: e7-agentic-textarena-wordle-qwen3-1_7b
+description: "E7: agentic GRPO on TextArena Wordle via OpenEnv (env reward + cosine length), multi-turn, Qwen3-1.7B, vLLM colocate."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  # Multi-turn episodes accumulate several model turns plus injected feedback, so
+  # the rollout stream is longer than single-step reasoning_gym. 4096 gives the
+  # turn loop room; smoke-calibrate (Task 12) - drop if vLLM KV cache pressures
+  # 24 GB, raise max_turns/seq together if streams truncate.
+  max_seq_length: 4096
+
+training:
+  mode: agentic
+  env: textarena
+  env_config:
+    env_id: Wordle-v0
+    num_players: 1
+    max_turns: 6          # Wordle is 6 guesses; also the tool-calling iteration cap
+    size: 500             # distinct training prompts (one seed each)
+  env_server:
+    repo_path: /workspace/OpenEnv/envs   # clone of meta-pytorch/OpenEnv
+    # textarena_env's server.app __main__ is bare main() with no argparse, so it
+    # ignores --port and always binds 8000 (unlike reasoning_gym, which parses
+    # --port). Target 8000 so the readiness probe + client hit the right port.
+    port: 8000
+  n_rollouts: 8
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    enabled: true
+    weight: 1.0
+    # Cosine bound over the model's TOTAL assistant tokens across all turns of an
+    # episode (the multi-turn analogue of e5). Must sit above the operating
+    # assistant-token length so the cosine stays on its live slope, not clamped
+    # to the flat floor. Smoke-calibrate against the observed per-episode length.
+    max_len: 1024
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 100

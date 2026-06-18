@@ -38,3 +38,29 @@ def test_bad_mode_rejected():
     cfg["training"]["mode"] = "bogus"
     with pytest.raises(ValueError, match="mode"):
         validate_config(cfg)
+
+
+# build_domain lives in train.py, which imports the GPU stack (trl) at module
+# load, so these run on the GPU box / at the L4 smoke and skip cleanly on CPU.
+
+def test_build_domain_dispatches_textarena():
+    pytest.importorskip("trl")
+    from training.train import build_domain
+    from domains.textarena import TextArenaDomain
+    d = build_domain({"training": {"env": "textarena"}})
+    assert isinstance(d, TextArenaDomain)
+
+
+def test_build_domain_dispatches_reasoning_gym():
+    pytest.importorskip("trl")
+    from training.train import build_domain
+    from domains.reasoning_gym import ReasoningGymDomain
+    d = build_domain({"training": {"env": "reasoning_gym"}})
+    assert isinstance(d, ReasoningGymDomain)
+
+
+def test_build_domain_rejects_unknown_env():
+    pytest.importorskip("trl")
+    from training.train import build_domain
+    with pytest.raises(NotImplementedError):
+        build_domain({"training": {"env": "nope"}})

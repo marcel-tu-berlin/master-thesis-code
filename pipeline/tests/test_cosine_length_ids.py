@@ -43,3 +43,26 @@ def test_requires_environments():
     r = CosineLengthReward(_Tok(), max_len=10)
     with pytest.raises(ValueError):
         r(["p"], ["a b"])
+
+
+def test_multiturn_counts_assistant_only_not_completion_ids():
+    # A multi-turn completion (assistant/tool/assistant) with a long completion_ids
+    # stream that includes tool tokens. The reward must use the assistant-only
+    # count (4), not len(completion_ids) (12).
+    r = CosineLengthReward(_Tok(), max_len=100)
+    completion = [
+        {"role": "assistant", "content": "guess crane"},          # 2
+        {"role": "tool", "content": "C absent R absent ..."},     # tool -> skip
+        {"role": "assistant", "content": "guess slate"},          # 2
+    ]
+    out = r(["p"], [completion], environments=[_Env(1.0)], completion_ids=[[0] * 12])
+    assert out[0] == r._reward(4, True)
+
+
+def test_singleturn_one_assistant_message_uses_completion_ids():
+    # Single assistant message, no tool message -> single-turn -> use the exact
+    # completion_ids count (3), NOT the re-encoded text (5). Reasoning_gym parity.
+    r = CosineLengthReward(_Tok(), max_len=100)
+    completion = [{"role": "assistant", "content": "a b c d e"}]
+    out = r(["p"], [completion], environments=[_Env(1.0)], completion_ids=[[1, 2, 3]])
+    assert out[0] == r._reward(3, True)

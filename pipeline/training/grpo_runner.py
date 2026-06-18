@@ -117,6 +117,13 @@ class GRPORunner:
             beta=float(t.get("kl_beta", 0.001)),
             seed=int(self.config.get("seed", 42)),
         )
+        # Multi-turn domains cap the tool-calling loop at max_turns so a rollout
+        # cannot run unbounded turns. Single-step domains leave it unset (the
+        # model calls its one tool and stops). max_tool_calling_iterations is a
+        # TRL 1.6 GRPOConfig field (confirmed at the L4 smoke).
+        max_turns = int((t.get("env_config") or {}).get("max_turns", 0))
+        if max_turns > 0:
+            kwargs["max_tool_calling_iterations"] = max_turns
         if self._use_vllm:
             kwargs["use_vllm"] = True
             kwargs["vllm_mode"] = "colocate"

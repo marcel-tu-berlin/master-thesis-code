@@ -48,7 +48,10 @@ def build_domain(config: dict):
     if env == "reasoning_gym":
         from domains.reasoning_gym import ReasoningGymDomain
         return ReasoningGymDomain()
-    raise NotImplementedError(f"Env: {env!r} (only 'reasoning_gym' is implemented)")
+    if env == "textarena":
+        from domains.textarena import TextArenaDomain
+        return TextArenaDomain()
+    raise NotImplementedError(f"Env: {env!r} (known: reasoning_gym, textarena)")
 
 
 def build_reward_components(config: dict, domain, runner: GRPORunner) -> list:

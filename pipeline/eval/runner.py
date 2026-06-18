@@ -38,12 +38,17 @@ def main() -> None:
         config.setdefault("eval", {})["max_new_tokens"] = args.max_new_tokens
 
     env = config["training"].get("env")
-    if env != "reasoning_gym":
-        raise NotImplementedError(f"Env: {env!r} (only 'reasoning_gym' is implemented)")
+    if env == "reasoning_gym":
+        from domains.reasoning_gym import ReasoningGymDomain
+        domain = ReasoningGymDomain()
+    elif env == "textarena":
+        from domains.textarena import TextArenaDomain
+        domain = TextArenaDomain()
+    else:
+        raise NotImplementedError(f"Env: {env!r} (known: reasoning_gym, textarena)")
 
-    from domains.reasoning_gym import ReasoningGymDomain
     from eval.agentic_eval import run_agentic_eval
-    run_agentic_eval(config, checkpoint, ReasoningGymDomain(), run_dir)
+    run_agentic_eval(config, checkpoint, domain, run_dir)
 
 
 if __name__ == "__main__":

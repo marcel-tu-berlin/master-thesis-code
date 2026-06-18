@@ -10,6 +10,10 @@ class EnvDomain:
     tool-calling chat template, so there is no reasoning-tag template here.
     """
 
+    # Single-step by default; multi-turn domains (e.g. textarena) set True so the
+    # eval loop runs the turn loop instead of a single tool call.
+    multi_turn = False
+
     def make_env_factory(self, base_url, env_config=None, client_factory=None):
         """Return a zero-arg callable building one fresh env adapter per call."""
         raise NotImplementedError
@@ -28,3 +32,20 @@ class EnvDomain:
 
     def difficulty(self, task) -> float | None:
         return None
+
+    def server_env(self, env_config=None) -> dict:
+        """Extra process env vars for the env-server subprocess.
+
+        Default none: reasoning_gym takes dataset/seed via request kwargs, so it
+        needs no server-side env. Domains whose server is configured by env vars
+        (textarena: TEXTARENA_ENV_ID, ...) override this.
+        """
+        return {}
+
+    def eval_tools(self, env):
+        """The bound tool method(s) to expose to the model during eval.
+
+        Concrete domains override (reasoning_gym -> [env.answer]; textarena ->
+        [env.move]). The eval loop passes these to apply_chat_template(tools=...).
+        """
+        raise NotImplementedError

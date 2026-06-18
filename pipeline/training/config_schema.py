@@ -25,6 +25,20 @@ _KNOWN_REWARD_KEYS = {
     "env_reward",
 }
 
+# Known sub-keys under training.env_config (union across env types - catches
+# typos like `datsaet` that would otherwise pass through and use the default).
+_KNOWN_ENV_CONFIG_KEYS = {
+    # reasoning_gym
+    "dataset", "dataset_name", "dataset_config", "size",
+    # textarena
+    "env_id", "num_players", "max_turns",
+}
+
+# Known eval keys. Closes the silent-passthrough gap that let a dead `ood_probes`
+# block and a mistyped value slip through unnoticed.
+_KNOWN_EVAL_KEYS = {"temperature", "do_sample", "max_new_tokens", "agentic"}
+_KNOWN_EVAL_AGENTIC_KEYS = {"n_episodes"}
+
 # Whitelist of allowed sub-keys per reward. Catches typos in YAML (e.g.
 # `fork_mask_top_pct` after the rename to `fork_mask_top_frac`) that would
 # otherwise pass through silently and use the default.
@@ -180,6 +194,31 @@ def validate_config(config: dict) -> None:
                 f"Unknown sub-keys under rewards.{reward_name}: {sorted(unknown_sub)}. "
                 f"Allowed: {sorted(allowed)}"
             )
+
+    env_config = (config.get("training") or {}).get("env_config")
+    if isinstance(env_config, dict):
+        unknown_ec = set(env_config) - _KNOWN_ENV_CONFIG_KEYS
+        if unknown_ec:
+            errors.append(
+                f"Unknown training.env_config keys: {sorted(unknown_ec)}. "
+                f"Known: {sorted(_KNOWN_ENV_CONFIG_KEYS)}"
+            )
+
+    eval_cfg = config.get("eval")
+    if isinstance(eval_cfg, dict):
+        unknown_eval = set(eval_cfg) - _KNOWN_EVAL_KEYS
+        if unknown_eval:
+            errors.append(
+                f"Unknown eval keys: {sorted(unknown_eval)}. Known: {sorted(_KNOWN_EVAL_KEYS)}"
+            )
+        agentic = eval_cfg.get("agentic")
+        if isinstance(agentic, dict):
+            unknown_ag = set(agentic) - _KNOWN_EVAL_AGENTIC_KEYS
+            if unknown_ag:
+                errors.append(
+                    f"Unknown eval.agentic keys: {sorted(unknown_ag)}. "
+                    f"Known: {sorted(_KNOWN_EVAL_AGENTIC_KEYS)}"
+                )
 
     unknown_top = set(config.keys()) - _KNOWN_TOP_LEVEL_KEYS
     if unknown_top:
