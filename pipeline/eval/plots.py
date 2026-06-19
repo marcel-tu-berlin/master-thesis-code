@@ -42,7 +42,9 @@ _SPLIT = "agentic"
 # (key names vary across TRL versions, so missing keys are skipped, not errors).
 _CURVE_KEYS = [
     ("reward", "mean reward"),
-    ("completion_length", "completion length (tokens)"),
+    ("completions/mean_length", "mean completion length (tokens)"),
+    ("completions/mean_terminated_length", "terminated-only length (tokens)"),
+    ("completions/clipped_ratio", "clipped at cap (fraction)"),
     ("kl", "KL"),
     ("loss", "loss"),
 ]

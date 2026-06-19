@@ -37,8 +37,8 @@ def _write_run(tmp_path, exp_id, toks_correct, toks_wrong, train_log=None):
 
 _SYNTH_LOG = [
     {"step": s, "reward": 0.1 * s, "kl": 0.01 * s, "loss": 1.0 - 0.05 * s,
-     "completion_length": 400 - 5 * s, "reward/EnvReward/raw_mean": 0.2 * s,
-     "reward/CosineLengthReward/raw_mean": -0.1 * s}
+     "completions/mean_length": 400 - 5 * s, "completions/clipped_ratio": 0.5 - 0.05 * s,
+     "reward/EnvReward/raw_mean": 0.2 * s, "reward/CosineLengthReward/raw_mean": -0.1 * s}
     for s in range(1, 8)
 ]
 
