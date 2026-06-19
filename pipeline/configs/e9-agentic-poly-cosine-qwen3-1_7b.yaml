@@ -1,0 +1,42 @@
+experiment_id: e9-agentic-poly-cosine-qwen3-1_7b
+description: "E9: agentic GRPO on reasoning_gym polynomial_equations (env reward + cosine length), Qwen3-1.7B, vLLM colocate. Goldilocks task from the difficulty probe: 64% base success, correct episodes ~454 tokens under the 1024 cap = real length headroom. Pairs with e10 (env-only) to test whether the cosine length reward compresses tokens without hurting success - the effect the saturated chain_sum (e5/e6) never showed."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 2048
+
+training:
+  mode: agentic
+  env: reasoning_gym
+  env_config:
+    dataset: polynomial_equations
+    size: 500
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8077
+  n_rollouts: 8
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    enabled: true
+    weight: 1.0
+    # max_len = completion budget (max_seq - max_prompt_length = 2048 - 1024).
+    # Probe correct-episode length ~454 << 1024, so progress ~0.44 sits mid-curve
+    # (active slope), not clamped to the flat floor that erased the signal at e5's
+    # max_len=256. This is the live-cosine regime the ablation needs.
+    max_len: 1024
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 100

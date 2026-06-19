@@ -1,0 +1,44 @@
+experiment_id: e11-agentic-poly-cosine-hibudget-qwen3-1_7b
+description: "E11: e9 re-run with the generation cap raised to remove the truncation confound. reasoning_gym polynomial_equations, env + cosine length. max_seq 2048->3072 with max_prompt 1024 => completion budget 1024->2048, so completions can terminate naturally instead of clipping at the cap (e9/e10 both ran to 1024 by end of training, which masks any compression). Cosine max_len raised to 2048 (= new budget) so the slope spans the full operating range and does not clamp long completions to the flat floor (the e5 dead-signal bug). Pairs with e12 (env-only)."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 3072
+
+training:
+  mode: agentic
+  env: reasoning_gym
+  env_config:
+    dataset: polynomial_equations
+    size: 500
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8077
+  max_prompt_length: 1024
+  n_rollouts: 8
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    enabled: true
+    weight: 1.0
+    # max_len = new completion budget (max_seq - max_prompt = 3072 - 1024 = 2048).
+    # MUST track the budget: at the old max_len=1024 any completion past 1024 would
+    # clamp to progress=1 (flat floor) and per-group z-scoring would erase the
+    # length signal (the e5 bug). With completions now free to run up to 2048, the
+    # cosine slope must span to 2048 too.
+    max_len: 2048
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 100

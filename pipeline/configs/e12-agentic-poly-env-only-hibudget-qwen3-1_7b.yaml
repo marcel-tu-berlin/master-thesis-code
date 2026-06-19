@@ -1,0 +1,40 @@
+experiment_id: e12-agentic-poly-env-only-hibudget-qwen3-1_7b
+description: "E12: ablation baseline for the raised-cap re-run - reasoning_gym polynomial_equations, env reward only (cosine length OFF). Byte-identical to e11 except token_length disabled, so the e11-minus-e12 token delta isolates the cosine reward's effect under the larger 2048 completion budget."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 3072
+
+training:
+  mode: agentic
+  env: reasoning_gym
+  env_config:
+    dataset: polynomial_equations
+    size: 500
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8077
+  max_prompt_length: 1024
+  n_rollouts: 8
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    # Ablation arm: cosine length reward OFF. e11 enables it (max_len 2048); this
+    # run is env-only, so the e11-minus-e12 token delta is the cosine reward's
+    # causal effect at the larger budget.
+    enabled: false
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 100

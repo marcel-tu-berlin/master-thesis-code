@@ -1,0 +1,34 @@
+experiment_id: probe-propositional_logic
+description: "Difficulty probe: propositional_logic (defaults: 2-4 vars/statements, complexity 1-3). Deductive logic - a different failure mode than arithmetic, expected sub-saturation. Env-only, 5 train steps (~base) + 50-episode eval."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 2048
+
+training:
+  mode: agentic
+  env: reasoning_gym
+  env_config:
+    dataset: propositional_logic
+    size: 500
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8077
+  n_rollouts: 8
+  max_steps: 5
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 50

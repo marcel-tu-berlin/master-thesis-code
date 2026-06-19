@@ -1,0 +1,38 @@
+experiment_id: e10-agentic-poly-env-only-qwen3-1_7b
+description: "E10: ablation baseline - reasoning_gym polynomial_equations, env reward only (cosine length OFF), Qwen3-1.7B. Byte-identical to e9 except token_length disabled, so any per-episode token difference between the two is the cosine length reward's causal effect, not a task or capacity artifact."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 2048
+
+training:
+  mode: agentic
+  env: reasoning_gym
+  env_config:
+    dataset: polynomial_equations
+    size: 500
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8077
+  n_rollouts: 8
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    # Ablation arm: cosine length reward OFF. e9 enables it; this run is env-only,
+    # so the e9-minus-e10 token delta isolates the cosine reward's effect.
+    enabled: false
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 100
