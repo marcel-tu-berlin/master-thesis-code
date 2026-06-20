@@ -1,0 +1,45 @@
+experiment_id: e13-agentic-poly-cosine-w4-hibudget-qwen3-1_7b
+description: "E13: e11 with the cosine length weight raised 1.0 -> 4.0 to test whether stronger length pressure compresses correct-episode tokens. e11/e12 (weight 1.0) were a clean null at budget 2048 (correct-episode tokens 668.5 vs 669.1, cap ruled out), and under advantage_weighted the live lever is the post-z-score component weight. This run weights the cosine vote 4x the env vote; pairs with the existing e12 env-only baseline (e13-minus-e12 token delta is the effect of 4x cosine pressure). Separates 'reward too weak as configured' from 'task has no slack to compress'."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 3072
+
+training:
+  mode: agentic
+  env: reasoning_gym
+  env_config:
+    dataset: polynomial_equations
+    size: 500
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8077
+  max_prompt_length: 1024
+  n_rollouts: 8
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    enabled: true
+    # 4x the env weight. Under advantage_weighted each component is z-scored
+    # per prompt-group before the weighted sum, so this is the genuine lever:
+    # it makes the cosine length signal count 4x the task-success signal.
+    weight: 4.0
+    # max_len = completion budget (max_seq - max_prompt = 3072 - 1024 = 2048),
+    # tracking the budget so the cosine slope spans the full operating range and
+    # does not clamp long completions to the flat floor (the e5 dead-signal bug).
+    max_len: 2048
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 100
