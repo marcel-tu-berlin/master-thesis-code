@@ -21,21 +21,31 @@ class _ComponentMetricsCallback(TrainerCallback):
     """Drain the composer's per-component reward metrics into the trainer log.
 
     TRL only sees one composed reward function, so it logs a single
-    rewards/<composer>/{mean,std}; the individual accuracy/format/length/entropy
-    contributions are invisible. on_log fires just before TRL records a log
-    entry, so merging the popped metrics into `logs` lands them in
-    trainer_state.json's log_history next to reward/kl/loss — visible in the
-    training curves and inspectable post-hoc. Purely observational: it never
-    touches the composed reward or the advantage math.
+    rewards/<composer>/{mean,std}; the individual env/length/entropy
+    contributions are invisible. transformers.Trainer.log() appends the log
+    entry to state.log_history BEFORE calling on_log, so updating `logs` alone
+    is too late — the persisted entry is already a copy. We update that
+    just-appended entry in place (state.log_history[-1]) so the metrics land in
+    train_log.json next to reward/kl/loss, and also update `logs` for any live
+    logger (wandb/trackio). Purely observational: it never touches the composed
+    reward or the advantage math.
     """
 
     def __init__(self, composer) -> None:
         self.composer = composer
 
     def on_log(self, args, state, control, logs=None, **kwargs):
-        if logs is None or not hasattr(self.composer, "pop_step_metrics"):
+        if not hasattr(self.composer, "pop_step_metrics"):
             return
-        logs.update(self.composer.pop_step_metrics())
+        metrics = self.composer.pop_step_metrics()
+        if not metrics:
+            return
+        # state.log_history[-1] is this step's entry (appended just before this
+        # hook fires); update it in place so the metrics persist to train_log.
+        if logs is not None:
+            logs.update(metrics)
+        if state is not None and getattr(state, "log_history", None):
+            state.log_history[-1].update(metrics)
 
 
 def load_config(path: str) -> dict:
