@@ -1,0 +1,45 @@
+experiment_id: e16-agentic-poly-cosine-w8-hibudget-qwen3-1_7b
+description: "E16: extends the polynomial cosine-length dose-response. e11/e12/e13 swept cosine weight 0/1/4 at completion budget 2048; correct-episode median fell 567 -> 534 -> 504 (monotone) with accuracy flat at 0.840, but at a single seed (means within CI). This run pushes the post-z-score cosine weight to 8.0 to find where compression saturates and whether accuracy finally breaks. Pairs with the e12 env-only baseline (e16-minus-e12 token delta = effect of 8x cosine pressure)."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 3072
+
+training:
+  mode: agentic
+  env: reasoning_gym
+  env_config:
+    dataset: polynomial_equations
+    size: 500
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8077
+  max_prompt_length: 1024
+  n_rollouts: 8
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    enabled: true
+    # 8x the env weight (dose-response continuation of e13's 4x). Under
+    # advantage_weighted each component is z-scored per prompt-group before the
+    # weighted sum, so this is the genuine lever: cosine length counts 8x the
+    # task-success signal.
+    weight: 8.0
+    # max_len = completion budget (max_seq - max_prompt = 3072 - 1024 = 2048),
+    # tracking the budget so the cosine slope spans the full operating range.
+    max_len: 2048
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 100

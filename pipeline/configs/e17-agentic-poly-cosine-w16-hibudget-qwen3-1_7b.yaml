@@ -1,0 +1,43 @@
+experiment_id: e17-agentic-poly-cosine-w16-hibudget-qwen3-1_7b
+description: "E17: top of the polynomial cosine-length dose-response. Continues e11/e12/e13 (weight 0/1/4, median 567/534/504) and e16 (weight 8) by pushing the post-z-score cosine weight to 16.0 - a deliberately aggressive dose to bracket the frontier knee: either correct-episode tokens keep compressing or accuracy finally cracks under length pressure this strong. Pairs with the e12 env-only baseline."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 3072
+
+training:
+  mode: agentic
+  env: reasoning_gym
+  env_config:
+    dataset: polynomial_equations
+    size: 500
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8077
+  max_prompt_length: 1024
+  n_rollouts: 8
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    enabled: true
+    # 16x the env weight (top of the dose-response: e13=4x, e16=8x, e17=16x).
+    # Under advantage_weighted each component is z-scored per prompt-group before
+    # the weighted sum, so this is the genuine lever: cosine length counts 16x
+    # the task-success signal.
+    weight: 16.0
+    max_len: 2048
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 100
