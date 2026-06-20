@@ -61,7 +61,15 @@ def build_domain(config: dict):
     if env == "textarena":
         from domains.textarena import TextArenaDomain
         return TextArenaDomain()
-    raise NotImplementedError(f"Env: {env!r} (known: reasoning_gym, textarena)")
+    if env == "finqa":
+        from domains.finqa import FinQADomain
+        return FinQADomain()
+    if env == "repl":
+        from domains.repl import REPLDomain
+        return REPLDomain()
+    raise NotImplementedError(
+        f"Env: {env!r} (known: reasoning_gym, textarena, finqa, repl)"
+    )
 
 
 def build_reward_components(config: dict, domain, runner: GRPORunner) -> list:
@@ -92,13 +100,39 @@ def apply_smoke_overrides(config: dict) -> dict:
     """
     config.setdefault("model", {})
     config.setdefault("training", {})
-    config["model"]["max_seq_length"] = 512
+    # Pick a smoke context that clears the env's prompt but fits the L4. A 512 cap
+    # rejected finqa's ~700-token tool-rich prompt outright; the full 4096 OOMs the
+    # policy-grad backward under vLLM colocate. 2048 holds the prompt plus a few
+    # turns and leaves room for the step. (Don't go below the config when it is
+    # already smaller, e.g. a 1024-context model.)
+    seq = min(int(config["model"].get("max_seq_length", 2048) or 2048), 2048)
+    config["model"]["max_seq_length"] = seq
+    # Under colocate the backward competes with vLLM's KV pool for the 24 GB, so
+    # give training headroom in smoke (0.6 util OOMs a full agentic rollout here).
+    # Set before --vllm's setdefault so this wins.
+    config["model"]["gpu_memory_utilization"] = min(
+        float(config["model"].get("gpu_memory_utilization", 0.45) or 0.45), 0.45
+    )
+    # Safety: the completion budget is max_seq - max_prompt_length, so keep the
+    # prompt cap at half the context (a config with max_prompt_length == max_seq
+    # would otherwise leave zero room to generate).
+    config["training"]["max_prompt_length"] = min(
+        int(config["training"].get("max_prompt_length", seq // 2) or seq // 2), seq // 2
+    )
     config["training"]["max_steps"] = 3
     config["training"]["save_steps"] = 3
     config["training"]["n_rollouts"] = 2
     config["training"]["dataset_size_limit"] = 64
+    # Cap eval generation: a multi-turn agentic eval runs many model.generate
+    # calls per episode, and the default budget (max_seq - max_prompt) lets each
+    # produce ~1k tokens, so a smoke eval can take 20+ minutes. 256 is plenty to
+    # emit a tool call for a sanity check.
+    config.setdefault("eval", {})
+    config["eval"]["max_new_tokens"] = 256
     config["_smoke"] = True
-    print("⚠  Smoke mode: max_steps=3, n_rollouts=2, max_seq_length=512, dataset_size_limit=64, eval=10/split")
+    print(f"⚠  Smoke mode: max_steps=3, n_rollouts=2, max_seq_length={seq} (<=2048), "
+          f"gpu_memory_utilization={config['model']['gpu_memory_utilization']}, "
+          f"max_prompt_length={config['training']['max_prompt_length']}, dataset_size_limit=64, eval=10/split")
     return config
 
 

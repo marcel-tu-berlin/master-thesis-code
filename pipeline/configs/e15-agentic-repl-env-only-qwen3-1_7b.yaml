@@ -1,0 +1,42 @@
+experiment_id: e15-agentic-repl-env-only-qwen3-1_7b
+description: "E15: agentic GRPO on a Python REPL via OpenEnv (multi-turn code execution), env reward only (cosine length OFF). repl ships no task corpus, so the domain mints a deterministic arithmetic-over-a-list task per seed with a binary exact-match reward. Establishes the env-only baseline for a code-execution env; cosine-length ablation is a later config. Task family is intentionally simple - the point is a real automatic reward + real token slack."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  # Multi-turn code-execution episodes (several execute() calls plus stdout
+  # feedback) run longer than single-step reasoning_gym; 4096 gives the loop
+  # room. Smoke-calibrate against observed stream length.
+  max_seq_length: 4096
+
+training:
+  mode: agentic
+  env: repl
+  env_config:
+    max_iterations: 12     # per-episode execute() cap (server REPL_MAX_ITERATIONS)
+  env_server:
+    repo_path: /workspace/OpenEnv/envs   # clone of meta-pytorch/OpenEnv
+    # repl_env's server.app main() binds 8000 with no --port argparse (like
+    # textarena), so target 8000 for the readiness probe + client.
+    port: 8000
+  max_prompt_length: 1024
+  n_rollouts: 8
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    # Env-only baseline: cosine length reward OFF. A later config enables it.
+    enabled: false
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 100

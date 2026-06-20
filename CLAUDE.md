@@ -8,6 +8,14 @@ against live OpenEnv environments through TRL's `environment_factory`; the polic
 is a tool-calling model (Qwen3-1.7B) rewarded by the environment, not by grading
 an answer string. The pipeline is agentic-only.
 
+## Git workflow
+
+Work on `master`. Always. Do not create branches or git worktrees for this repo -
+no feature branches, no `.claude/worktrees/` copies. Make changes directly on
+`master` in the main checkout, and commit there only when asked. If a tool or skill
+drops you onto any branch other than `master`, stop and move the work back onto
+`master` before continuing.
+
 ## Environment Setup
 
 ```bash

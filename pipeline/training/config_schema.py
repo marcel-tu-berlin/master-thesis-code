@@ -32,6 +32,10 @@ _KNOWN_ENV_CONFIG_KEYS = {
     "dataset", "dataset_name", "dataset_config", "size",
     # textarena
     "env_id", "num_players", "max_turns",
+    # finqa
+    "data_path", "max_steps",
+    # repl
+    "max_iterations",
 }
 
 # Known eval keys. Closes the silent-passthrough gap that let a dead `ood_probes`

@@ -81,39 +81,47 @@ def _run_episodes(env, n: int, seed_base: int, gen_fn) -> list[SampleResult]:
     return results
 
 
-def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messages):
-    """Run n multi-turn episodes greedily.
+def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messages, tool_names):
+    """Run n multi-turn episodes greedily, tool-agnostic.
 
     turn_fn(messages) -> (tool_name|None, arguments|None, n_tokens) produces one
     greedy model turn given the running message list. Per episode: reset, then up
-    to max_turns turns; each turn that is a `move` call steps the env and appends
-    the assistant + feedback messages; the episode ends when the model stops
-    calling move or the env reports done. n_tokens is the per-turn generated
-    token count (model-only, exact - no re-encode); n_steps is the move count.
+    to max_turns turns; each turn that names one of the domain's tools dispatches
+    it on the env (the public adapter method of that name) and appends the
+    assistant + tool-feedback messages; the episode ends when the model stops
+    calling a known tool or the env reports done. Restricting dispatch to
+    `tool_names` keeps a hallucinated name (or `reset`) from being invoked. This
+    one loop drives every multi-turn domain - textarena (move), finqa (the four
+    data tools), repl (execute) - via the parsed tool name. n_tokens is the
+    per-turn generated token count (model-only, exact); n_steps is the tool count.
     """
     results = []
     for i in range(n):
         obs = env.reset(seed=seed_base + i)
         messages = list(make_messages(obs))
         total_tokens = 0
-        moves = 0
+        steps = 0
         for _ in range(max_turns):
             name, args, n_tok = turn_fn(messages)
             total_tokens += int(n_tok)
-            if name != "move":
+            if name not in tool_names:
                 break
-            message = (args or {}).get("message", "")
-            feedback = env.move(message)
-            moves += 1
+            try:
+                feedback = getattr(env, name)(**(args or {}))
+            except TypeError as e:
+                # Malformed model arguments (wrong/extra kwargs) become feedback
+                # rather than crashing the episode.
+                feedback = f"Tool call error: {e}"
+            steps += 1
             messages.append({
                 "role": "assistant", "content": "",
                 "tool_calls": [{"type": "function",
-                                "function": {"name": "move", "arguments": args or {}}}],
+                                "function": {"name": name, "arguments": args or {}}}],
             })
-            messages.append({"role": "tool", "content": feedback})
+            messages.append({"role": "tool", "content": str(feedback)})
             if getattr(env, "done", False):
                 break
-        results.append(SampleResult(correct=env.reward > 0, n_tokens=total_tokens, n_steps=moves))
+        results.append(SampleResult(correct=env.reward > 0, n_tokens=total_tokens, n_steps=steps))
     return results
 
 
@@ -178,7 +186,9 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
     agentic_cfg = eval_cfg.get("agentic", {}) or {}
     n = int(n_episodes if n_episodes is not None else agentic_cfg.get("n_episodes", 100))
     if config.get("_smoke"):
-        n = min(n, 10)
+        # A multi-turn agentic eval runs n * up-to-max_turns model.generate calls,
+        # so keep the smoke episode count small - it only checks the eval loop runs.
+        n = min(n, 4)
     max_new = _completion_budget(config, model_cfg["max_seq_length"])
     do_sample = bool(eval_cfg.get("do_sample", False))
     env_config = config["training"].get("env_config", {}) or {}
@@ -224,10 +234,13 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
 
         print(f"Agentic eval: {n} episodes (seed_base={seed_base}, max_new_tokens={max_new})")
         if getattr(domain, "multi_turn", False):
-            max_turns = int(env_config.get("max_turns", 6))
+            # textarena sets max_turns; finqa/repl don't (their caps are env-side
+            # FINQA_MAX_STEPS / REPL_MAX_ITERATIONS), so default a modest eval cap.
+            max_turns = int(env_config.get("max_turns", 8))
             results = _run_multiturn_episodes(
                 env, n, seed_base, gen_turn,
                 max_turns=max_turns, make_messages=domain.episode_messages,
+                tool_names={t.__name__ for t in tools},
             )
         else:
             results = _run_episodes(env, n, seed_base, gen_fn)
