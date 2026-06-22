@@ -1,0 +1,44 @@
+experiment_id: e18-agentic-poly-cosine-w16-naivesum-hibudget-qwen3-1_7b
+description: "E18: composer ablation of e17. Identical cosine dose (weight 16) but compose_method=naive_sum instead of advantage_weighted - the single variable changed. e9-e17 established a null: cosine length reward never compresses correct-episode tokens, and the per-component trace showed why under advantage_weighted - per-group z-scoring inflates the low-variance correctness signal so cosine dominates the advantage (27x) yet its gradient drains into cap-saturated wrong rollouts. naive_sum removes the z-scoring: raw env {0,1}*1 now competes against raw cosine [-1,1]*16 directly. Decisive test of whether z-scoring was muting the correctness gate (length finally compresses) or the wrong-and-long escape valve is composer-independent (still no movement). Pairs with the e12 env-only baseline and e17 advantage_weighted arm."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 3072
+
+training:
+  mode: agentic
+  env: reasoning_gym
+  env_config:
+    dataset: polynomial_equations
+    size: 500
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8077
+  max_prompt_length: 1024
+  n_rollouts: 8
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    enabled: true
+    # Same 16x dose as e17 (the advantage_weighted arm). Under naive_sum there is
+    # no per-group z-scoring, so this weight scales the RAW cosine reward directly:
+    # raw cosine [-1,1]*16 against raw env {0,1}*1. Correctness is now numerically
+    # swamped 16:1 - the deliberate inverse of e17's z-scored balance. Holding the
+    # weight fixed and flipping only the composer isolates the z-scoring effect.
+    weight: 16.0
+    max_len: 2048
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 100
