@@ -108,7 +108,9 @@ rewarded by the environment.
   `num_generations` times to form a GRPO group.
 - **Rewards.** `EnvReward` reads `[e.reward for e in kwargs["environments"]]`.
   The efficiency rewards are the other live signals; `CosineLengthReward` takes
-  correctness from `environments` (env reward > 0) instead of an answer column.
+  correctness from `environments` (env reward >= `CORRECT_REWARD_THRESHOLD`,
+  0.5 - reasoning_gym scorers are graded and hand partial credit to
+  near-misses) instead of an answer column.
 
 Validated end to end on an L4 (24 GB) with `Qwen/Qwen3-1.7B` + vLLM colocate: the
 model calls the tool, env reward flows into the composer, and the LoRA saves.

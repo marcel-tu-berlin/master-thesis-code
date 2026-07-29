@@ -18,6 +18,9 @@ class SampleResult:
     # Env steps for an agentic episode (1 for single-step reasoning_gym);
     # None for dataset-mode eval, where the notion of a step does not apply.
     n_steps: int | None = None
+    # Raw graded env reward for the episode, kept so reports can be
+    # re-thresholded offline; `correct` alone loses that information.
+    reward: float | None = None
 
 
 @dataclass

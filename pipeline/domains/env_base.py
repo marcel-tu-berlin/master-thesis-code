@@ -1,3 +1,12 @@
+# Minimum env reward that counts as a solved episode. reasoning_gym scorers are
+# graded, not binary: countdown hands 0.05 to a near-miss and 0.01 to garbage,
+# polynomial_equations decays exponentially with distance to the root (an
+# off-by-one answer still scores 4.5e-5). A bare `> 0` therefore counts almost
+# any parseable answer as correct. 0.5 admits only near-exact solutions under
+# every scorer in use while staying scorer-agnostic.
+CORRECT_REWARD_THRESHOLD = 0.5
+
+
 class EnvDomain:
     """Base for OpenEnv-backed agentic domains.
 
@@ -27,8 +36,8 @@ class EnvDomain:
         return float(step_result.reward)
 
     def is_correct(self, step_result) -> bool:
-        """Binary success for evaluation: a positive env reward counts as solved."""
-        return float(step_result.reward) > 0.0
+        """Binary success for evaluation: near-exact reward counts as solved."""
+        return float(step_result.reward) >= CORRECT_REWARD_THRESHOLD
 
     def difficulty(self, task) -> float | None:
         return None

@@ -1,5 +1,6 @@
 import math
 
+from domains.env_base import CORRECT_REWARD_THRESHOLD
 from training.rewards.utils import model_token_count
 
 
@@ -32,7 +33,9 @@ class CosineLengthReward:
     per-component z-scoring and is the intended Wu/Yeo coupling.
 
     Agentic-only: correctness is read from the live OpenEnv instances TRL passes
-    as kwargs['environments'] (env.reward > 0). There is no answer column.
+    as kwargs['environments'] (env.reward >= CORRECT_REWARD_THRESHOLD; graded
+    scorers hand partial credit to near-misses, so a bare > 0 gates wrong).
+    There is no answer column.
     """
 
     def __init__(
@@ -69,7 +72,10 @@ class CosineLengthReward:
                 "CosineLengthReward requires kwargs['environments'] (agentic mode). "
                 "TRL's environment_factory path supplies the live env instances."
             )
-        correct_flags = [float(getattr(e, "reward", 0.0)) > 0.0 for e in environments]
+        correct_flags = [
+            float(getattr(e, "reward", 0.0)) >= CORRECT_REWARD_THRESHOLD
+            for e in environments
+        ]
         # Prefer the exact model-generated token ids TRL/the rollout_func provide
         # over re-encoding decoded text, so the length signal counts model tokens
         # only. Falls back to re-encoding the decoded completion.

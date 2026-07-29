@@ -91,8 +91,10 @@ def test_run_episodes_handles_none_answer():
 # --- _metrics_to_dict: serialize EvalMetrics for the report ---
 
 def test_metrics_to_dict_shape():
-    m = compute_metrics([SampleResult(True, 10, n_steps=1), SampleResult(False, 20, n_steps=1)])
+    m = compute_metrics([SampleResult(True, 10, n_steps=1, reward=1.0),
+                         SampleResult(False, 20, n_steps=1, reward=0.05)])
     d = _metrics_to_dict(m)
     assert d["accuracy"] == 0.5 and d["n_samples"] == 2 and d["n_correct"] == 1
-    assert d["samples"][0] == {"correct": True, "n_tokens": 10, "n_steps": 1}
+    assert d["samples"][0] == {"correct": True, "n_tokens": 10, "n_steps": 1,
+                               "reward": 1.0}
     assert "mean_token_count" in d and "mean_steps" in d

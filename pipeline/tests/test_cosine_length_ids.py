@@ -28,14 +28,26 @@ def test_falls_back_to_text_without_ids():
 
 
 def test_agentic_correctness_from_environments():
-    # Correctness comes from env.reward > 0. Same length, so the correct env must
-    # outrank the wrong env purely on the correctness gate.
+    # Correctness comes from the env reward crossing CORRECT_REWARD_THRESHOLD.
+    # Same length, so the correct env must outrank the wrong env purely on the
+    # correctness gate.
     r = CosineLengthReward(_Tok(), max_len=10)
     out = r(
         ["p", "p"], ["a b", "a b"],
         environments=[_Env(1.0), _Env(0.0)], completion_ids=[[1, 2], [1, 2]],
     )
     assert out[0] > out[1]
+
+
+def test_partial_credit_gates_as_wrong():
+    # A graded near-miss (countdown 0.05, poly exp-decay) must land in the
+    # wrong branch, identical to a hard 0.0 - not in the correct branch.
+    r = CosineLengthReward(_Tok(), max_len=10)
+    out = r(
+        ["p", "p"], ["a b", "a b"],
+        environments=[_Env(0.05), _Env(0.0)], completion_ids=[[1, 2], [1, 2]],
+    )
+    assert out[0] == out[1]
 
 
 def test_requires_environments():

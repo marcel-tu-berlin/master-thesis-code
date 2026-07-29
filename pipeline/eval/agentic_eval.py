@@ -9,6 +9,7 @@ import os
 import re
 import sys
 
+from domains.env_base import CORRECT_REWARD_THRESHOLD
 from eval.metrics import SampleResult, compute_metrics
 
 # The model answers by emitting a Hermes-style tool call (Qwen3 native format):
@@ -77,7 +78,9 @@ def _run_episodes(env, n: int, seed_base: int, gen_fn) -> list[SampleResult]:
         question = env.reset(seed=seed_base + i)
         answer, n_tokens = gen_fn(question)
         env.answer(answer if answer is not None else "")
-        results.append(SampleResult(correct=env.reward > 0, n_tokens=n_tokens, n_steps=1))
+        r = float(env.reward)
+        results.append(SampleResult(correct=r >= CORRECT_REWARD_THRESHOLD,
+                                    n_tokens=n_tokens, n_steps=1, reward=r))
     return results
 
 
@@ -121,7 +124,9 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
             messages.append({"role": "tool", "content": str(feedback)})
             if getattr(env, "done", False):
                 break
-        results.append(SampleResult(correct=env.reward > 0, n_tokens=total_tokens, n_steps=steps))
+        r = float(env.reward)
+        results.append(SampleResult(correct=r >= CORRECT_REWARD_THRESHOLD,
+                                    n_tokens=total_tokens, n_steps=steps, reward=r))
     return results
 
 
@@ -142,7 +147,8 @@ def _metrics_to_dict(m) -> dict:
         "n_samples": m.n_samples,
         "n_correct": m.n_correct,
         "samples": [
-            {"correct": r.correct, "n_tokens": r.n_tokens, "n_steps": r.n_steps}
+            {"correct": r.correct, "n_tokens": r.n_tokens, "n_steps": r.n_steps,
+             "reward": r.reward}
             for r in m.raw
         ],
     }

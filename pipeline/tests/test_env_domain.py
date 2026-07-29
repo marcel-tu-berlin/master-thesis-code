@@ -36,6 +36,17 @@ def test_is_correct_from_reward_sign():
     assert d.is_correct(_FakeStep(0.0)) is False
 
 
+def test_is_correct_rejects_graded_partial_credit():
+    # reasoning_gym scorers are graded: countdown gives 0.05 to a near-miss and
+    # 0.01 to garbage; polynomial_equations decays to tiny-but-positive for
+    # wrong roots. None of these count as solved.
+    d = ReasoningGymDomain()
+    assert d.is_correct(_FakeStep(0.01)) is False
+    assert d.is_correct(_FakeStep(0.05)) is False
+    assert d.is_correct(_FakeStep(4.5e-5)) is False
+    assert d.is_correct(_FakeStep(0.5)) is True
+
+
 def test_make_env_factory_is_zero_arg_and_builds_adapter():
     d = ReasoningGymDomain()
     factory = d.make_env_factory(
