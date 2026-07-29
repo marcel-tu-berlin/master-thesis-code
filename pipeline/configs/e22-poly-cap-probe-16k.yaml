@@ -1,0 +1,35 @@
+experiment_id: e22-poly-cap-probe-16k
+description: "E22: cap probe, eval only, no training. Every failed episode in e9-e18 sits exactly at the 2048 completion cap (100% of wrong episodes, all arms). Whether those failures are non-terminating loops or long-but-finite reasoning was never tested - they were only ever assumed to be loops. This re-evaluates the e12 (env-only) checkpoint on the first 20 held-out seeds with a 16384 budget: if the failing episodes emit a tool call somewhere above 2048, the cap was binding and the sweep ran on truncated rollouts; if they run to 16384, they are loops and the cosine reward provably cannot shorten them (wrong-and-long is its least-penalized cell). The measured termination distribution sets the training cap and the cosine max_len for the follow-up pair. Sample index i maps to seed 100042+i, so the probe diffs sample-by-sample against the e12 report. Budget comes from --max_new_tokens 16384; run with --checkpoint runs/e12-agentic-poly-env-only-hibudget-qwen3-1_7b/checkpoint-final."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 3072
+
+training:
+  mode: agentic
+  env: reasoning_gym
+  env_config:
+    dataset: polynomial_equations
+    size: 500
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8077
+  max_prompt_length: 1024
+  n_rollouts: 8
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 20

@@ -1,0 +1,40 @@
+experiment_id: e19-agentic-poly-entropy-w1-qwen3-1_7b
+description: "E19: first entropy arm (E1). Token-entropy reward on top of env reward on polynomial_equations, weight 1, fork-masked to the top 20% of completion tokens by entropy (Wang 2025 forking-token motivation; note the mask restricts the reward mean, not the policy gradient). Pairs with the e12 env-only baseline (seeds 42/43). Question: does rewarding high-entropy decision points protect exploration (accuracy up, wrong/looping episodes recover) or inflate output length (Ghosal 2025)? reward_scale left at default: inert under advantage_weighted z-scoring; weight is the lever. chunk_size 1 because vLLM colocate leaves little VRAM headroom for the entropy forward pass."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 3072
+
+training:
+  mode: agentic
+  env: reasoning_gym
+  env_config:
+    dataset: polynomial_equations
+    size: 500
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8077
+  max_prompt_length: 1024
+  n_rollouts: 8
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_entropy:
+    enabled: true
+    weight: 1.0
+    fork_mask_top_frac: 0.2
+    chunk_size: 1
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 100

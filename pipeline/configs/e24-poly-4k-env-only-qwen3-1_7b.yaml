@@ -1,0 +1,39 @@
+experiment_id: e24-poly-4k-env-only-qwen3-1_7b
+description: "E24: control arm for the raised-cap cosine test, cosine reward off. The e22 probe showed the 2048 completion cap was the confound behind the e9-e18 null: every episode that hit the cap terminates when given room (16/16 across poly and countdown, zero loops), and on polynomial_equations all four rescued episodes are CORRECT, taking the e12 checkpoint from 0.80 to 1.00 on the same seeds. The sweep was therefore scored on rollouts cut mid-reasoning, mislabelled wrong, and then handed to the cosine wrong-branch that pays for length. Budget here is 4096 (max_seq 5120 - prompt 1024), twice the old one and the hardware ceiling on a 24 GB L4: accelerate upcasts the completion logits to fp32 for the policy backward, so peak grows by 10 bytes per token per vocab entry (bf16 logits + fp32 copy + fp32 grad, vocab 151936) on top of a 14.4 GiB resident base. Measured OOMs at 16384, 7168 and 6144 fix that model; 4096 leaves about 1.4 GiB of margin. TRL 1.6 has no chunked-logp escape (use_liger_loss does not exist in this version), and the only way past this ceiling is dropping accelerate's mixed precision, which would break numeric comparability with every earlier run. 4096 covers 18 of the 20 correct-episode lengths the probe measured - the same 18 that 6144 or 7168 would cover, because nothing in the measured distribution falls between 3093 and 9516. Pairs with e25."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 5120
+  gpu_memory_utilization: 0.23
+
+training:
+  mode: agentic
+  env: reasoning_gym
+  env_config:
+    dataset: polynomial_equations
+    size: 500
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8077
+  max_prompt_length: 1024
+  n_rollouts: 8
+  micro_batch_size: 1
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    enabled: false
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 100

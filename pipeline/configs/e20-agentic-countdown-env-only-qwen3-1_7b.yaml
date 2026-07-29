@@ -1,0 +1,35 @@
+experiment_id: e20-agentic-countdown-env-only-qwen3-1_7b
+description: "E20: env-only w0 control on countdown. The probe showed countdown saturated at accuracy 1.00 with ~982 mean tokens, so within-group correctness variance is ~zero and the env-reward advantage vanishes: training should be a near no-op. This arm is the trained-baseline control for e21 (cosine w16 on countdown) and doubles as a no-drift check. Hibudget shape matches the polynomial campaign (max_seq 3072, prompt 1024) so token counts are comparable."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 3072
+
+training:
+  mode: agentic
+  env: reasoning_gym
+  env_config:
+    dataset: countdown
+    size: 500
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8077
+  max_prompt_length: 1024
+  n_rollouts: 8
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 100
