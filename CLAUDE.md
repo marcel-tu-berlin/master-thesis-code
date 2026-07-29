@@ -16,6 +16,20 @@ no feature branches, no `.claude/worktrees/` copies. Make changes directly on
 drops you onto any branch other than `master`, stop and move the work back onto
 `master` before continuing.
 
+## Run state (`RUNNING.md`)
+
+`RUNNING.md` at the repo root records what is executing on the GPU box. Keeping it
+current is a hard requirement for every run, not a courtesy:
+
+- Add the row before you launch, and fill in the pid and the ETA once the launch
+  is confirmed live.
+- Update it at every phase change (train -> eval), completion, kill, and crash.
+- Stamp `Updated:` with box time (`ssh gpu-l4 date`), never local time.
+- When the box is idle, write "Nothing running." A stale table is worse than an
+  empty one.
+
+A run missing from `RUNNING.md` is a run nobody can find after a context reset.
+
 ## Environment Setup
 
 ```bash
