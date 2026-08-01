@@ -40,10 +40,17 @@ A run missing from `RUNNING.md` is a run nobody can find after a context reset.
 ```
 
 Creates `.venv` via `uv` with Python 3.12. Installs the GPU stack (`trl`, `peft`,
-`bitsandbytes`, `accelerate`, a pinned `vllm` cu130 wheel, `openenv-core`,
+`bitsandbytes`, `accelerate`, a pinned `vllm` cu130 wheel,
 `reasoning-gym`) and clones `meta-pytorch/OpenEnv` to `/workspace/OpenEnv` (its
 env servers are not on PyPI). Hardware target: NVIDIA L4 (24 GB) or RTX 4090,
 CUDA 13.0, Linux. `--torch-backend=auto` selects the torch variant.
+
+The `openenv` core is installed **editable from that clone**, not from PyPI as
+`openenv-core`. Both ship the same `openenv` import name, so installing both lets
+whichever shadows the other decide the version - and a skew fails at runtime, not
+import time: the repo's env clients pass `metadata=` to `StepResult`, which older
+cores reject with a `TypeError` on the first `reset()`. After updating the clone,
+re-verify the envs with a real reset, never with an import.
 
 ## Running the Pipeline (`pipeline/`)
 

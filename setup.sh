@@ -15,7 +15,7 @@ source .venv/bin/activate
 uv pip install \
   "trl>=0.26" peft bitsandbytes accelerate \
   https://github.com/vllm-project/vllm/releases/download/v0.19.1/vllm-0.19.1+cu130-cp38-abi3-manylinux_2_35_x86_64.whl \
-  openenv-core reasoning-gym \
+  reasoning-gym \
   "textarena>=0.6.1" nltk \
   datasets scipy matplotlib ipywidgets \
   --torch-backend=auto
@@ -26,8 +26,17 @@ uv pip install \
 # from training.env_server.repo_path in the config (default /workspace/OpenEnv/envs).
 OPENENV_DIR="${OPENENV_DIR:-/workspace/OpenEnv}"
 if [ ! -d "$OPENENV_DIR" ]; then
-  git clone --depth 1 https://github.com/meta-pytorch/OpenEnv "$OPENENV_DIR"
+  git clone https://github.com/meta-pytorch/OpenEnv "$OPENENV_DIR"
 fi
+
+# Install the core from the same clone that provides the env servers, NOT the
+# PyPI `openenv-core`. The two ship the same `openenv` import name, and a version
+# skew between them fails at RUNTIME, not import time: the repo's env clients pass
+# `metadata=` to `StepResult`, which older cores reject with a TypeError on the
+# first reset. Installing both means whichever shadows the other decides the
+# version, so `openenv-core` must be absent.
+uv pip uninstall openenv-core 2>/dev/null || true
+uv pip install -e "$OPENENV_DIR"
 
 # TextArena word games (Wordle) need NLTK corpora. Pre-fetch so the first
 # env-server start does not block on a download mid-training. Best-effort:
