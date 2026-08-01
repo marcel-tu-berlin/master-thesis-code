@@ -17,7 +17,14 @@ training:
   env_config:
     # FinQA dataset downloaded into the OpenEnv clone (snorkelai/finqa-data).
     data_path: /workspace/OpenEnv/envs/finqa_env/data
-    max_steps: 50          # env-side tool-call cap before force-end with reward 0
+    # The one turn cap: TRL's max_tool_calling_iterations, the eval loop, and the
+    # server's FINQA_MAX_STEPS all read this. 12 covers the workflow
+    # (get_descriptions -> get_table_info -> a few sql_query -> submit_answer)
+    # with room for retries, and keeps the episode inside the 4096 context once
+    # every tool result is injected back. Higher caps do not buy more turns, they
+    # just move the failure from "ran out of turns" to "ran out of context",
+    # which is the harder signal to interpret.
+    max_turns: 12
   env_server:
     repo_path: /workspace/OpenEnv/envs   # clone of meta-pytorch/OpenEnv
     # finqa_env's server.app main() binds 8000 with no --port argparse (like

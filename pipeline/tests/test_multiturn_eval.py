@@ -61,7 +61,8 @@ def test_multiturn_solves_in_two_turns():
     env = _FakeGameEnv("slate")
     scripted = iter([("move", {"message": "crane"}, 10), ("move", {"message": "slate"}, 8)])
     rs = _run_multiturn_episodes(env, 1, 0, lambda m: next(scripted),
-                                 max_turns=6, make_messages=_msgs)
+                                 max_turns=6, make_messages=_msgs,
+                                 tool_names={"move"})
     assert rs[0].correct is True and rs[0].n_steps == 2 and rs[0].n_tokens == 18
     assert env.resets == [0]
 
@@ -70,7 +71,8 @@ def test_multiturn_stops_when_model_stops_calling_move():
     env = _FakeGameEnv("slate")
     scripted = iter([("move", {"message": "crane"}, 5), (None, None, 3)])
     rs = _run_multiturn_episodes(env, 1, 0, lambda m: next(scripted),
-                                 max_turns=6, make_messages=_msgs)
+                                 max_turns=6, make_messages=_msgs,
+                                 tool_names={"move"})
     # Turn 1 is a move (counted, stepped); turn 2 is no-move -> counted then stop.
     assert rs[0].n_steps == 1 and rs[0].n_tokens == 8 and rs[0].correct is False
 
@@ -79,7 +81,8 @@ def test_multiturn_caps_at_max_turns():
     env = _FakeGameEnv("zzzzz", fail_after=99)  # never solves, never early-dones
     scripted = iter([("move", {"message": "aaaaa"}, 4)] * 10)
     rs = _run_multiturn_episodes(env, 1, 0, lambda m: next(scripted),
-                                 max_turns=3, make_messages=_msgs)
+                                 max_turns=3, make_messages=_msgs,
+                                 tool_names={"move"})
     assert rs[0].n_steps == 3 and rs[0].n_tokens == 12 and rs[0].correct is False
 
 
@@ -91,6 +94,7 @@ def test_multiturn_appends_assistant_and_tool_messages():
         seen.append([m["role"] for m in messages])
         return ("move", {"message": "slate"}, 7)
 
-    _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=6, make_messages=_msgs)
+    _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=6,
+                            make_messages=_msgs, tool_names={"move"})
     # First turn sees just the user lead-in; episode ends on the solving move.
     assert seen == [["user"]]

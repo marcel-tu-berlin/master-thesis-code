@@ -63,10 +63,28 @@ def test_load_report_missing_raises(tmp_path):
         plots.load_report(str(tmp_path / "nope"))
 
 
-def test_load_report_no_agentic_split_raises(tmp_path):
+def test_load_report_takes_the_only_split_when_it_has_a_protocol_name(tmp_path):
+    p = tmp_path / "x.json"
+    p.write_text(json.dumps({"experiment_id": "z", "results": {"held_out": {}}}))
+    assert plots.load_report(str(p))["split_name"] == "held_out"
+
+
+def test_load_report_refuses_to_guess_between_splits(tmp_path):
+    # Silently picking one would compare the held-out split of one arm against
+    # the shifted split of another.
     import pytest
     p = tmp_path / "x.json"
-    p.write_text(json.dumps({"experiment_id": "z", "results": {"id_split": {}}}))
+    p.write_text(json.dumps({"experiment_id": "z",
+                             "results": {"held_out": {}, "shifted": {}}}))
+    with pytest.raises(ValueError):
+        plots.load_report(str(p))
+    assert plots.load_report(str(p), split_name="shifted")["split_name"] == "shifted"
+
+
+def test_load_report_empty_results_raises(tmp_path):
+    import pytest
+    p = tmp_path / "x.json"
+    p.write_text(json.dumps({"experiment_id": "z", "results": {}}))
     with pytest.raises(ValueError):
         plots.load_report(str(p))
 

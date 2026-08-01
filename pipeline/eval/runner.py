@@ -18,6 +18,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--checkpoint", default=None, help="Override checkpoint path")
+    parser.add_argument("--base-model", action="store_true",
+                        help="Evaluate the base model with no LoRA adapter (E0)")
     parser.add_argument("--max_new_tokens", type=int, default=None,
                         help="Override eval.max_new_tokens (default: the training completion budget)")
     parser.add_argument("--smoke", action="store_true", help="Limit eval to 10 episodes")
@@ -32,20 +34,18 @@ def main() -> None:
 
     exp_id = config["experiment_id"]
     run_dir = os.path.join("runs", exp_id)
-    checkpoint = args.checkpoint or os.path.join(run_dir, "checkpoint-final")
+    if args.base_model:
+        if args.checkpoint:
+            parser.error("--base-model and --checkpoint are mutually exclusive")
+        checkpoint = None
+    else:
+        checkpoint = args.checkpoint or os.path.join(run_dir, "checkpoint-final")
 
     if args.max_new_tokens is not None:
         config.setdefault("eval", {})["max_new_tokens"] = args.max_new_tokens
 
-    env = config["training"].get("env")
-    if env == "reasoning_gym":
-        from domains.reasoning_gym import ReasoningGymDomain
-        domain = ReasoningGymDomain()
-    elif env == "textarena":
-        from domains.textarena import TextArenaDomain
-        domain = TextArenaDomain()
-    else:
-        raise NotImplementedError(f"Env: {env!r} (known: reasoning_gym, textarena)")
+    from domains import build_domain
+    domain = build_domain(config)
 
     from eval.agentic_eval import run_agentic_eval
     run_agentic_eval(config, checkpoint, domain, run_dir)

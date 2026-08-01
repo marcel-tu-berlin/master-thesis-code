@@ -62,9 +62,12 @@ class REPLDomain(EnvDomain):
         return [env.execute]
 
     def server_env(self, env_config=None):
-        # The repl server reads its iteration cap from a process env var.
+        # The repl server reads its iteration cap from a process env var. It comes
+        # from `max_turns` - the one turn-cap key across domains, also read by
+        # training (max_tool_calling_iterations) and eval, so the server cannot
+        # cap at one number while the tool loop runs to another.
         cfg = dict(env_config or {})
         env = {}
-        if cfg.get("max_iterations") is not None:
-            env["REPL_MAX_ITERATIONS"] = str(int(cfg["max_iterations"]))
+        if cfg.get("max_turns") is not None:
+            env["REPL_MAX_ITERATIONS"] = str(int(cfg["max_turns"]))
         return env

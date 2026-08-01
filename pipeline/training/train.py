@@ -9,6 +9,7 @@ import yaml
 # Allow running as: python -m training.train
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+from domains import build_domain
 from training.grpo_runner import GRPORunner
 from training.env_server import build_env_server
 from training.rewards import REWARD_REGISTRY
@@ -51,25 +52,6 @@ class _ComponentMetricsCallback(TrainerCallback):
 def load_config(path: str) -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
-
-
-def build_domain(config: dict):
-    env = config["training"].get("env")
-    if env == "reasoning_gym":
-        from domains.reasoning_gym import ReasoningGymDomain
-        return ReasoningGymDomain()
-    if env == "textarena":
-        from domains.textarena import TextArenaDomain
-        return TextArenaDomain()
-    if env == "finqa":
-        from domains.finqa import FinQADomain
-        return FinQADomain()
-    if env == "repl":
-        from domains.repl import REPLDomain
-        return REPLDomain()
-    raise NotImplementedError(
-        f"Env: {env!r} (known: reasoning_gym, textarena, finqa, repl)"
-    )
 
 
 def build_reward_components(config: dict, domain, runner: GRPORunner) -> list:

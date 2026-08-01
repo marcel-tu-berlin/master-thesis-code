@@ -15,6 +15,7 @@ enabled explicitly per config.
 from training.rewards.cosine_length import CosineLengthReward
 from training.rewards.token_entropy import TokenEntropyReward
 from training.rewards.env_reward import EnvReward
+from training.rewards.non_termination import NonTerminationPenalty
 
 
 def _build_token_length(domain, runner, training_cfg, cfg):
@@ -67,10 +68,17 @@ def _build_env_reward(domain, runner, training_cfg, cfg):
     return EnvReward()
 
 
+def _build_non_termination(domain, runner, training_cfg, cfg):
+    # E3: -1 per episode that never reached the terminal tool. Reads env.done off
+    # the same live env instances. No knobs - lambda is the component `weight`.
+    return NonTerminationPenalty()
+
+
 # key -> (default_enabled, default_weight, builder). All default off; agentic
 # configs enable env_reward + the efficiency signals explicitly.
 REWARD_REGISTRY: dict[str, tuple[bool, float, callable]] = {
-    "token_length":  (False, 1.0, _build_token_length),
-    "token_entropy": (False, 1.0, _build_token_entropy),
-    "env_reward":    (False, 1.0, _build_env_reward),
+    "token_length":     (False, 1.0, _build_token_length),
+    "token_entropy":    (False, 1.0, _build_token_entropy),
+    "env_reward":       (False, 1.0, _build_env_reward),
+    "non_termination":  (False, 1.0, _build_non_termination),
 }

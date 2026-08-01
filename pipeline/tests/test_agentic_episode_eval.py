@@ -96,5 +96,6 @@ def test_metrics_to_dict_shape():
     d = _metrics_to_dict(m)
     assert d["accuracy"] == 0.5 and d["n_samples"] == 2 and d["n_correct"] == 1
     assert d["samples"][0] == {"correct": True, "n_tokens": 10, "n_steps": 1,
-                               "reward": 1.0}
+                               "reward": 1.0, "terminated": None,
+                               "stop_reason": None, "tool_calls": None}
     assert "mean_token_count" in d and "mean_steps" in d

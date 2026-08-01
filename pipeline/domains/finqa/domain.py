@@ -67,11 +67,19 @@ class FinQADomain(EnvDomain):
         # The finqa server reads its data dir and step cap from process env vars.
         # FINQA_DATA_PATH default is a Docker path; our no-Docker launch must
         # point it at the dataset downloaded into the OpenEnv clone.
+        #
+        # The step cap comes from `max_turns`, the same key training
+        # (max_tool_calling_iterations) and eval read, so all three agree. It used
+        # to have its own `max_steps` key, which let the server cap (50) diverge
+        # from the eval cap (8) while training ran unbounded - TRL treats an unset
+        # max_tool_calling_iterations as sys.maxsize, and finqa's non-terminal
+        # tools use call_tool, which drops `done`, so the adapter never sees the
+        # server force-end and the loop had no client-side backstop.
         cfg = dict(env_config or {})
         env = {
             "FINQA_DATA_PATH": str(cfg.get("data_path", "/workspace/OpenEnv/envs/finqa_env/data")),
             "FINQA_TASK": "finqa",
         }
-        if cfg.get("max_steps") is not None:
-            env["FINQA_MAX_STEPS"] = str(int(cfg["max_steps"]))
+        if cfg.get("max_turns") is not None:
+            env["FINQA_MAX_STEPS"] = str(int(cfg["max_turns"]))
         return env

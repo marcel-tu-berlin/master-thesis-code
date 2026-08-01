@@ -23,6 +23,7 @@ _KNOWN_REWARD_KEYS = {
     "token_length",
     "token_entropy",
     "env_reward",
+    "non_termination",
 }
 
 # Known sub-keys under training.env_config (union across env types - catches
@@ -31,17 +32,25 @@ _KNOWN_ENV_CONFIG_KEYS = {
     # reasoning_gym
     "dataset", "dataset_name", "dataset_config", "size",
     # textarena
-    "env_id", "num_players", "max_turns",
+    "env_id", "num_players",
     # finqa
-    "data_path", "max_steps",
-    # repl
-    "max_iterations",
+    "data_path",
+    # Every multi-turn domain: the ONE turn cap. Read by training
+    # (max_tool_calling_iterations), by the eval loop, and mapped to each
+    # server's own env var (TEXTARENA_MAX_TURNS / FINQA_MAX_STEPS /
+    # REPL_MAX_ITERATIONS). finqa's `max_steps` and repl's `max_iterations`
+    # were per-domain aliases that let the three caps drift apart.
+    "max_turns",
 }
 
 # Known eval keys. Closes the silent-passthrough gap that let a dead `ood_probes`
 # block and a mistyped value slip through unnoticed.
 _KNOWN_EVAL_KEYS = {"temperature", "do_sample", "max_new_tokens", "agentic"}
-_KNOWN_EVAL_AGENTIC_KEYS = {"n_episodes"}
+_KNOWN_EVAL_AGENTIC_KEYS = {"n_episodes", "splits"}
+# Per-split keys. `env_config` is merged over training.env_config, so a split
+# overrides only what shifts; `seed_offset` moves the split to a disjoint region
+# of the seed -> question mapping.
+_KNOWN_EVAL_SPLIT_KEYS = {"name", "n_episodes", "env_config", "seed_offset"}
 
 # Whitelist of allowed sub-keys per reward. Catches typos in YAML (e.g.
 # `fork_mask_top_pct` after the rename to `fork_mask_top_frac`) that would
@@ -58,6 +67,8 @@ _KNOWN_REWARD_SUBKEYS: dict[str, set[str]] = {
         "fork_mask_top_pct",
     },
     "env_reward":    _COMMON_REWARD_SUBKEYS,
+    # E3 has no knobs: lambda is `weight`, the signal is the env's done flag.
+    "non_termination": _COMMON_REWARD_SUBKEYS,
 }
 
 _NUMERIC_COERCIONS = {
@@ -100,8 +111,60 @@ def warn_inert_scalars(rewards_cfg: dict, compose_method: str) -> list[str]:
                 f"rewards.token_entropy.reward_scale={te['reward_scale']} is inert under "
                 f"advantage_weighted (z-scoring cancels global scalars). {lever}"
             )
+        # E3 is a binary flag, so it has zero within-group variance in any group
+        # where every rollout terminates - and there it contributes exactly 0.
+        # The penalty then goes silent precisely where behavior is already good,
+        # which is not the shaped reward the expose specifies.
+        if (rc.get("non_termination") or {}).get("enabled"):
+            warnings.append(
+                "rewards.non_termination is binary, so advantage_weighted silences it in "
+                "every prompt-group where all rollouts terminate (zero within-group "
+                "variance contributes 0). Use compose_method: naive_sum for the lambda "
+                "sweep, where weight is the penalty coefficient the expose defines."
+            )
 
     return warnings
+
+
+def _split_errors(splits) -> list[str]:
+    """Validate eval.agentic.splits.
+
+    Split names key the report and the per-split episodes file, so a missing or
+    duplicate name silently overwrites another split's results - checked here
+    rather than discovered after a 2h eval.
+    """
+    if splits is None:
+        return []
+    if not isinstance(splits, list):
+        return [f"eval.agentic.splits must be a list, got {type(splits).__name__}"]
+    errors = []
+    seen = set()
+    for i, s in enumerate(splits):
+        if not isinstance(s, dict):
+            errors.append(f"eval.agentic.splits[{i}] must be a mapping, got {s!r}")
+            continue
+        unknown = set(s) - _KNOWN_EVAL_SPLIT_KEYS
+        if unknown:
+            errors.append(
+                f"Unknown eval.agentic.splits[{i}] keys: {sorted(unknown)}. "
+                f"Known: {sorted(_KNOWN_EVAL_SPLIT_KEYS)}"
+            )
+        name = s.get("name")
+        if not name:
+            errors.append(f"eval.agentic.splits[{i}] is missing `name`")
+        elif name in seen:
+            errors.append(f"Duplicate eval.agentic.splits name: {name!r}")
+        else:
+            seen.add(name)
+        env_cfg = s.get("env_config")
+        if isinstance(env_cfg, dict):
+            unknown_ec = set(env_cfg) - _KNOWN_ENV_CONFIG_KEYS
+            if unknown_ec:
+                errors.append(
+                    f"Unknown eval.agentic.splits[{i}].env_config keys: "
+                    f"{sorted(unknown_ec)}. Known: {sorted(_KNOWN_ENV_CONFIG_KEYS)}"
+                )
+    return errors
 
 
 def _get_nested(d: dict, key: str):
@@ -223,6 +286,7 @@ def validate_config(config: dict) -> None:
                     f"Unknown eval.agentic keys: {sorted(unknown_ag)}. "
                     f"Known: {sorted(_KNOWN_EVAL_AGENTIC_KEYS)}"
                 )
+            errors.extend(_split_errors(agentic.get("splits")))
 
     unknown_top = set(config.keys()) - _KNOWN_TOP_LEVEL_KEYS
     if unknown_top:

@@ -50,21 +50,34 @@ _CURVE_KEYS = [
 ]
 
 
-def load_report(path: str) -> dict:
+def load_report(path: str, split_name: str | None = None) -> dict:
     """Load an eval report from a run dir or a JSON file.
 
     Returns {"experiment_id", "agentic" (the split metrics dict), "samples"}.
-    Raises FileNotFoundError if the report is missing, ValueError if it has no
-    agentic split.
+    Raises FileNotFoundError if the report is missing, ValueError if the
+    requested split is absent.
+
+    `split_name` selects one split of a multi-split report. Unnamed, it takes
+    "agentic" (the single-split shape every earlier run wrote), or the only split
+    present if a report uses a protocol name instead. A multi-split report with
+    no name given raises rather than guessing: plotting the held-out split of one
+    arm against the shifted split of another, silently, is worse than an error.
     """
     json_path = os.path.join(path, "eval_report.json") if os.path.isdir(path) else path
     with open(json_path) as f:                       # FileNotFoundError propagates
         report = json.load(f)
-    split = (report.get("results") or {}).get(_SPLIT)
+    results = report.get("results") or {}
+    wanted = split_name
+    if wanted is None:
+        wanted = _SPLIT if _SPLIT in results or len(results) != 1 else next(iter(results))
+    split = results.get(wanted)
     if split is None:
-        raise ValueError(f"{json_path}: no {_SPLIT!r} split in results")
+        raise ValueError(
+            f"{json_path}: no {wanted!r} split in results (have: {sorted(results)})"
+        )
     return {
         "experiment_id": report.get("experiment_id", "?"),
+        "split_name": wanted,
         "agentic": split,
         "samples": split.get("samples") or [],
     }

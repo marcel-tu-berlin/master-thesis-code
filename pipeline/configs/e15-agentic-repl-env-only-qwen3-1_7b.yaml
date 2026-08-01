@@ -14,7 +14,9 @@ training:
   mode: agentic
   env: repl
   env_config:
-    max_iterations: 12     # per-episode execute() cap (server REPL_MAX_ITERATIONS)
+    # The one turn cap: TRL's max_tool_calling_iterations, the eval loop, and the
+    # server's REPL_MAX_ITERATIONS all read this.
+    max_turns: 12
   env_server:
     repo_path: /workspace/OpenEnv/envs   # clone of meta-pytorch/OpenEnv
     # repl_env's server.app main() binds 8000 with no --port argparse (like

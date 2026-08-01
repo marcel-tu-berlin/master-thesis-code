@@ -80,3 +80,35 @@ def test_reasoning_gym_eval_tools_is_answer():
     tools = d.eval_tools(env)
     assert tools == [env.answer]
     assert d.multi_turn is False
+
+
+# --- one turn cap across training, eval, and each server (max_turns) ---
+# TRL treats an unset max_tool_calling_iterations as sys.maxsize, so a domain
+# whose server cap lives under its own key leaves the training tool loop
+# unbounded. Every multi-turn domain reads the same `max_turns`.
+
+def test_finqa_server_env_maps_max_turns_to_its_step_cap():
+    from domains.finqa import FinQADomain
+
+    env = FinQADomain().server_env({"max_turns": 12})
+    assert env["FINQA_MAX_STEPS"] == "12"
+
+
+def test_repl_server_env_maps_max_turns_to_its_iteration_cap():
+    from domains.repl import REPLDomain
+
+    env = REPLDomain().server_env({"max_turns": 12})
+    assert env["REPL_MAX_ITERATIONS"] == "12"
+
+
+def test_schema_rejects_the_old_per_domain_cap_aliases():
+    import pytest
+    from training.config_schema import validate_config
+
+    for stale in ("max_steps", "max_iterations"):
+        with pytest.raises(ValueError, match="env_config"):
+            validate_config({
+                "experiment_id": "x", "model": {"slug": "qwen3-1.7b"},
+                "training": {"mode": "agentic", "env": "finqa",
+                             "env_config": {stale: 12}},
+            })

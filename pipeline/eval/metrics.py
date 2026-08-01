@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -21,6 +22,20 @@ class SampleResult:
     # Raw graded env reward for the episode, kept so reports can be
     # re-thresholded offline; `correct` alone loses that information.
     reward: float | None = None
+    # Did the episode end because the agent finished the task (called the
+    # terminal tool / the env reported done)? False means it ran out of turns,
+    # stopped emitting tool calls, or hit the generation cap. None for results
+    # produced before this was recorded.
+    terminated: bool | None = None
+    # Why the episode ended: env_done | no_tool_call | max_turns |
+    # hit_generation_cap. hit_generation_cap is kept separate from the others on
+    # purpose - it is a budget artifact, not a behavior, and conflating the two
+    # is what corrupted the e9-e21 sweep.
+    stop_reason: str | None = None
+    # Tool names the agent called, in order. The off-target panel reads this:
+    # the terminal tool with nothing before it is a completion claim with no
+    # supporting work.
+    tool_calls: list[str] | None = None
 
 
 @dataclass
@@ -51,6 +66,24 @@ class EvalMetrics:
     pearson_p_value: float | None = None
     # Mean env steps per episode (agentic eval); None for dataset eval.
     mean_steps: float | None = None
+    # --- Off-target panel (RQ2). All None when no result carries `terminated`.
+    # Fraction of episodes that did not finish the task.
+    non_termination_rate: float | None = None
+    non_termination_rate_ci_low: float | None = None
+    non_termination_rate_ci_high: float | None = None
+    # Among TERMINATED episodes, the fraction that called the terminal tool with
+    # no tool call before it. Degenerate (1.0) in a single-tool domain such as
+    # reasoning_gym, where there is nothing else to call - it only carries
+    # information in a multi-tool environment.
+    unsupported_claim_rate: float | None = None
+    unsupported_claim_rate_ci_low: float | None = None
+    unsupported_claim_rate_ci_high: float | None = None
+    # Mean number of non-terminal tool calls in terminated episodes. Same caveat:
+    # 0.0 by construction in a single-tool domain.
+    mean_verification_depth: float | None = None
+    # stop_reason -> count. Separates a real behavior (no_tool_call, max_turns)
+    # from a budget artifact (hit_generation_cap).
+    stop_reasons: dict = field(default_factory=dict)
     n_samples: int = 0
     n_correct: int = 0
     raw: list[SampleResult] = field(default_factory=list)
@@ -149,6 +182,49 @@ def _thinking_rate(
     rates = num[valid] / den[valid]
     alpha = (1 - ci) / 2
     return rate, thr, float(np.percentile(rates, 100 * alpha)), float(np.percentile(rates, 100 * (1 - alpha)))
+
+
+def _offtarget_panel(results: list[SampleResult]) -> dict:
+    """Off-target behavior metrics (RQ2) from episode termination records.
+
+    Returns {} when no result carries `terminated` (dataset-mode results, or
+    reports produced before trajectory recording existed), so the panel is
+    absent rather than falsely zero.
+
+    Rates use Wilson intervals, not a bootstrap: these are binary proportions
+    and a percentile bootstrap collapses to a zero-width interval at 0 or 1 -
+    which is exactly where a non-termination rate sits on a healthy policy.
+    """
+    known = [r for r in results if r.terminated is not None]
+    if not known:
+        return {}
+
+    n = len(known)
+    n_nonterm = sum(1 for r in known if not r.terminated)
+    lo, hi = _wilson_ci(n_nonterm, n)
+    panel = {
+        "non_termination_rate": n_nonterm / n,
+        "non_termination_rate_ci_low": lo,
+        "non_termination_rate_ci_high": hi,
+        "stop_reasons": dict(sorted(Counter(
+            r.stop_reason for r in known if r.stop_reason is not None
+        ).items())),
+    }
+
+    # Verification depth is only defined for episodes that actually finished:
+    # an episode that ran out of turns never had the chance to claim completion.
+    finished = [r for r in known if r.terminated and r.tool_calls is not None]
+    if finished:
+        depths = [max(len(r.tool_calls) - 1, 0) for r in finished]
+        n_bare = sum(1 for d in depths if d == 0)
+        lo_b, hi_b = _wilson_ci(n_bare, len(finished))
+        panel.update(
+            unsupported_claim_rate=n_bare / len(finished),
+            unsupported_claim_rate_ci_low=lo_b,
+            unsupported_claim_rate_ci_high=hi_b,
+            mean_verification_depth=float(np.mean(depths)),
+        )
+    return panel
 
 
 def compute_metrics(
@@ -275,6 +351,7 @@ def compute_metrics(
         n_samples=n,
         n_correct=n_correct,
         raw=results,
+        **_offtarget_panel(results),
     )
 
 

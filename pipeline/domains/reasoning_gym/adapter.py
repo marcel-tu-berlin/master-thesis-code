@@ -18,6 +18,11 @@ class ReasoningGymEnvAdapter:
         self._client = client if client is not None else self._connect(base_url)
         self._action_cls = action_cls
         self.reward = 0.0
+        # Termination flag, same contract as the multi-turn adapters. Single-step:
+        # the episode terminates iff the model actually called `answer`. Without
+        # it, "never answered" and "answered wrong" are both reward 0.0 and the
+        # non-termination reward cannot tell them apart.
+        self.done = False
 
     @staticmethod
     def _connect(base_url):
@@ -55,6 +60,7 @@ class ReasoningGymEnvAdapter:
             reset_kwargs["seed"] = seed
         result = self._client.reset(**reset_kwargs)
         self.reward = 0.0
+        self.done = False
         return result.observation.question
 
     def answer(self, answer: str) -> str:
@@ -70,4 +76,5 @@ class ReasoningGymEnvAdapter:
         """
         result = self._client.step(self._action(answer))
         self.reward = float(result.observation.score)
+        self.done = True
         return f"Recorded answer: {answer}"
