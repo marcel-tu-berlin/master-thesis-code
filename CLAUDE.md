@@ -137,11 +137,18 @@ model calls the tool, env reward flows into the composer, and the LoRA saves.
 Rewards are wired via `REWARD_REGISTRY` in `pipeline/training/rewards/__init__.py`.
 Each entry maps a config key (under `rewards:`) to `(default_enabled,
 default_weight, builder)`: `env_reward` (task success), `token_length` (cosine
-length), `token_entropy`. All default off; configs enable what they study. Adding
-a reward requires both a builder + registry entry and the matching key in
-`_KNOWN_REWARD_KEYS` (`pipeline/training/config_schema.py`), or validation rejects
-it. `train.build_reward_components` iterates the registry, so there are no
-per-reward branches in `train.py`.
+length), `token_entropy`, `non_termination`. All default off; configs enable what
+they study. Adding a reward requires both a builder + registry entry and the
+matching key in `_KNOWN_REWARD_KEYS` (`pipeline/training/config_schema.py`), or
+validation rejects it. `train.build_reward_components` iterates the registry, so
+there are no per-reward branches in `train.py`.
+
+`NonTerminationPenalty` is the E3 signal: -1 for an episode whose env never
+reported `done`, 0 otherwise, so a config's `weight` is the penalty coefficient
+lambda of `R_task - lambda * C_target`. The sign lives in the component so every
+registry weight stays positive. It is binary, so `advantage_weighted` z-scores it
+to zero in any prompt-group where all rollouts terminate - run the lambda sweep
+under `naive_sum`; `warn_inert_scalars` warns otherwise.
 
 `CosineLengthReward` (Wu/Yeo 2025) is the single token-length reward: correct
 completions are rewarded more when shorter, wrong completions penalized less when
@@ -175,12 +182,37 @@ the component `weight`, the per-completion signal shape, and switching to
 it loads the trained LoRA, launches the env server, runs N held-out episodes
 (seeds disjoint from training via a +100000 offset), generates a greedy tool call
 per episode, parses the `answer`, scores it via the env, and writes
-`eval_report.json` / `.md` keyed under the `agentic` split. The generation budget
-defaults to the training budget (`max_seq - max_prompt_length`); a smaller eval
-cap silently truncates long completions before the tool call and tanks the
-success rate. Metrics come from `eval/metrics.py`: accuracy with Wilson 95%
-interval, mean token count with bootstrap CI, underthinking / overthinking rates,
-and mean steps.
+`eval_report.json` / `.md` keyed by split name (`agentic` unless
+`eval.agentic.splits` names others). The generation budget defaults to the
+training budget (`max_seq - max_prompt_length`); a smaller eval cap silently
+truncates long completions before the tool call and tanks the success rate.
+Metrics come from `eval/metrics.py`: accuracy with Wilson 95% interval, mean token
+count with bootstrap CI, underthinking / overthinking rates, and mean steps.
+
+**Protocol splits.** `eval.agentic.splits` is a list of `{name, n_episodes,
+env_config, seed_offset}`; `env_config` merges over the training one and each
+split gets its own env server. This is how the held-out and shifted splits of the
+evaluation protocol are expressed. `--base-model` evaluates the base model with no
+adapter (E0) through the identical loop.
+
+**Off-target panel (RQ2).** Every episode records `terminated`, `stop_reason`
+(`env_done` / `no_tool_call` / `max_turns` / `hit_generation_cap`) and its ordered
+`tool_calls`, persisted to `runs/<exp>/episodes_<split>.jsonl`. `compute_metrics`
+derives non-termination rate, unsupported-claim rate (terminal tool called with
+nothing before it) and mean verification depth, all Wilson-CI'd. Two rules this
+enforces: an episode that never called the tool is no longer scored as merely a
+wrong answer, and a completion that filled the token budget is never labelled the
+same as one where the model stopped on its own - that conflation is what made the
+e9-e21 sweep uninterpretable. The claim/verification numbers are degenerate in a
+single-tool domain such as reasoning_gym and only carry information in a
+multi-tool env.
+
+**One turn cap.** `training.env_config.max_turns` is the only turn-cap key for
+every multi-turn domain: training passes it to TRL as
+`max_tool_calling_iterations`, the eval loop reads it, and each domain maps it to
+its server's own var (`TEXTARENA_MAX_TURNS` / `FINQA_MAX_STEPS` /
+`REPL_MAX_ITERATIONS`). TRL treats an unset `max_tool_calling_iterations` as
+`sys.maxsize`, so a per-domain alias leaves the training tool loop unbounded.
 
 ### LoRA Configuration
 

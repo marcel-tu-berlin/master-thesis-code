@@ -1,2 +1,5 @@
 *
 !.gitignore
+# Write-ups are the durable record; checkpoints and eval reports stay out.
+!*_findings.md
+!batch_summary_*.md

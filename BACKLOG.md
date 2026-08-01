@@ -54,23 +54,42 @@ truncations counted as wrong. Re-running the existing checkpoints removes that
 from the headline without retraining. About 2-2.5h per arm. It will move the
 numbers, including the paired median comparison.
 
-## 3. Decide how findings survive outside `pipeline/runs/`
-
-`pipeline/runs/.gitignore` ignores everything, so eval reports, batch summaries
-and `e24_e25_4k_pair_findings.md` are not in git. Right now the only copies are
-the local disk and the box. Either commit the write-ups (not the checkpoints) or
-push them to the thesis wiki as the durable record.
-
-## 4. Regenerate the poly plots
+## 3. Regenerate the poly plots
 
 `runs/plots_poly_wsweep/` predates e22-e25 and is stale locally and on the box.
 Note the rsync footgun: the box runs its own copy of `eval/plots.py`.
 
-## 5. Fix the four `test_multiturn_eval` failures
-
-Pre-existing since ace8954, `tool_names` kwarg. Not caused by the reward work.
-
-## 6. File the e24/e25 note in the thesis wiki
+## 4. File the e24/e25 note in the thesis wiki
 
 Findings are in `pipeline/runs/e24_e25_4k_pair_findings.md`, not yet in the
 Obsidian vault.
+
+## 5. Retarget the repl env at a reasoning_gym task source
+
+Fallback if no off-the-shelf OpenEnv environment clears both bars the e26 run
+established (base accuracy 40-80%, and at least two tools). Recorded because it
+is cheap and reuses everything, not because it is the current plan.
+
+`domains/repl/tasks.py` mints its own tasks, so repl's difficulty is ours to set.
+The current family (sum / maximum / minimum of a list) is deliberately trivial;
+its own docstring names the upgrade: "Upgrade target: a richer task source (e.g.
+reasoning_gym)." Pointing `make_task` at a reasoning_gym family gives a multi-turn
+env at a difficulty the poly campaign already showed how to dial.
+
+What it buys for RQ2: repl exposes one tool (`execute`), but the panel does not
+collapse the way reasoning_gym's does, because the model prints `FINAL(answer)`
+from inside an execute call. Verification depth becomes the number of execute
+calls before the final one, and an episode that prints `FINAL` on its first
+execute is a genuine unsupported claim. That is two real off-target axes from one
+tool.
+
+What it does not buy: no action-instability axis, and a single-tool panel is
+thinner than a 3-4 tool env's. Prefer an off-the-shelf env that clears both bars.
+
+Steps:
+
+1. Swap `make_task` to draw from a reasoning_gym family, keeping it a pure
+   function of the seed (training and eval both call `reset(seed=N)`).
+2. Base-model difficulty probe to land inside the 40-80% band.
+3. Confirm the server-side exact-match rubric still arms correctly against the
+   reasoning_gym answer format.

@@ -59,7 +59,27 @@ disjoint from training (a fixed +100000 offset), parses each tool call, scores i
 via the env, and writes `runs/<exp>/eval_report.json` + `.md` under the `agentic`
 split. Override the checkpoint with `--checkpoint`, the generation budget with
 `--max_new_tokens` (defaults to the training budget, `max_seq - max_prompt_length`),
-or cap to 10 episodes with `--smoke`.
+or cap to 10 episodes with `--smoke`. `--base-model` evaluates the base model with
+no adapter (reward condition E0) through the identical episode loop.
+
+### Eval splits
+
+`eval.agentic.splits` runs several splits per eval, keyed by name in the report:
+
+```yaml
+eval:
+  agentic:
+    n_episodes: 100
+    splits:
+      - name: held_out                       # training distribution, unseen seeds
+      - name: shifted                        # off-distribution
+        env_config: {dataset: countdown}     # merged over training.env_config
+        seed_offset: 200000
+```
+
+Each split gets its own env server (`server_env` derives from `env_config`) and
+writes `runs/<exp>/episodes_<name>.jsonl`. Omitting `splits` keeps the single
+`agentic` split, which is what every earlier report and plot expects.
 
 ## Batch run
 
@@ -193,6 +213,10 @@ a registry entry and the key in `config_schema._KNOWN_REWARD_KEYS`.
 - `token_entropy.py` - `TokenEntropyReward`: mean per-token entropy from model
   logits over a batched forward pass. `fork_mask_top_frac` averages over the
   top fraction of tokens by entropy.
+- `non_termination.py` - `NonTerminationPenalty` (E3): -1 per episode whose env
+  never reported `done`, 0 otherwise, so `weight` is the penalty coefficient
+  lambda. Binary, therefore silenced by `advantage_weighted` in any group where
+  every rollout terminates - run it under `naive_sum`; validation warns.
 - `compose.py` - `AdvantageWeightedComposer` (z-scores each component per
   prompt-group before the weighted sum) and `NaiveSumComposer` (plain weighted
   sum, the ablation baseline). `build_composer(components, method)` is the factory.
@@ -200,14 +224,16 @@ a registry entry and the key in `config_schema._KNOWN_REWARD_KEYS`.
 
 ### `eval/`
 
-- `agentic_eval.py` - `run_agentic_eval`: loads the LoRA, launches the env
-  server, runs N held-out episodes, parses the tool call, scores via the env, and
-  writes the report under the `agentic` split.
+- `agentic_eval.py` - `run_agentic_eval`: loads the LoRA (or no adapter, for E0),
+  launches the env server per split, runs N held-out episodes, parses the tool
+  call, scores via the env, and writes the report keyed by split name plus one
+  `episodes_<split>.jsonl` trajectory record.
 - `runner.py` - thin `python -m eval.runner` entry that dispatches to
   `run_agentic_eval`.
 - `metrics.py` - `SampleResult` and `compute_metrics`: accuracy with Wilson 95%
   interval, mean token count with bootstrap CI, underthinking / overthinking
-  rates, mean steps.
+  rates, mean steps, and the off-target panel (non-termination rate,
+  unsupported-claim rate, mean verification depth, stop-reason histogram).
 
 ## Reward composition and scale-invariance
 
@@ -226,6 +252,7 @@ warns when a configured knob is inert.
 | Env reward (task success) | `EnvReward` | Opt-in | `rewards.env_reward` |
 | Token length (cosine) | `CosineLengthReward` | Opt-in | `rewards.token_length` |
 | Token entropy | `TokenEntropyReward` | Opt-in | `rewards.token_entropy` |
+| Non-termination penalty | `NonTerminationPenalty` | Opt-in | `rewards.non_termination` |
 
 All default off; agentic configs enable `env_reward` plus the efficiency signals
 they study.
@@ -248,6 +275,7 @@ new model by adding an entry to `MODEL_REGISTRY` in `training/registry.py`.
 runs/<experiment_id>/
   config.yaml          # frozen copy of the config used
   checkpoint-final/    # LoRA adapter + tokenizer
-  eval_report.json     # structured metrics under results.agentic
-  eval_report.md       # human-readable summary
+  eval_report.json     # structured metrics, one entry per split under results
+  eval_report.md       # human-readable summary, one block per split
+  episodes_<split>.jsonl  # per-episode trajectory record (stop reason, tool calls)
 ```
