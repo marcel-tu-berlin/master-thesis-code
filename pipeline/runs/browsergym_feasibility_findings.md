@@ -103,6 +103,46 @@ truncation were separated instead of being pooled into "10 wrong answers".
 - `playwright install-deps` fails on Ubuntu 24.04 - playwright 1.44 asks for
   `libasound2`, renamed by the t64 transition. Install the libs by hand.
 
+## Second probe: shifted-split candidates
+
+Eight click-only families never trained on, same protocol. The shifted split must
+be solvable with `click` alone - the adapter exposes `click` and `noop`, so a
+typing family such as enter-text would measure a missing tool rather than transfer.
+
+| Task | Success | Termination | Gap | Verdict |
+|---|---|---|---|---|
+| click-tab | 1.00 | 1.00 | 0 | saturated |
+| click-collapsible | 0.95 | 1.00 | 0.05 | near-saturated |
+| **navigate-tree** | **0.70** | 0.75 | **0.05** | selected |
+| **click-widget** | **0.60** | 0.70 | **0.10** | selected |
+| click-checkboxes-large | 0.05 | 0.15 | 0.10 | unreachable, budget-bound |
+| click-link | 0.00 | 0.00 | 0 | unreachable |
+| click-color | 0.00 | 0.00 | 0 | not observable |
+| click-shape | 0.00 | 0.95 | 0.95 | not observable |
+
+click-widget and navigate-tree are the shifted split. Both clear the same two bars
+as the training mix, and the shift is structural rather than just unseen labels:
+training is select-then-submit twice over, click-widget is a single typed-widget
+click with no submit step, and navigate-tree is hierarchical.
+
+Three results worth keeping beyond the selection:
+
+**click-color and click-shape are not difficulty findings.** Color and shape are
+absent from an accessibility tree, so a text-only observation cannot see the
+target at all. click-shape is the sharp case: it terminated in 19 of 20 episodes
+and was correct in none, because the model clicks confidently while blind. Any
+family whose goal depends on a visual attribute is out of scope for this
+observation format regardless of model capability.
+
+**click-checkboxes-large is budget-bound, not merely hard.** 12 of 20 episodes hit
+the 2048-token cap. A long checkbox list makes a long accessibility tree, which
+makes a long think block, which does not fit. Its 0.05 is not a clean difficulty
+read.
+
+**click-shape also demonstrates the axis separation the study needs.** Termination
+0.95 against success 0.00 is the extreme case of the two dimensions coming apart,
+which is exactly the property click-option lacked.
+
 ## Distribution shift
 
 BrowserGym's stated pipeline is train on MiniWoB, evaluate on WebArena, which is

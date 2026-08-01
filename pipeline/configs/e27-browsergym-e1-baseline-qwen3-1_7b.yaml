@@ -1,0 +1,78 @@
+experiment_id: e27-browsergym-e1-baseline-qwen3-1_7b
+description: "E27: task-success-only GRPO on BrowserGym/MiniWoB (E1), the specialized baseline every later condition is shaped on top of. Environment chosen by the feasibility probe (runs/browsergym_feasibility_findings.md) after e26 disqualified finqa. Task mix is deliberate: click-option supplies headroom (0.50 base success, inside the 40-80% band where GRPO gets within-group variance), click-checkboxes supplies axis separation (0.35 success against 0.50 termination). Headroom alone is not enough - on a set where every terminated episode is correct, reducing non-termination IS increasing task success, so a non-termination penalty would be indistinguishable from a task reward and RQ2 would have nothing to measure. naive_sum, not the advantage_weighted default: the E3 lambda sweep runs under naive_sum (a binary termination flag has zero within-group variance once rollouts terminate reliably, and advantage_weighted contributes exactly 0 there), so the lambda=0 control must run the same composer or it is not this sweep's baseline. Budget geometry: max_seq 8192 with max_prompt_length 6144 leaves 2048 per turn. That number is measured, not guessed - at 512 the probe read click-option as 0.10 with 17 of 20 episodes truncated, and the same task gives 0.50 at 2048. Qwen3's think block costs ~300 tokens per turn and every prior turn's block stays in context, so a budget that fits turn 1 does not fit turn 3. Turning thinking off is not the cheaper fix: the model then emits 24 tokens and passes the visible label instead of the element id."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  # Multi-turn context: the prompt regrows each turn with the assistant's tool
+  # call, its think block, and the injected page.
+  max_seq_length: 8192
+  gpu_memory_utilization: 0.30
+
+training:
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    # The seed cycles this list (`tasks[seed % len]`), so the mix is exactly
+    # balanced across the training set and reproducible per seed.
+    tasks: [click-option, click-checkboxes]
+    # MiniWoB HTML is not shipped with browsergym-miniwob. This must point at a
+    # served clone of miniwob-plusplus or the env raises "core is not defined"
+    # at the first reset. Start it before launching:
+    #   cd /workspace/miniwob-plusplus/miniwob/html && python3 -m http.server 8080
+    miniwob_url: http://localhost:8080/miniwob/
+    # The one turn cap. The probe needed 1.9 steps on click-option and 2.0 on
+    # click-checkboxes; 8 leaves room for retries and stalls without letting a
+    # looping episode run away.
+    max_turns: 8
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  max_prompt_length: 6144
+  n_rollouts: 8
+  micro_batch_size: 1
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  # Matches the E3 sweep's composer so lambda=0 is the same code path.
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    splits:
+      # Held-out: same task mix as training, seeds disjoint via the offset.
+      - name: held_out
+        n_episodes: 100
+      # Shifted: two click-only families never trained on, both picked from a
+      # probe of eight candidates rather than guessed (click-widget 0.60/0.70,
+      # navigate-tree 0.70/0.75 base success/termination). Both clear the same
+      # two bars as the training mix - inside the band, and success below
+      # termination so the axes stay separable on the shifted split too.
+      #
+      # The shift is structural, not just unseen labels. Training is
+      # select-then-submit twice over (radio + Submit, checkboxes + Submit);
+      # click-widget is a single typed-widget click with no submit step, and
+      # navigate-tree is hierarchical. A drop here is transfer failure, not a
+      # missing tool: both are solvable with `click` alone.
+      #
+      # Rejected candidates and why, so this is not re-litigated: click-tab 1.00
+      # and click-collapsible 0.95 are saturated; click-link 0.00 and
+      # click-checkboxes-large 0.05 are unreachable (the latter budget-bound, 12
+      # of 20 episodes truncated); click-color and click-shape are structurally
+      # impossible here - color and shape are absent from an accessibility tree,
+      # so a text-only observation cannot see the target at all (click-shape
+      # terminated 19 of 20 times and was never right).
+      - name: shifted
+        n_episodes: 100
+        env_config:
+          tasks: [click-widget, navigate-tree]
+        seed_offset: 200000

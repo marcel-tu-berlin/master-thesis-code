@@ -35,6 +35,11 @@ _KNOWN_ENV_CONFIG_KEYS = {
     "env_id", "num_players",
     # finqa
     "data_path",
+    # browsergym: `tasks` is the MiniWoB family list the seed cycles through
+    # (`tasks[seed % len]`), so it also sets the training task mix. `miniwob_url`
+    # points at the served miniwob-plusplus HTML, which browsergym-miniwob does
+    # not ship - without it the env raises "core is not defined" at first reset.
+    "tasks", "benchmark", "miniwob_url",
     # Every multi-turn domain: the ONE turn cap. Read by training
     # (max_tool_calling_iterations), by the eval loop, and mapped to each
     # server's own env var (TEXTARENA_MAX_TURNS / FINQA_MAX_STEPS /
