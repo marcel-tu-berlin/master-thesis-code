@@ -1,0 +1,76 @@
+experiment_id: e27probe-browsergym-difficulty-qwen3-1_7b
+description: "Base-model difficulty sweep over MiniWoB families, measured under the EXACT conditions e27 trains under: the real BrowserGymEnvAdapter, its two tools (click, noop), the domain's _LEAD_IN, and a 2048-token completion budget. This exists because the first difficulty probe (runs/browsergym_feasibility_findings.md) used browsergym's five tools and its own prompt, measured click-option 0.50 and click-checkboxes 0.35, and the e27 training run then read 0.93 mean reward with frac_reward_zero_std 0.70 - 14 of 20 prompt groups had all 8 rollouts score identically, so no gradient and, worse, success and termination collapsed back onto one axis and RQ2 had nothing to measure. Difficulty measured under conditions you do not train under is not difficulty. Run with `python -m eval.runner --config <this> --base-model`; every split is a single family so `tasks[seed % 1]` pins it, and all splits share seed_offset 300000 so the families are scored on paired seeds. Selection bars, both required: base success inside 0.40-0.80, and success strictly below termination so the task and off-target axes can move independently."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 8192
+
+training:
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    tasks: [click-option]
+    miniwob_url: http://localhost:8080/miniwob/
+    max_turns: 8
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  # Sets the eval completion budget to 8192 - 6144 = 2048, matching e27.
+  max_prompt_length: 6144
+
+rewards:
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    splits:
+      # --- calibration: what the first probe scored 0.50 and 0.35 ---
+      - name: click-option
+        n_episodes: 20
+        env_config: {tasks: [click-option]}
+        seed_offset: 300000
+      - name: click-checkboxes
+        n_episodes: 20
+        env_config: {tasks: [click-checkboxes]}
+        seed_offset: 300000
+
+      # --- the current shifted split, which needs re-checking for the same reason ---
+      - name: click-widget
+        n_episodes: 20
+        env_config: {tasks: [click-widget]}
+        seed_offset: 300000
+      - name: navigate-tree
+        n_episodes: 20
+        env_config: {tasks: [navigate-tree]}
+        seed_offset: 300000
+
+      # --- candidates the first probe scored at or near zero, which is where the
+      #     band should now sit if two tools plus the lead-in lift everything ---
+      - name: click-checkboxes-large
+        n_episodes: 20
+        env_config: {tasks: [click-checkboxes-large]}
+        seed_offset: 300000
+      - name: click-tab-2
+        n_episodes: 20
+        env_config: {tasks: [click-tab-2]}
+        seed_offset: 300000
+      - name: click-link
+        n_episodes: 20
+        env_config: {tasks: [click-link]}
+        seed_offset: 300000
+
+      # --- unprobed, click-only, and hard for a reason that is not a budget or an
+      #     unobservable attribute: the goal names synonyms of the checkbox labels,
+      #     so it needs a semantic match rather than a string match ---
+      - name: click-checkboxes-soft
+        n_episodes: 20
+        env_config: {tasks: [click-checkboxes-soft]}
+        seed_offset: 300000

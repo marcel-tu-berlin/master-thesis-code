@@ -1,5 +1,15 @@
 # BrowserGym / MiniWoB feasibility probe
 
+> **Superseded. The difficulty numbers below do not transfer to training.**
+> This probe built its tool list from all five browsergym actions and used its
+> own prompt; the adapter exposes two (`click`, `noop`) and the domain supplies
+> its own lead-in. Every family the probes share reads about 0.45 higher under
+> the real conditions, and e27 was launched on these numbers and died saturated.
+> Corrected measurements, and a hardware ceiling they exposed, are in
+> [`browsergym_difficulty_correction.md`](browsergym_difficulty_correction.md).
+> Kept for the environment-selection reasoning and the rejected-family rules,
+> which still hold.
+
 Base `Qwen/Qwen3-1.7B`, no training, greedy, native tool calling, 20 episodes per
 task, 2048-token per-turn budget, 10-turn cap. Probe script kept at
 `pipeline/probes/bg_probe.py`. Run 2026-08-01 on the L4 box.

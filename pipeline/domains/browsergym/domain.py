@@ -5,10 +5,18 @@ from domains.browsergym.adapter import BrowserGymEnvAdapter
 # injected by the model's native tool-calling template (tools=...); this only
 # frames the setting. reset() appends the goal and the page after this lead-in
 # (TRL appends to the last user message).
+#
+# It explains the interface and stops there. An earlier version ended "Most tasks
+# need a selection followed by clicking Submit", which states the solution to
+# both original training families outright. Removing it is the fair measurement,
+# not a fix: on paired seeds it changed nothing (click-option 1.00 -> 1.00,
+# click-checkboxes 0.95 -> 1.00). What actually inflated base accuracy was the
+# adapter exposing two tools where the first probe used five. See
+# runs/browsergym_difficulty_correction.md.
 _LEAD_IN = (
     "You are controlling a web page. Read the goal and the accessibility tree, "
     "then call one tool per turn to act on the page. Element ids are the numbers "
-    "in square brackets. Most tasks need a selection followed by clicking Submit.\n\n"
+    "in square brackets.\n\n"
 )
 
 
@@ -82,6 +90,10 @@ class BrowserGymDomain(EnvDomain):
         # max_tool_calling_iterations in training and by the eval loop's turn
         # budget. Both read the same `max_turns` key, so the two agree; there is
         # simply no third place for them to disagree with.
+        # The server picks its port from BROWSERGYM_PORT and ignores the --port
+        # argv EnvServerProcess passes, so training.env_server.port must stay at
+        # the server's own default of 8000. A mismatch is loud (nothing answers
+        # the client), not silent.
         cfg = dict(env_config or {})
         tasks = cfg.get("tasks") or ["click-option", "click-checkboxes"]
         env = {

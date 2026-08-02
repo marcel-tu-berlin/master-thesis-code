@@ -1,0 +1,71 @@
+experiment_id: e27probe4-browsergym-short-qwen3-1_7b
+description: "Searches the one quadrant the earlier probes never sampled: MiniWoB families that are hard for a semantic reason rather than a long-trajectory reason. e27probe3 established that difficulty and trajectory length are entangled in the families probed so far - click-checkboxes-large is the only family that clears both selection bars (0.60 success against 0.75 termination) and it is hard precisely because it takes 5.9 turns, which costs a median 6066 assistant tokens before page observations are counted. TRL applies max_completion_length to the whole multi-turn trajectory, not per turn, and the fp32 logits upcast puts this L4's ceiling near 4096 completion tokens, so 16 of 20 of that family's episodes would train truncated. Every family probed so far is therefore either trainable and saturated (navigate-tree 0.85, 331 median tokens) or interesting and untrainable. These seven are all click-only and decided in one or two decisions, so their trajectories are short by construction; the difficulty, where it exists, has to come from reading the page correctly rather than from acting many times. Excluded on the rule established for click-shape and click-color: count-shape, count-sides, identify-shape and click-shades turn on attributes an accessibility tree does not carry, so a text-only observation cannot see the target at all. Run with `python -m eval.runner --config <this> --base-model`. Three bars now, all required: base success inside 0.40-0.80, success strictly below termination, and a median assistant-token count low enough that the trajectory plus its page observations fits a 4096 completion budget - roughly under 2500."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 12288
+
+training:
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    tasks: [click-pie]
+    miniwob_url: http://localhost:8080/miniwob/
+    max_turns: 8
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  # Same 4096 per-turn eval budget as e27probe3, so token counts compare directly.
+  max_prompt_length: 8192
+
+rewards:
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    splits:
+      # Two-decision menus: open a container, then pick a labelled item. Both
+      # labels live in the accessibility tree, so the difficulty is choosing.
+      - name: click-pie
+        n_episodes: 20
+        env_config: {tasks: [click-pie]}
+        seed_offset: 300000
+      - name: click-menu-2
+        n_episodes: 20
+        env_config: {tasks: [click-menu-2]}
+        seed_offset: 300000
+      - name: click-collapsible-2
+        n_episodes: 20
+        env_config: {tasks: [click-collapsible-2]}
+        seed_offset: 300000
+
+      # One decision, semantic: the goal names an outcome and several buttons or
+      # tabs plausibly match it. Shortest possible trajectory.
+      - name: click-dialog-2
+        n_episodes: 20
+        env_config: {tasks: [click-dialog-2]}
+        seed_offset: 300000
+      - name: click-tab-2-hard
+        n_episodes: 20
+        env_config: {tasks: [click-tab-2-hard]}
+        seed_offset: 300000
+      - name: grid-coordinate
+        n_episodes: 20
+        env_config: {tasks: [grid-coordinate]}
+        seed_offset: 300000
+
+      # The short checkbox variant. click-checkboxes-large clears the bars but
+      # is untrainable here at 6066 median tokens; this one asks for a subset of
+      # a small set, so it may keep the separation at a fraction of the length.
+      - name: click-checkboxes-transfer
+        n_episodes: 20
+        env_config: {tasks: [click-checkboxes-transfer]}
+        seed_offset: 300000

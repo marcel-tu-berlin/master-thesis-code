@@ -1,0 +1,41 @@
+experiment_id: e27probe2-browsergym-nohint-qwen3-1_7b
+description: "One-variable follow-up to e27probe: identical setup, identical seeds, with the solution hint removed from the domain's _LEAD_IN. e27probe measured click-option 1.00 and click-checkboxes 0.95 under the real adapter, against 0.50 and 0.35 from the original five-tool probe. Two changes could explain that gap - the adapter exposes two tools instead of five, and the lead-in ended 'Most tasks need a selection followed by clicking Submit', which is the solution to both families. This isolates the second. Same families, same seed_offset 300000, so the numbers are directly comparable to e27probe's; the only difference is the prompt. If accuracy falls back toward 0.5 the hint was the cause and the original training mix stands with a hint-free prompt; if it stays near 1.0 the two-tool menu is the cause and the family set has to change instead."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 8192
+
+training:
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    tasks: [click-option]
+    miniwob_url: http://localhost:8080/miniwob/
+    max_turns: 8
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  max_prompt_length: 6144
+
+rewards:
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    splits:
+      - name: click-option
+        n_episodes: 20
+        env_config: {tasks: [click-option]}
+        seed_offset: 300000
+      - name: click-checkboxes
+        n_episodes: 20
+        env_config: {tasks: [click-checkboxes]}
+        seed_offset: 300000

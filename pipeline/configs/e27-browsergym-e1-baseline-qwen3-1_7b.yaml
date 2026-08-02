@@ -1,12 +1,12 @@
 experiment_id: e27-browsergym-e1-baseline-qwen3-1_7b
-description: "E27: task-success-only GRPO on BrowserGym/MiniWoB (E1), the specialized baseline every later condition is shaped on top of. Environment chosen by the feasibility probe (runs/browsergym_feasibility_findings.md) after e26 disqualified finqa. Task mix is deliberate: click-option supplies headroom (0.50 base success, inside the 40-80% band where GRPO gets within-group variance), click-checkboxes supplies axis separation (0.35 success against 0.50 termination). Headroom alone is not enough - on a set where every terminated episode is correct, reducing non-termination IS increasing task success, so a non-termination penalty would be indistinguishable from a task reward and RQ2 would have nothing to measure. naive_sum, not the advantage_weighted default: the E3 lambda sweep runs under naive_sum (a binary termination flag has zero within-group variance once rollouts terminate reliably, and advantage_weighted contributes exactly 0 there), so the lambda=0 control must run the same composer or it is not this sweep's baseline. Budget geometry: max_seq 8192 with max_prompt_length 6144 leaves 2048 per turn. That number is measured, not guessed - at 512 the probe read click-option as 0.10 with 17 of 20 episodes truncated, and the same task gives 0.50 at 2048. Qwen3's think block costs ~300 tokens per turn and every prior turn's block stays in context, so a budget that fits turn 1 does not fit turn 3. Turning thinking off is not the cheaper fix: the model then emits 24 tokens and passes the visible label instead of the element id."
+description: "E27: task-success-only GRPO on BrowserGym/MiniWoB (E1), the specialized baseline every later condition is shaped on top of. Environment chosen after e26 disqualified finqa; task mix chosen by four probes, because the first three sets of difficulty numbers did not survive contact with the conditions they were used under. The mix is click-menu-2 (0.60 success against 0.70 termination, 2.6 steps) and click-dialog-2 (0.80 against 1.00, 1.0 steps), giving roughly 0.70 success against 0.85 termination. Both bars are required and both are load-bearing: headroom alone is not enough, because on a set where every terminated episode is correct, reducing non-termination IS increasing task success, and a non-termination penalty would be indistinguishable from a task reward with nothing left for RQ2 to measure. naive_sum, not the advantage_weighted default: the E3 lambda sweep runs under naive_sum (a binary termination flag has zero within-group variance once rollouts terminate reliably, and advantage_weighted contributes exactly 0 there), so the lambda=0 control must run the same composer or it is not this sweep's baseline."
 seed: 42
 
 model:
   slug: qwen3-1.7b
   lora_r: 16
-  # Multi-turn context: the prompt regrows each turn with the assistant's tool
-  # call, its think block, and the injected page.
+  # Initial prompt is small (lead-in, goal, first page: about 700 tokens), and
+  # the whole trajectory is capped at 4096 below, so 8192 leaves slack.
   max_seq_length: 8192
   gpu_memory_utilization: 0.30
 
@@ -17,20 +17,40 @@ training:
     benchmark: miniwob
     # The seed cycles this list (`tasks[seed % len]`), so the mix is exactly
     # balanced across the training set and reproducible per seed.
-    tasks: [click-option, click-checkboxes]
+    #
+    # Chosen from fifteen families probed under these exact conditions
+    # (runs/browsergym_difficulty_correction.md). They are the only two that are
+    # both unsaturated and trainable. Every family the base model gets wrong at
+    # a useful rate is wrong for one reason - it needs more decisions than the
+    # model can keep coherent, and then loops until the turn cap - and those
+    # same families cost 5600-8900 assistant tokens an episode, which does not
+    # fit the completion budget below. The boundary is sharp: at or under 2.6
+    # mean steps everything is solvable, at 3.4 and above everything is dead,
+    # and nothing sits in between.
+    tasks: [click-menu-2, click-dialog-2]
     # MiniWoB HTML is not shipped with browsergym-miniwob. This must point at a
     # served clone of miniwob-plusplus or the env raises "core is not defined"
-    # at the first reset. Start it before launching:
+    # at the first reset, and it does not survive a box restart. Start it first:
     #   cd /workspace/miniwob-plusplus/miniwob/html && python3 -m http.server 8080
     miniwob_url: http://localhost:8080/miniwob/
-    # The one turn cap. The probe needed 1.9 steps on click-option and 2.0 on
-    # click-checkboxes; 8 leaves room for retries and stalls without letting a
-    # looping episode run away.
+    # The one turn cap. The mix needs 1.0 and 2.6 steps, so 8 is headroom rather
+    # than a constraint; it exists to stop a looping episode running away.
     max_turns: 8
   env_server:
     repo_path: /workspace/OpenEnv/envs
     port: 8000
-  max_prompt_length: 6144
+  # Sets TRL's max_completion_length to 8192 - 4096 = 4096.
+  #
+  # Read that as the budget for the WHOLE trajectory, not per turn: TRL drops
+  # tool results once `len(pct) - len(prompt_ids)` passes it (grpo_trainer.py
+  # :1605) and sizes the loss tensor to it (:2628), so memory scales with it
+  # directly and the fp32 logits upcast puts this L4 near a 4096 ceiling.
+  #
+  # Measured against that: click-menu-2 spends a median 2569 assistant tokens
+  # and 4007 at p90, its pages cost 45 tokens each and click-dialog-2's 101, so
+  # the worst trajectory in the mix lands near 4124 and the median near 2686.
+  # It fits, with nothing to spare at the tail - watch clip ratio at step 5.
+  max_prompt_length: 4096
   n_rollouts: 8
   micro_batch_size: 1
   max_steps: 300
@@ -47,32 +67,34 @@ rewards:
 eval:
   temperature: 0.0
   do_sample: false
+  # Pinned, not derived. `max_seq - max_prompt_length` feeds two different
+  # quantities: TRL's whole-trajectory budget above, and max_new_tokens PER TURN
+  # here (agentic_eval.py:36, with generate called once a turn and no total
+  # cap). They coincide on a single-turn domain, which is why reasoning_gym
+  # never exposed it, and differ by a factor of n turns here. 4096 is the
+  # per-turn budget every probed number was measured at; setting it explicitly
+  # keeps that true if the training geometry is ever retuned.
+  max_new_tokens: 4096
   agentic:
     splits:
       # Held-out: same task mix as training, seeds disjoint via the offset.
       - name: held_out
         n_episodes: 100
-      # Shifted: two click-only families never trained on, both picked from a
-      # probe of eight candidates rather than guessed (click-widget 0.60/0.70,
-      # navigate-tree 0.70/0.75 base success/termination). Both clear the same
-      # two bars as the training mix - inside the band, and success below
-      # termination so the axes stay separable on the shifted split too.
+      # Shifted: two families never trained on, both measured at this budget.
+      # navigate-tree is hierarchical expansion (0.85 success, 331 median
+      # tokens, 1.6 steps); click-checkboxes-transfer is multi-select (1.00,
+      # 687, 1.9). Both are structurally unlike a menu path or a dialog button,
+      # both are solvable with `click` alone, and both are short enough to train
+      # on, so a drop here is transfer failure rather than a budget artifact.
       #
-      # The shift is structural, not just unseen labels. Training is
-      # select-then-submit twice over (radio + Submit, checkboxes + Submit);
-      # click-widget is a single typed-widget click with no submit step, and
-      # navigate-tree is hierarchical. A drop here is transfer failure, not a
-      # missing tool: both are solvable with `click` alone.
-      #
-      # Rejected candidates and why, so this is not re-litigated: click-tab 1.00
-      # and click-collapsible 0.95 are saturated; click-link 0.00 and
-      # click-checkboxes-large 0.05 are unreachable (the latter budget-bound, 12
-      # of 20 episodes truncated); click-color and click-shape are structurally
-      # impossible here - color and shape are absent from an accessibility tree,
-      # so a text-only observation cannot see the target at all (click-shape
-      # terminated 19 of 20 times and was never right).
+      # Stated plainly because it limits what this split can support: both are
+      # at or near ceiling, so it can detect degradation but not improvement.
+      # That is the direction RQ2 needs - substitution shows up as a shifted-set
+      # drop - but a shifted gain would be invisible here. Every family probed
+      # that was NOT near ceiling was also untrainable, so this is the ceiling
+      # of the environment, not a lazy pick.
       - name: shifted
         n_episodes: 100
         env_config:
-          tasks: [click-widget, navigate-tree]
+          tasks: [navigate-tree, click-checkboxes-transfer]
         seed_offset: 200000

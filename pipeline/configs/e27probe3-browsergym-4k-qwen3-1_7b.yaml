@@ -1,0 +1,60 @@
+experiment_id: e27probe3-browsergym-4k-qwen3-1_7b
+description: "Re-measures the four surviving e27 candidate families at a 4096-token completion budget instead of 2048. e27probe ranked families at 2048 and the hard end of that ranking is not difficulty, it is truncation: click-checkboxes-large hit the generation cap in 8 of 20 episodes and exhausted its turns in 3 more, click-tab-2 hit the cap in 11 of 20. Selecting a training mix on those numbers would repeat the artifact that invalidated e9-e21, where a whole sweep's null was measured on episodes mislabelled as wrong when they had merely been cut off. Two of the four are controls that barely truncated (navigate-tree 0/20, click-checkboxes-soft 3/20) and should not move; if they do, the budget change itself is not neutral and neither reading is safe. Paired seeds with e27probe (seed_offset 300000) so every number here is directly comparable to its 2048 counterpart. Whatever budget this probe validates is the budget e27 then trains at, so difficulty is measured under the conditions it is used for. Run with `python -m eval.runner --config <this> --base-model`. Selection bars, both required: base success inside 0.40-0.80, and success strictly below termination so the task and off-target axes can move independently."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 12288
+
+training:
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    tasks: [click-option]
+    miniwob_url: http://localhost:8080/miniwob/
+    max_turns: 8
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  # Sets the eval completion budget to 12288 - 8192 = 4096, double e27probe's.
+  # The prompt half stays generous on purpose: browsergym re-injects the page
+  # every turn, so an 8-turn episode accumulates roughly 8 x (500 obs + 1100
+  # assistant) tokens and a 4096 prompt would start dropping the early turns.
+  max_prompt_length: 8192
+
+rewards:
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    splits:
+      # --- controls: barely truncated at 2048, so these pin whether the budget
+      #     change moves anything on its own ---
+      - name: navigate-tree
+        n_episodes: 20
+        env_config: {tasks: [navigate-tree]}
+        seed_offset: 300000
+      - name: click-checkboxes-soft
+        n_episodes: 20
+        env_config: {tasks: [click-checkboxes-soft]}
+        seed_offset: 300000
+
+      # --- the budget-bound pair: 0.45 and 0.10 at 2048, both mostly cap-hits.
+      #     If either rises into the band with its gap intact it is the better
+      #     training family; if neither moves, 2048 was never the binding
+      #     constraint and the mix has to come from the top edge instead ---
+      - name: click-checkboxes-large
+        n_episodes: 20
+        env_config: {tasks: [click-checkboxes-large]}
+        seed_offset: 300000
+      - name: click-tab-2
+        n_episodes: 20
+        env_config: {tasks: [click-tab-2]}
+        seed_offset: 300000

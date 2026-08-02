@@ -45,6 +45,19 @@ class EnvServerProcess:
         return env
 
     def start(self) -> "EnvServerProcess":
+        # Refuse to start onto an occupied port. Every env's server/app.py binds a
+        # fixed port from its own env var, so a leftover server from another env
+        # keeps the port, the new one exits on bind, and wait_until_ready's socket
+        # probe succeeds against the *wrong* server. Training then runs to
+        # completion against it: a browsergym run whose actions all hit a stale
+        # reasoning_gym server scored 0 with tools/failure_frequency 1.0 and no
+        # traceback anywhere. Loud here beats a plausible-looking null.
+        if self.is_ready():
+            raise RuntimeError(
+                f"port {self.port} is already in use; a stale env server would "
+                f"silently serve this run. Kill it before launching "
+                f"({' '.join(self.command())})"
+            )
         self._proc = subprocess.Popen(
             self.command(),
             cwd=self.repo_envs_path,

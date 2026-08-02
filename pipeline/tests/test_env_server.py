@@ -48,6 +48,17 @@ def test_env_sets_concurrency_and_pythonpath():
     assert env["PYTHONPATH"].startswith("/workspace/OpenEnv/envs")
 
 
+def test_start_refuses_an_occupied_port():
+    # A leftover server from another env keeps the port, the new one dies on bind,
+    # and the readiness probe then passes against the wrong server. That silently
+    # ran a whole browsergym training against a stale reasoning_gym server.
+    srv = _srv()
+    srv.is_ready = lambda: True
+    with pytest.raises(RuntimeError, match="already in use"):
+        srv.start()
+    assert srv._proc is None
+
+
 def test_wait_until_ready_returns_when_ready():
     assert _srv().wait_until_ready(_ready=lambda: True, _sleep=lambda *_: None) is True
 
