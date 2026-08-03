@@ -1,0 +1,49 @@
+experiment_id: e0-browsergym-base-qwen3-1_7b
+description: "E0: the untrained reference. Same model, same two eval splits, same seeds and the same per-turn budget as e27, with no LoRA adapter - the protocol's no-training baseline that every later condition is read against. It exists as its own config rather than as `eval.runner --config e27... --base-model` because that path writes into `runs/<experiment_id>/` regardless of whether an adapter was loaded (runner.py:36,51) and would overwrite e27's report and episode files. e27 raised a question this settles: on its held_out families the trained policy reads 0.780 success against probe numbers of 0.60 and 0.80, and on the shifted families 0.790 against probe numbers of 0.85 and 1.00 - so training appears to have helped where it trained and hurt where it did not. That comparison is not sound as it stands, because the probes ran 20 episodes per family at seed_offset 300000 while these splits are 100 episodes at 100000 and 200000. Running the identical splits under the identical geometry makes it paired seed for seed, which is the only form in which a transfer claim can be made. Run with `python -m eval.runner --config <this> --base-model`."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 8192
+  gpu_memory_utilization: 0.30
+
+training:
+  # Present for the env geometry only; nothing trains here. Every value below is
+  # copied from e27 so the two evals differ in exactly one thing, the adapter.
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    tasks: [click-menu-2, click-dialog-2]
+    # Must be up before launch and does not survive a box restart:
+    #   cd /workspace/miniwob-plusplus/miniwob/html && python3 -m http.server 8080
+    miniwob_url: http://localhost:8080/miniwob/
+    max_turns: 8
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  max_prompt_length: 4096
+
+rewards:
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  # Pinned to e27's value. Left to derive, `max_seq - max_prompt_length` would
+  # give the same 4096 here, but pinning it means a later change to the training
+  # geometry cannot silently move the baseline out from under the comparison.
+  max_new_tokens: 4096
+  agentic:
+    splits:
+      - name: held_out
+        n_episodes: 100
+      - name: shifted
+        n_episodes: 100
+        env_config:
+          tasks: [navigate-tree, click-checkboxes-transfer]
+        seed_offset: 200000

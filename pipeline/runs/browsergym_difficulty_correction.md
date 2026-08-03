@@ -171,20 +171,34 @@ side, so the two can be set apart without a code change.
 ## The competence boundary is about three decisions
 
 e27probe4 probed seven click-only families chosen to be decided in one or two
-clicks. Five had finished when this was written:
+clicks. All seven:
 
 | family | acc | term | gap | median assistant tokens | steps |
 |---|---|---|---|---|---|
+| click-checkboxes-transfer | 1.00 | 1.00 | 0.00 | 687 | 1.9 |
 | click-dialog-2 | 0.80 | 1.00 | 0.20 | 385 | 1.0 |
 | click-menu-2 | 0.60 | 0.70 | 0.10 | 2569 | 2.6 |
+| grid-coordinate | 0.10 | 0.50 | 0.40 | 5904 | 3.4 |
 | click-tab-2-hard | 0.10 | 0.20 | 0.10 | 6550 | 5.7 |
 | click-collapsible-2 | 0.05 | 0.30 | 0.25 | 5638 | 4.8 |
 | click-pie | 0.00 | 0.00 | 0.00 | 8929 | 6.3 |
 
-The split is sharp and it falls on episode length, not on task family. Every
-family averaging more than about four decisions collapses, and always the same
-way: 7, 10 and 13 of 20 episodes loop until `max_turns`. Every family under
-three decisions is solvable. Nothing sits in between.
+The split is sharp and it falls on episode length, not on task family. At or
+under 2.6 mean steps everything is solvable; at 3.4 and above everything is
+dead, and always the same way - 5, 7, 10 and 13 of 20 episodes loop until
+`max_turns`. Nothing sits in between.
+
+Fifteen families have now been measured under the real adapter. click-menu-2 and
+click-dialog-2 are the only two that are both unsaturated and trainable, and
+they became the e27 mix.
+
+Observation cost was measured through the real adapter rather than estimated
+from the `_MAX_OBS_CHARS` cap: **45 tokens for a click-menu-2 page and 101 for
+click-dialog-2**, against the roughly 500 a 2000-character cap implies. That
+tenfold difference is what makes click-menu-2 trainable - its worst-case
+trajectory lands near 4124 tokens rather than the 5107 the cap-based estimate
+gave, so it fits a 4096 completion budget where the estimate said it could not.
+A cap is an upper bound on a page, not the size of one.
 
 That explains why difficulty and trajectory length looked entangled in every
 earlier probe: they are the same variable. Qwen3-1.7B does not fail MiniWoB
