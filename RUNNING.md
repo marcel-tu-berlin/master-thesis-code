@@ -261,10 +261,39 @@ relaunched run on corrected numbers is the harvested e27 above.
   pattern appears in that command line, killing the session before the work runs.
   Kill by pid. The same aliasing makes `pgrep -af <pattern>` report your own shell
   as a hit - a "port busy" that is only your check.
-- **`Connection refused` on ssh does not mean the box died.** The devpod's ssh
-  proxy drops while the host still answers ICMP and every process keeps running.
-  Check `uptime` and `pgrep` before concluding anything died, and never relaunch
-  on the assumption that it did.
+- **`Connection refused` on ssh does not mean the box died, and it is never a
+  local networking problem.** Three-command proof, no sudo:
+
+  ```
+  route -n get 130.149.248.103     # expect: interface utun8, gateway 130.149.212.110
+  nc -z -v -G 4 -w 4 130.149.248.103 22       # expect: OPEN
+  nc -z -v -G 4 -w 4 130.149.248.103 30236    # the devpod port
+  ```
+
+  A refused connection arrives as a TCP RST from the host in about 130 ms, which
+  means the SYN crossed the tunnel, reached `siena04.cit.tu-berlin.de`, and its
+  kernel refused because nothing is bound to that port. A NordVPN killswitch or
+  a stale pf rule produces a *timeout* or "no route to host" instead, never a
+  fast RST from the destination. Port 22 answering while 30236 refuses localises
+  the fault precisely: the machine is up, the devpod workspace's sshd is not.
+  Controls worth keeping in the same check: `www.tu-berlin.de:443` (tunnel) and
+  `1.1.1.1:443` (general internet).
+
+  Gateway `130.149.212.110` is TU Berlin, so `utun8` is the TUB VPN even when
+  NordVPN's Shield extension is loaded and holds its own default route. Seeing
+  NordVPN in `pgrep` is not evidence it is the cause - check the route.
+
+  **What this does not tell you is whether the container's processes survived.**
+  On 2026-08-02 they did, which is where the "nothing died" rule came from; that
+  was one observation, not a guarantee, and it cannot be verified from outside.
+  Check `pgrep` on reconnect before assuming a run is still going, and do not
+  relaunch before checking either.
+
+  Recovery when it does not self-heal (about two hours, twice): port 22 is the
+  host's own sshd, so `ssh -i ~/.ssh/tub -p 22 130.149.248.103` reaches the
+  machine underneath the workspace. No devpod CLI is installed locally and
+  kubectl has no context for the cluster, so the alternative is the exalsius
+  console.
 - **`eval.runner --base-model` writes into `runs/<experiment_id>/`** regardless of
   whether an adapter was loaded (`runner.py:36,51`), so pointing it at a trained
   run's config overwrites that run's `eval_report.json` and episode files. A
