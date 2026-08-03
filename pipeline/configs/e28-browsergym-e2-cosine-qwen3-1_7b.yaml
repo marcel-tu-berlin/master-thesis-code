@@ -1,0 +1,59 @@
+experiment_id: e28-browsergym-e2-cosine-qwen3-1_7b
+description: "E2: the length-aware condition. e27's geometry with the cosine length reward (Wu/Yeo 2025) added and nothing else changed, so e27 is literally this run's lambda=0 control rather than a separate baseline - same mix, seed, budget, step count, learning rate, composer and eval splits. naive_sum matches e27 for that reason. max_len is 4096 because e27's completions actually fill that range: over its 300 steps the longest rollout was 3969 tokens, 97% of the cap, with a per-step mean median of 1518 and a within-group spread median of 1066. The e25 failure mode was max_len set far above where completions live, which puts the whole distribution in the cosine's flat endpoint; here the median sits at progress 0.37, on the sloped part of the curve, and the within-group spread is what the reward has to bite on since GRPO compares rollouts inside one prompt-group. Weight 1.0, and the weight is a structurally weak lever here rather than an unexplored knob. Under naive_sum, raising w scales the cosine's length term and its own correctness gating equally, while only env_reward's fixed 1.0 stays put. Computed on e27's own within-group length spread (985 to 2051 tokens), the length share of the total advantage range goes 0.063 at w=1, 0.086 at w=4, 0.094 at w=16, against an asymptote of 0.097 - a sixteenfold weight change buys a factor of 1.5, and no weight can push length past a tenth of the range. That is a mechanical explanation for the poly campaign's flat w1-w16 dose-response, which was read there as a property of the task. It also means a null here is not answered by a bigger weight; it would be answered by widening the cosine's correct-branch endpoint spread relative to its branch separation, which is Wu/Yeo's parameterisation to set and not a knob to quietly retune. Two things to watch. Accuracy against e27's 0.780: compression bought with correctness is the Wu/Yeo overshoot. Non-termination against e27's 0.100 held_out: if the policy shortens episodes by stopping without acting, that is RQ2's substitution in its most direct form, length traded for premature stopping, and the off-target panel measures it per episode. Expect both effects on the click-menu-2 half only - click-dialog-2 solves in 1.02 steps and 313 median tokens, where the cosine's within-group spread is about 0.01 against env_reward differences of 1.0."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  max_seq_length: 8192
+  lora_r: 16
+  gpu_memory_utilization: 0.30
+
+training:
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    tasks: [click-menu-2, click-dialog-2]
+    # Must be up before launch and does not survive a box restart:
+    #   cd /workspace/miniwob-plusplus/miniwob/html && python3 -m http.server 8080
+    miniwob_url: http://localhost:8080/miniwob/
+    max_turns: 8
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  # 8192 - 4096 = 4096 for the WHOLE trajectory (TRL applies
+  # max_completion_length per trajectory, not per turn). e27 clipped at
+  # 0.008-0.058 across 300 steps with no drift, so this is sized right.
+  max_prompt_length: 4096
+  n_rollouts: 8
+  micro_batch_size: 1
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  # Same composer as e27, so that run is this one's lambda=0 arm.
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    enabled: true
+    weight: 1.0
+    max_len: 4096
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  # Pinned, not derived: `max_seq - max_prompt_length` feeds TRL's
+  # whole-trajectory budget in training and max_new_tokens PER TURN here.
+  max_new_tokens: 4096
+  agentic:
+    splits:
+      - name: held_out
+        n_episodes: 100
+      - name: shifted
+        n_episodes: 100
+        env_config:
+          tasks: [navigate-tree, click-checkboxes-transfer]
+        seed_offset: 200000

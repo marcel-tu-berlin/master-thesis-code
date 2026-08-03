@@ -3,11 +3,25 @@
 What is executing on the GPU box (`ssh gpu-l4`). Rows leave the table once the
 results are harvested. Update rules are in CLAUDE.md.
 
-Updated: 2026-08-03 05:22 UTC (box time)
+Updated: 2026-08-03 05:22 UTC (box time - last reading before the ssh proxy
+dropped, see below; not advanced past it rather than stamped with local time)
 
 | Run | Phase | pid | Started | ETA | Notes |
 |---|---|---|---|---|---|
 | e0 browsergym base model | eval, 200 eps | 738769 | 05:18 UTC Aug 3 | ~07:10 UTC | `--base-model`, no adapter. Same two splits, seeds and 4096 budget as e27, so it pairs episode for episode. Log `/workspace/e0.log`. Watcher 739458 writes `/workspace/e0_final.txt` on exit (fires on crash too). |
+
+**ssh proxy dropped again at about 05:30 UTC.** `Connection refused` on the
+forwarded port while the host answers ICMP with 0% loss - the same devpod
+failure as 12:54-14:58 UTC on Aug 2, which lasted about two hours and killed
+nothing. e0 and its watcher keep running through it. Do not relaunch.
+
+### Queued behind e0
+
+`e28` (E2, cosine length) and `e29` (E3, non-termination penalty) are written
+and schema-validated, launchable as soon as e0 frees the GPU. Both copy e27's
+geometry exactly - same mix, seed, budget, step count, learning rate, composer
+and eval splits - so **e27 is literally each one's lambda=0 control** rather than
+a separate baseline run. About 11.5h train + 1.7h eval each.
 
 ## What e0 is for
 
@@ -54,6 +68,24 @@ push down.
 The within-group spread is what the reward actually has to bite on, since GRPO
 compares rollouts inside one prompt-group: median 1066 tokens, p75 1572. There
 is real length variance to shape at fixed correctness.
+
+**The cosine's weight is a structurally weak lever under naive_sum, and this
+retro-explains the poly null.** Raising `w` scales the cosine's length term and
+its own correctness gating equally; only env_reward's fixed 1.0 stays put.
+Computed on e27's own within-group spread (985 to 2051 tokens, max_len 4096),
+length's share of the total advantage range reads:
+
+```
+w      1      2      4      8     16     -> asymptote
+share  0.063  0.077  0.086  0.091  0.094    0.097
+```
+
+A sixteenfold weight change buys a factor of 1.5, and no weight puts length past
+a tenth of the range. The e9-e21 campaign read its flat w1-w16 dose-response as
+a property of the task; a good part of it is this. e28 therefore runs one weight
+(1.0) rather than a sweep - a null there is not answered by a bigger weight, it
+is answered by the cosine's endpoint spread, which is Wu/Yeo's parameterisation
+and not a knob to quietly retune.
 
 **Both conditions act on the click-menu-2 half only.** click-dialog-2 terminates
 in 50 of 50 eval episodes at 1.02 steps and 313 median tokens: no

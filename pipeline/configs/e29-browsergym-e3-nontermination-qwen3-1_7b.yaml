@@ -1,0 +1,54 @@
+experiment_id: e29-browsergym-e3-nontermination-qwen3-1_7b
+description: "E3: the non-termination-aware condition, and the expose's shaped reward written out directly - R_lambda = R_task - lambda * C_target with C_target = 1[not terminated]. e27's geometry with the non-termination penalty added and nothing else changed, so e27 is this run's lambda=0 control. naive_sum is required rather than preferred: the penalty is binary, and advantage_weighted z-scores a component with no within-group variance to exactly 0, which would silence it in every prompt-group where all eight rollouts terminate - precisely where behaviour is already good. Weight 1.0 is lambda=1, read as 'failing to act costs exactly what failing the task costs'. The sign lives in the component, so this weight stays positive. What makes this measurable here rather than degenerate: e27 leaves 10% of held-out episodes non-terminating and every one of them stopped on no_tool_call, not on the generation cap (one cap hit in 200 episodes), so the target behaviour is premature stopping rather than truncation wearing a behavioural label - the confound that made the e9-e21 sweep uninterpretable. And success sits strictly below termination on three of the four eval families, so removing non-termination is not the same act as increasing task success; on a set where every terminated episode is correct this condition would be indistinguishable from a task reward and RQ2 would have nothing to measure. The penalty adds a third level to what was a two-level ordering: non-terminating below terminated-but-wrong below correct. RQ2's prediction to test is the reverse of E2's - if premature stopping falls, does completion length rise, the agent buying termination with tokens? e27's held_out baseline is 1711 mean tokens at 1.78 steps. Expect the effect on the click-menu-2 half only: click-dialog-2 terminated in 50 of 50 eval episodes, so it has no non-termination to remove and contributes only gradient insurance."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  max_seq_length: 8192
+  lora_r: 16
+  gpu_memory_utilization: 0.30
+
+training:
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    tasks: [click-menu-2, click-dialog-2]
+    # Must be up before launch and does not survive a box restart:
+    #   cd /workspace/miniwob-plusplus/miniwob/html && python3 -m http.server 8080
+    miniwob_url: http://localhost:8080/miniwob/
+    max_turns: 8
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  max_prompt_length: 4096
+  n_rollouts: 8
+  micro_batch_size: 1
+  max_steps: 300
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  # Required, not chosen - see the description. A binary component contributes
+  # exactly 0 under advantage_weighted in any all-terminated group.
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+  non_termination:
+    enabled: true
+    weight: 1.0
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  max_new_tokens: 4096
+  agentic:
+    splits:
+      - name: held_out
+        n_episodes: 100
+      - name: shifted
+        n_episodes: 100
+        env_config:
+          tasks: [navigate-tree, click-checkboxes-transfer]
+        seed_offset: 200000
