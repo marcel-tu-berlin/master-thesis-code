@@ -5,9 +5,25 @@ results are harvested. Update rules are in CLAUDE.md.
 
 Updated: 2026-08-03 07:30 UTC (box time)
 
-| Run | Phase | pid | Started | ETA | Notes |
-|---|---|---|---|---|---|
-| completion-structure dump | smoke, diagnostic | 780529 | 07:52 UTC Aug 3 | minutes | Not an experiment. `/workspace/dump_completion.py` monkeypatches `CosineLengthReward.__call__` to write the real completion object to `/workspace/completion_dump.json`, to settle the token-counting bug below. Writes into `runs/e28-*` with `--smoke --overwrite`, so **that run dir must be deleted before the real e28 launches.** |
+**Nothing running.** e28 killed at step 8 on the bug below, e29 killed with it
+(it shared the batch parent and is itself unaffected). The GPU has been idle
+since 07:47 UTC.
+
+### Relaunch checklist, in order
+
+The box has been unreachable since about 07:55 UTC (proxy drop, not a dead box).
+When ssh returns:
+
+1. `rsync` the fixed `training/rewards/utils.py` and the corrected e28 config -
+   the box runs its own copy, and a stale module is a silent wrong result.
+2. `rm -rf runs/e28-browsergym-e2-cosine-qwen3-1_7b` - the diagnostic dump ran
+   `--smoke --overwrite` into that directory.
+3. Kill any leftover `browsergym_env.server.app` on port 8000. The killed run
+   left one and the port guard correctly refused to start over it.
+4. **Re-run `/workspace/dump_completion.py` and confirm `model_token_count` now
+   reads near `completion_ids` rather than 18.** Five minutes against a
+   twelve-hour run; the fix is untested on the box.
+5. Clear the run dir again, then relaunch the e28 + e29 batch.
 
 ## e28 KILLED at step 8/300 - the cosine is measuring the wrong quantity
 
