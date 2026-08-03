@@ -1,0 +1,49 @@
+experiment_id: e0b-browsergym-base-llama3_2-1b
+description: "E0 on a second lineage: Llama-3.2-1B-Instruct, untrained, through the identical two eval splits, seeds and per-turn budget as e0. Byte-for-byte a copy of e0-browsergym-base-qwen3-1_7b with the model slug swapped, so the two differ in exactly one thing. It answers whether the reward-shaping effects the study reports are properties of the reward or of Qwen3, which is a question the reviewer will ask and which no amount of seed replication inside one lineage can settle. Read the numbers against e0, not against e27 - this is a base-model reference, not a trained condition. Two caveats belong in any writeup that cites it. Llama-3.2 has no thinking mode, so `content` carries the whole generation and there is no reasoning trace for a length reward to compress; a Llama arm therefore asks whether the length reward does anything absent a think block, which is a related question rather than a pure lineage replicate. And 1B against 1.7B is the closest size match available in this family, not an equal one. Llama is not a preference here but the only option: TRL matches chat templates by exact string equality and refuses to train on anything outside its fixed list, of which the Llama 3.x pair are the only non-Qwen entries that fit the card. Run with `python -m eval.runner --config <this> --base-model`."
+seed: 42
+
+model:
+  slug: llama3.2-1b
+  lora_r: 16
+  max_seq_length: 8192
+  gpu_memory_utilization: 0.30
+
+training:
+  # Present for the env geometry only; nothing trains here. Copied from e0 so
+  # the two base-model evals differ in exactly one thing, the model.
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    tasks: [click-menu-2, click-dialog-2]
+    # Must be up before launch and does not survive a box restart:
+    #   cd /workspace/miniwob-plusplus/miniwob/html && python3 -m http.server 8080
+    miniwob_url: http://localhost:8080/miniwob/
+    max_turns: 8
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  max_prompt_length: 4096
+
+rewards:
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  # Pinned to e0's value, which is pinned to e27's. Llama will almost certainly
+  # generate far shorter completions than Qwen3 for want of a think block; that
+  # is a result to measure, not a reason to move the budget.
+  max_new_tokens: 4096
+  agentic:
+    splits:
+      - name: held_out
+        n_episodes: 100
+      - name: shifted
+        n_episodes: 100
+        env_config:
+          tasks: [navigate-tree, click-checkboxes-transfer]
+        seed_offset: 200000
