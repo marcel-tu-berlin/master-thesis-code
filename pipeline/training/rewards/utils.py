@@ -27,6 +27,14 @@ def model_token_count(completion, tokenizer) -> int:
       messages;
     - a lone message dict encodes its content.
 
+    `reasoning_content` is summed alongside `content` and that is not optional.
+    transformers' chat parser splits a Qwen3 response so that the think block
+    lands in `reasoning_content` on any assistant message carrying a tool call,
+    leaving `content` empty; only the final tool-less message keeps its `<think>`
+    inline. Counting `content` alone measured 18 tokens of a 1024-token
+    completion in e28 - about 2% - which made the cosine length reward a near
+    constant. See RUNNING.md.
+
     Re-encoding assistant content is a documented approximation of the exact
     generated-token count (chat-template framing differs slightly); it counts the
     model's actual content tokens, which is the quantity of interest.
@@ -40,7 +48,7 @@ def model_token_count(completion, tokenizer) -> int:
         return _enc(completion)
 
     if isinstance(completion, dict):
-        return _enc(completion.get("content") or "")
+        return _enc(completion.get("content") or "") + _enc(completion.get("reasoning_content") or "")
 
     if isinstance(completion, list):
         total = 0
@@ -48,6 +56,7 @@ def model_token_count(completion, tokenizer) -> int:
             if not isinstance(msg, dict) or msg.get("role") != "assistant":
                 continue
             total += _enc(msg.get("content") or "")
+            total += _enc(msg.get("reasoning_content") or "")
             for call in (msg.get("tool_calls") or []):
                 fn = (call or {}).get("function") or {}
                 args = fn.get("arguments")

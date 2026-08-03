@@ -7,13 +7,73 @@ Updated: 2026-08-03 07:30 UTC (box time)
 
 | Run | Phase | pid | Started | ETA | Notes |
 |---|---|---|---|---|---|
-| e28 (E2 cosine) + e29 (E3 non-termination) | batch: train + eval, both arms | 769998 (batch), 769999 (e28 train) | 07:28 UTC Aug 3 | e28 ~21:00 Aug 3, e29 ~10:30 Aug 4 | One `training.batch` over both configs. Log `/workspace/e28_e29_batch.log`, per-phase logs at `runs/<exp>/batch_{train,eval}.log`. Watcher 771563 writes `/workspace/e28_e29_final.txt` on exit; watcher 771562 writes `/workspace/e28_step30.txt` at step 30. |
+| completion-structure dump | smoke, diagnostic | 780529 | 07:52 UTC Aug 3 | minutes | Not an experiment. `/workspace/dump_completion.py` monkeypatches `CosineLengthReward.__call__` to write the real completion object to `/workspace/completion_dump.json`, to settle the token-counting bug below. Writes into `runs/e28-*` with `--smoke --overwrite`, so **that run dir must be deleted before the real e28 launches.** |
 
-**e28 step-30 check is armed and is the one to read first.** It reports
-`reward/CosineLengthReward/contrib_l1` alongside the env component. If the
-cosine line comes back MISSING or near zero the reward is inert and the run
-should be stopped rather than left to burn 270 more steps - that is the failure
-mode the poly campaign only caught after the fact.
+## e28 KILLED at step 8/300 - the cosine is measuring the wrong quantity
+
+Killed 07:47 UTC (was batch 769998, train 769999). Not inert - wrong.
+
+Decoding the logged cosine values against TRL's own length counter:
+
+| step | mean_len | cos_mean | cos_std | env_mean | implied n_tokens |
+|---|---|---|---|---|---|
+| 4 | 508 | +0.9999 | 3.4e-05 | 1.0 all correct | ~37 |
+| 3 | 2728 | -0.9996 | 2.0e-04 | 0 all wrong | ~73 |
+| 6 | 2202 | -0.9998 | 1.6e-04 | 0 | ~52 |
+
+`model_token_count` is counting 1-3% of the real completion. Every bit of the
+cosine's variance comes from the correct/wrong split: when all eight rollouts
+share a correctness label its std is about 0.0002, so it carries no length
+information at all. Steps 1 and 2, which had mixed correctness, show std 0.66
+and 0.97 - that is the correctness gate talking, not length.
+
+The step-30 check caught this at step 8 only because it was armed to print
+`contrib_l1` per component. Without it the run would have finished in 12 hours
+looking like a clean null.
+
+**Root cause, dumped rather than inferred.** The real completion object TRL
+hands a reward function:
+
+```
+roles          : ['assistant', 'tool', 'assistant']
+msg keys       : [['content', 'reasoning_content', 'role', 'tool_calls'],
+                  ['content', 'name', 'role'],
+                  ['content', 'role']]
+msg 0: content 0 chars, tool_calls True     <- think block is in reasoning_content
+msg 2: content '<think>\nOkay, so the user...'  <- final tool-less msg keeps it inline
+model_token_count: [18, 1024]    completion_ids: [1024, 1024]
+```
+
+transformers' chat parser splits a Qwen3 response so the think block lands in
+**`reasoning_content`** on any assistant message carrying a tool call.
+`model_token_count` read `content` and `tool_calls` only, so it counted 18
+tokens of a 1024-token completion. For Qwen3 the think block is the generation;
+everything else is a ten-token tool call.
+
+Two paths were consistent with the symptom and reasoning from the source picked
+the wrong one - TRL guards `parse_response` on `tokenizer.response_schema`, and a
+freshly loaded `Qwen/Qwen3-1.7B` reports that as None, which predicts the plain
+`batch_decode` fallback and correct counting. The dump settled it in one run.
+Third time in this project that reasoning about an interface beat looking at it,
+and the third time it was wrong.
+
+**Fixed** in `training/rewards/utils.py`: `reasoning_content` is now summed
+alongside `content`, with a regression test built from the dumped shape rather
+than a synthetic one. The old tests passed throughout - they exercised the
+function against messages this pipeline never produces.
+
+**Still to check: whether e9-e25 measured the same 2%.** The poly cosine
+campaign ran the same model through the same multi-turn path (reasoning_gym's
+`answer` tool produces an assistant + tool pair, so `_is_multiturn` is true and
+this counter was used). If those runs show the cosine's `raw_std` collapsing to
+near zero whenever all eight rollouts share a correctness label, the entire
+e9-e25 null was this bug and not a property of the task. Their `train_log.json`
+files have the per-component series needed to tell. Do this before citing that
+null anywhere.
+
+**e29 is unaffected** - `NonTerminationPenalty` reads `env.done` and never
+touches token counts. It was killed only because it shared the batch parent, and
+can relaunch as soon as the GPU is free.
 
 **ssh proxy dropped 05:30-07:25 UTC**, `Connection refused` on the forwarded port
 while the host answered ICMP at 0% loss. Same devpod failure as 12:54-14:58 on
