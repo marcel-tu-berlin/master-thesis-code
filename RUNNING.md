@@ -5,25 +5,30 @@ results are harvested. Update rules are in CLAUDE.md.
 
 Updated: 2026-08-03 07:30 UTC (box time)
 
-**Nothing running.** e28 killed at step 8 on the bug below, e29 killed with it
-(it shared the batch parent and is itself unaffected). The GPU has been idle
-since 07:47 UTC.
+| Run | Phase | pid | Started | ETA | Notes |
+|---|---|---|---|---|---|
+| e28 (E2 cosine) + e29 (E3 non-termination) | batch: train + eval, both arms | 783675 | 08:34 UTC Aug 3 | e28 ~22:00 Aug 3, e29 ~11:30 Aug 4 | Relaunch on the fixed token counter. Log `/workspace/e28_e29_batch.log`, per-phase at `runs/<exp>/batch_{train,eval}.log`. |
 
-### Relaunch checklist, in order
+**The fix was verified on the box before this launch**, because it had never run
+there:
 
-The box has been unreachable since about 07:55 UTC (proxy drop, not a dead box).
-When ssh returns:
+```
+before: model_token_count [18, 1024]   vs completion_ids [1024, 1024]   ratio 0.018
+after : model_token_count [880, 1024]  vs completion_ids [1024, 1024]   ratio 0.86 / 1.00
+```
 
-1. `rsync` the fixed `training/rewards/utils.py` and the corrected e28 config -
-   the box runs its own copy, and a stale module is a silent wrong result.
-2. `rm -rf runs/e28-browsergym-e2-cosine-qwen3-1_7b` - the diagnostic dump ran
-   `--smoke --overwrite` into that directory.
-3. Kill any leftover `browsergym_env.server.app` on port 8000. The killed run
-   left one and the port guard correctly refused to start over it.
-4. **Re-run `/workspace/dump_completion.py` and confirm `model_token_count` now
-   reads near `completion_ids` rather than 18.** Five minutes against a
-   twelve-hour run; the fix is untested on the box.
-5. Clear the run dir again, then relaunch the e28 + e29 batch.
+0.86 is correct rather than residual error - `completion_ids` includes the
+injected 332-character page and the chat framing, which the reward deliberately
+excludes. 880 assistant tokens plus about 144 of tool and framing is 1024.
+
+**Read the first few steps before trusting the run.** The signature to check is
+`reward/CosineLengthReward/raw_std` on steps where `reward/EnvReward/raw_std` is
+0: under the bug it was 0.0002 there, because the only variance the cosine had
+was the correctness gate. It should now be substantial, since e27 measured a
+median within-group length spread of 1066 tokens.
+
+The ssh outage ran 07:55-08:30 UTC. The container did not restart: uptime reads
+81 days and `/workspace/completion_dump.json` from 07:56 survived it.
 
 ## e28 KILLED at step 8/300 - the cosine is measuring the wrong quantity
 
