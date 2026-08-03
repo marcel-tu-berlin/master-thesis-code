@@ -11,7 +11,9 @@ materialises four full `[T, 151936]` bf16 tensors per completion (logits, the
 `log_softmax` output, and a gradient for each), about 4.6 GiB at T=4096 on top
 of a ~14.4 GiB resident base. 6144 OOMs. The cap is what produces the
 truncation confound that corrupted e9-e21 and still leaves 7-8% of e24/e25
-episodes cut off mid-reasoning.
+episodes cut off mid-reasoning. That confound is real and independent of the
+token-counting bug that separately voided those runs' cosine results - lifting
+the cap is still worth doing, it just no longer rescues anything retroactively.
 
 `use_liger_kernel` is a TRL `BaseConfig` field (default `False`). When set,
 `GRPOTrainer` builds `LigerFusedLinearGRPOLoss` and routes the loss through
@@ -45,24 +47,40 @@ Forcing fp32 logits flips `selective_log_softmax` to its chunked-logsumexp
 branch at 4 bytes for the logits plus 4 for the gradient - the same 8 bytes per
 element. No saving.
 
-## 2. Re-evaluate e24/e25 at 16k
+## 2. Re-evaluate e24/e25 at 16k - DROPPED, the comparison it would sharpen is void
 
-Eval is inference-only and has no memory ceiling; e22/e23 already ran at 16384.
-`agentic_eval` defaults `max_new_tokens` to the training budget, so the e24/e25
-reports inherited a 4096 cap for no reason and 7-8% of their episodes are
-truncations counted as wrong. Re-running the existing checkpoints removes that
-from the headline without retraining. About 2-2.5h per arm. It will move the
-numbers, including the paired median comparison.
+**Do not do this.** The cosine reward in e25 was reading 8% of the completion
+length (`runs/cosine_token_count_bug_findings.md`), so e25 is not a cosine arm -
+it is a second env-only run that differs from e24 by noise. Re-evaluating both
+at 16k would sharpen a comparison between two copies of the same condition.
 
-## 3. Regenerate the poly plots
+The truncation point it rested on is still true and still worth having: eval is
+inference-only with no memory ceiling, `agentic_eval` inherited the 4096 training
+cap for no reason, and 7-8% of those episodes are truncations counted as wrong.
+That argument now belongs to whichever cosine arm is actually run, not to these
+checkpoints.
 
-`runs/plots_poly_wsweep/` predates e22-e25 and is stale locally and on the box.
-Note the rsync footgun: the box runs its own copy of `eval/plots.py`.
+## 3. Regenerate the poly plots - DROPPED with item 2
 
-## 4. File the e24/e25 note in the thesis wiki
+`runs/plots_poly_wsweep/` would plot the voided w-sweep. Regenerate only if the
+campaign is re-run on the fixed counter. (If it ever is: the box runs its own
+copy of `eval/plots.py`, so rsync the module you execute there.)
 
-Findings are in `pipeline/runs/e24_e25_4k_pair_findings.md`, not yet in the
-Obsidian vault.
+## 4. File the e24/e25 note in the thesis wiki - DROPPED, would file a void result
+
+`pipeline/runs/e24_e25_4k_pair_findings.md` reports a directional compression
+that the reward could not have produced. Filing it into the vault is worse than
+leaving the vault incomplete. If the poly campaign is re-run, file that instead;
+otherwise the entry to make is the bug write-up, not the result.
+
+## 4b. Decide whether to re-run any poly cosine arm - OPEN, needs a call
+
+The cosine reward now works. Whether to spend GPU re-running e17 or the e24/e25
+pair on the fixed counter is a scope question, not a correctness one: the poly
+environment is saturated and the study has moved to browsergym, where e28 is the
+E2 arm. The cheap option is to re-run nothing and simply stop citing the poly
+null. The thorough option is one re-run of the e24/e25 pair, which would convert
+"we never tested it there" into an actual result at about 17h per seed.
 
 ## 5. Retarget the repl env at a reasoning_gym task source
 
