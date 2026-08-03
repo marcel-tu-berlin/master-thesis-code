@@ -3,11 +3,131 @@
 What is executing on the GPU box (`ssh gpu-l4`). Rows leave the table once the
 results are harvested. Update rules are in CLAUDE.md.
 
-Updated: 2026-08-03 07:30 UTC (box time)
+Updated: 2026-08-03 23:45 UTC (box time)
 
-| Run | Phase | pid | Started | ETA | Notes |
-|---|---|---|---|---|---|
-| e28 (E2 cosine) + e29 (E3 non-termination) | batch: train + eval, both arms | 783675 | 08:34 UTC Aug 3 | e28 ~22:00 Aug 3, e29 ~11:30 Aug 4 | Relaunch on the fixed token counter. Log `/workspace/e28_e29_batch.log`, per-phase at `runs/<exp>/batch_{train,eval}.log`. |
+| run | phase | pid | started | ETA |
+|---|---|---|---|---|
+| e27paired-oldseeds | eval, 200 eps | 931071 | 23:42 UTC | ~03:10 UTC |
+
+## e27 post-fix re-eval: DONE, unharvested - and the ssh drop killed nothing
+
+It finished at 22:31 UTC while the connection was down. The previous entry here
+said the run had died with the box; it had not. `setsid`/`nohup` held, and the
+DevPod outage only cut my view of it. That is now the second observation of
+container processes surviving an ssh outage (2026-08-02 was the first), so the
+rule in Traps below stands: check `pgrep` on reconnect before assuming anything
+died, and never relaunch on a refused connection.
+
+Results, both splits at n=100, against the pre-fix reference:
+
+```
+held_out  accuracy 0.780 -> 0.740   steps 1.78 -> 2.36   tokens 1711 -> 1419
+shifted   accuracy 0.790 -> 0.660   steps 1.94 -> 1.60   tokens 1231 ->  749
+stop_reasons held_out  pre {done 90, no_tool_call 10}
+                      post {done 89, max_turns 8, no_tool_call 3}
+stop_reasons shifted   pre {done 85, no_tool_call 14, hit_generation_cap 1}
+                      post {done 68, max_turns 3, no_tool_call 29}
+```
+
+**This diff does not measure the code fixes, and must not be quoted as if it
+did.** The seed-block fix moved the eval seeds from `seed + offset` to
+`seed_block(seed) + offset`, so the pre-fix run scored seeds 100042..100141 and
+200042..200141 while the post-fix run scored 42100000..42100099 and
+42200000..42200099. Zero overlap. Every number above is a different sample of 100
+MiniWoB instances, and the accuracy change mixes the code change with a fresh
+draw. The task mix is at least held constant - browsergym picks
+`tasks[seed % len]` and both bases are even, so both runs are 50/50.
+
+Three of the four predictions held: `mean_token_count_correct` is present,
+thresholds are pinned to e0's (held_out P10=243.9 P75=2484, shifted P10=261.7
+P75=2017.5), and `"smoke": false` is recorded. The fourth was wrong in a way
+worth keeping: `hit_generation_cap` did not appear, it *disappeared* (1 -> 0),
+and a `max_turns` bucket showed up that the pre-fix loop could never report.
+That is the expected consequence of the trajectory-budget fix - the budget is now
+spent across the whole trajectory instead of being handed to every turn afresh -
+but the direction is the opposite of what I predicted.
+
+**e27paired-oldseeds resolves it.** It runs the post-fix code over the pre-fix
+question set, making the comparison paired. `seed_block(0) == 0`, so `seed: 0`
+with `seed_offset: 100042 / 200042` reproduces the old seed bases exactly; every
+other field is copied from the post-fix run. Config at
+`/workspace/e27paired-oldseeds.yaml` (deliberately outside the repo - it is a
+diagnostic, not an arm). Against `eval_report_pre_fix.json` it isolates the code
+change; against `eval_report.json` it isolates the sample.
+
+Do not start the retrain until this lands. The whole point of re-evaluating a
+fixed checkpoint was to check the fixes before spending 32 GPU-hours on them,
+and right now the largest observed move is unattributed.
+
+Read progress from `episodes_held_out.jsonl` (written and flushed per episode
+since the C6 fix), NOT from the log - Python block-buffers stdout to a file, so
+the log sits frozen at model loading for the whole run.
+
+## Queued after the paired probe
+
+All 16 review fixes are applied and verified (`pipeline/FIX_PLAN.md`). Both the
+eval loop and the training path changed, so nothing measured before today is
+comparable to anything measured after. Three GPU jobs, in order:
+
+1. **RUNNING NOW: e27paired-oldseeds** (~3.5h). The unpaired re-eval above could
+   not attribute its own biggest move, so this repeats it on the pre-fix seeds.
+   Blocking, because items 2 and 3 cost 32 GPU-hours on the assumption that the
+   fixes are right.
+2. Retrain e27 + eval (~12h). Required because the seed-block fix changes which
+   questions seed 42 trains on, and e28/e29 must share e27's scheme.
+3. Launch e28/e29 (~20h).
+
+`runs/e27-.../eval_report_pre_fix.json` is the pre-fix reference (100 episodes
+per split, held_out 0.780, shifted 0.790). Do not delete it until step 1's diff
+is written up. Its `.md` was removed on purpose - a re-eval rewrites it, and the
+4-episode smoke numbers that briefly sat there were worse than nothing.
+
+`--smoke` now refuses to write into a run dir holding a real report, so the
+accident that produced that state cannot recur.
+
+## e28/e29 stopped at step 83/300 - GPU handed to a colleague, not a failure
+
+Stopped 10:40 UTC Aug 3 after 2h20m, by decision, to free the box for someone
+else. The run was healthy: the cosine fix had already been confirmed live
+(below), and there was no fault of any kind. Killed in order - batch parent
+783675 first so it could not launch e29 as the trainer exited, then the watcher
+786026, then train 783676; the browsergym env server 783870 orphaned rather than
+following its parent and needed a separate SIGTERM. Verify with
+`nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader` returning
+empty, not just with `ps`. The MiniWoB static server on :8080 (pid 217225) was
+left up on purpose - it is shared infrastructure and does not survive a restart.
+
+**Nothing to harvest, and nothing to resume from.** The run directory holds
+`config.yaml` and `batch_train.log` only. The per-step reward curves survive as
+text in that log; `train_log.json` does not, because `_save_train_log` runs after
+`trainer.train()` returns and a kill never reaches it.
+
+Relaunch from scratch, both arms, no code change needed - the batch skip
+predicate wants `checkpoint-final` to skip training, so the partial directory
+will not be mistaken for a finished run:
+
+```
+cd /workspace/master-thesis-code/pipeline && nohup .venv/bin/python -m training.batch \
+  configs/e28-browsergym-e2-cosine-qwen3-1_7b.yaml \
+  configs/e29-browsergym-e3-nontermination-qwen3-1_7b.yaml \
+  --train --eval --force > /workspace/e28_e29_batch.log 2>&1 &
+```
+
+Budget about 8.7h for e28 train at the observed 105 s/it, then its eval, then e29
+in full - roughly 20h for the pair. Check :8080 and :8000 first, per the launch
+checklist below.
+
+**Checkpoints do get written every 100 steps, and the runner's docstring says
+otherwise.** `grpo_runner.py:186` claims "save_strategy is off (we save only the
+final LoRA)". It is not: `GRPOConfig.save_strategy` defaults to `STEPS`, the
+runner passes `save_steps=100`, and e27's directory carries `checkpoint-100`,
+`-200`, `-300` and `-final` at 681M total. So this kill at step 83 missed the
+first checkpoint by 17 steps, about 30 minutes. Worth knowing for the next
+handover: stopping just past a hundred-step boundary costs far less than stopping
+just before one. It would still not be resumable as things stand -
+`resume_from_checkpoint` appears nowhere in the pipeline and `runner.train()`
+calls `trainer.train()` with no resume argument - but `save_only_model` is False,
+so the optimizer state is on disk and wiring it is small if it ever matters.
 
 **The fix was verified on the box before this launch**, because it had never run
 there:
@@ -21,18 +141,31 @@ after : model_token_count [880, 1024]  vs completion_ids [1024, 1024]   ratio 0.
 injected 332-character page and the chat framing, which the reward deliberately
 excludes. 880 assistant tokens plus about 144 of tool and framing is 1024.
 
-**Read the first few steps before trusting the run.** The signature to check is
+**Early check at step 12, 09:00 UTC: PASSED.** The signature was
 `reward/CosineLengthReward/raw_std` on steps where `reward/EnvReward/raw_std` is
-0: under the bug it was 0.0002 there, because the only variance the cosine had
-was the correctness gate. It should now be substantial, since e27 measured a
-median within-group length spread of 1066 tokens.
+0 - under the bug it read 0.0002 there, because the cosine's only variance came
+from the correctness gate.
 
-The ssh outage ran 07:55-08:30 UTC. The container did not restart: uptime reads
-81 days and `/workspace/completion_dump.json` from 07:56 survived it.
+```
+uniform-correctness steps (env_std = 0): 5 of 12
+cosine raw_std on those: min 0.0647  median 0.0944  max 0.1196
+```
 
-## e28 KILLED at step 8/300 - the cosine is measuring the wrong quantity
+About 470x the buggy value, and the sign structure is right as well: step 5 is
+all-wrong at mean_len 2336 with cos_mean -0.71, step 8 all-correct at mean_len
+1909 with +0.78. Correct-and-short rewarded, wrong-and-long penalised least -
+the Wu/Yeo cell structure, which a reward reading 8% of the length could not
+produce. Mean lengths run 1900-2700 with within-group spreads of 1200-3000, so
+there is real length variance for it to bite on.
 
-Killed 07:47 UTC (was batch 769998, train 769999). Not inert - wrong.
+The ssh outage ran 07:55-08:30 UTC and recurred briefly around 09:20, both times
+self-healing. Neither touched the run: uptime reads 81 days, tqdm is continuous
+across both windows, and `/workspace/completion_dump.json` from 07:56 survived.
+
+## e28 first attempt, KILLED at step 8/300 - the cosine was measuring the wrong quantity
+
+The earlier kill the same morning, not the handover above. Killed 07:47 UTC (was
+batch 769998, train 769999). Not inert - wrong.
 
 Decoding the logged cosine values against TRL's own length counter:
 
@@ -83,14 +216,14 @@ alongside `content`, with a regression test built from the dumped shape rather
 than a synthetic one. The old tests passed throughout - they exercised the
 function against messages this pipeline never produces.
 
-**Still to check: whether e9-e25 measured the same 2%.** The poly cosine
+**e9-e25 measured the same thing - checked, confirmed.** The poly cosine
 campaign ran the same model through the same multi-turn path (reasoning_gym's
 `answer` tool produces an assistant + tool pair, so `_is_multiturn` is true and
-this counter was used). If those runs show the cosine's `raw_std` collapsing to
-near zero whenever all eight rollouts share a correctness label, the entire
-e9-e25 null was this bug and not a property of the task. Their `train_log.json`
-files have the per-component series needed to tell. Do this before citing that
-null anywhere.
+this counter was used). Decoding e25's `train_log.json` over its 166 non-capped
+uniform-correctness steps: actual median length 859, implied 71, ratio 0.083,
+pearson r +0.671 between implied and actual, cosine `raw_std` median 0.00017.
+The whole campaign is void. Write-up in
+`pipeline/runs/cosine_token_count_bug_findings.md`; never cite that null.
 
 **e29 is unaffected** - `NonTerminationPenalty` reads `env.done` and never
 touches token counts. It was killed only because it shared the batch parent, and
@@ -155,11 +288,11 @@ The within-group spread is what the reward actually has to bite on, since GRPO
 compares rollouts inside one prompt-group: median 1066 tokens, p75 1572. There
 is real length variance to shape at fixed correctness.
 
-**The cosine's weight is a structurally weak lever under naive_sum, and this
-retro-explains the poly null.** Raising `w` scales the cosine's length term and
-its own correctness gating equally; only env_reward's fixed 1.0 stays put.
-Computed on e27's own within-group spread (985 to 2051 tokens, max_len 4096),
-length's share of the total advantage range reads:
+**The cosine's weight is a structurally weak lever under naive_sum.** Raising
+`w` scales the cosine's length term and its own correctness gating equally; only
+env_reward's fixed 1.0 stays put. Computed numerically against the real
+`CosineLengthReward` on e27's own within-group spread (985 to 2051 tokens,
+max_len 4096), length's share of the total advantage range reads:
 
 ```
 w      1      2      4      8     16     -> asymptote
@@ -167,11 +300,12 @@ share  0.063  0.077  0.086  0.091  0.094    0.097
 ```
 
 A sixteenfold weight change buys a factor of 1.5, and no weight puts length past
-a tenth of the range. The e9-e21 campaign read its flat w1-w16 dose-response as
-a property of the task; a good part of it is this. e28 therefore runs one weight
-(1.0) rather than a sweep - a null there is not answered by a bigger weight, it
-is answered by the cosine's endpoint spread, which is Wu/Yeo's parameterisation
-and not a knob to quietly retune.
+a tenth of the range. This does *not* explain the e9-e21 flat dose-response -
+that was the token-counting bug, and a weak lever and a blind reward are
+different failures. It is only the reason e28 runs one weight (1.0) rather than
+a sweep: a null there would not be answered by a bigger weight, it would be
+answered by the cosine's endpoint spread, which is Wu/Yeo's parameterisation and
+not a knob to quietly retune.
 
 **Both conditions act on the click-menu-2 half only.** click-dialog-2 terminates
 in 50 of 50 eval episodes at 1.02 steps and 313 median tokens: no
@@ -210,10 +344,10 @@ E2 and E3 results have to be read against the click-menu-2 half. Detail in
   never with an import.
 - **`ss` is not installed on the box.** `ss ... | grep` prints nothing whether or
   not the port is held, which reads as "port free". Use `pgrep -af server.app`.
-- **Stale watcher loops from the probe runs are still resident** (pids 273631,
-  297350) spinning on `pgrep -f "eval.runner --config configs/e27probe"`. Harmless
-  now, but they would latch onto a new probe run with a matching command line.
-  Kill by pid before the next `e27probe*` launch.
+- **Never write a watcher as `while pgrep -f '<pattern>'; do sleep N; done`.** The
+  watcher's own command line contains the pattern, so it matches itself and spins
+  forever after the job it watches exits. Three have been killed this way (273631,
+  297350, 908606). Poll the output file instead, or match on the pid.
 
 ## Harvested
 
@@ -288,17 +422,45 @@ relaunched run on corrected numbers is the harvested e27 above.
   NordVPN's Shield extension is loaded and holds its own default route. Seeing
   NordVPN in `pgrep` is not evidence it is the cause - check the route.
 
-  **What this does not tell you is whether the container's processes survived.**
-  On 2026-08-02 they did, which is where the "nothing died" rule came from; that
-  was one observation, not a guarantee, and it cannot be verified from outside.
-  Check `pgrep` on reconnect before assuming a run is still going, and do not
-  relaunch before checking either.
+  **The pod does not die, and neither do its processes.** Measured 2026-08-03,
+  not inferred: the container's PID 1 (`sshd -D -e`) started Thu Jun 4 13:31:54
+  and has 60 days of elapsed time, so it has not restarted through any outage,
+  and the e27 re-eval ran to completion at 22:31 UTC while the connection was
+  down. Second confirmed survival (2026-08-02 was the first). Still check
+  `pgrep` on reconnect rather than trusting this, and never relaunch on a
+  refused connection - you will be starting a second copy of a live job.
 
-  Recovery when it does not self-heal (about two hours, twice): port 22 is the
-  host's own sshd, so `ssh -i ~/.ssh/tub -p 22 130.149.248.103` reaches the
-  machine underneath the workspace. No devpod CLI is installed locally and
-  kubectl has no context for the cluster, so the alternative is the exalsius
-  console.
+  **Do not wait for someone to restart the workspace.** There is nothing to
+  restart. The previous version of this note said the pod was down and the
+  DevPod workspace needed a manual restart; that was wrong, and it cost a run's
+  worth of waiting.
+
+  **Port 22 is not a recovery path.** It is the host's own sshd and it rejects
+  `~/.ssh/tub` as user `dev` with `Permission denied (publickey)`. The key is
+  scoped to the workspace, not to `siena04`. So kubelet and kube-proxy logs are
+  out of reach and the fault cannot be confirmed from the cluster side; no devpod
+  CLI is installed locally and kubectl has no context. Wait it out, or use the
+  exalsius console.
+
+  **Best hypothesis, not yet confirmed.** `hostname` inside the workspace has
+  the `<name>-<replicaset>-<pod>` shape of a k8s Deployment pod, and it sits
+  behind NodePort 30236. A fast RST on the
+  NodePort while the pod runs is the signature of kube-proxy's REJECT rule,
+  which it installs when the Service has no ready endpoints - a failing
+  readiness probe or a node briefly NotReady would both produce it, with the pod
+  untouched. The competing explanation is a TUB firewall rejecting high ports
+  for some VPN client addresses. These are distinguished by whether the client
+  VPN address changes across the outage: on 2026-08-03 it did not
+  (130.149.214.224 both at 19:46 before and 23:33 after), which is evidence
+  against the client-side story, but `last` only records successful logins so it
+  cannot see the middle of the window.
+
+  Both ends are now instrumented so the next outage is measured rather than
+  argued about. `/workspace/netwatch_inside.log` in the pod records a per-minute
+  heartbeat plus egress; the outside probe logs port 22, port 30236, two
+  controls and the client VPN address every minute. Pair them: no gap inside
+  while outside reads `30236 refused` localises the fault to the ingress path,
+  and a VPN address change at the boundary localises it to the client.
 - **`eval.runner --base-model` writes into `runs/<experiment_id>/`** regardless of
   whether an adapter was loaded (`runner.py:36,51`), so pointing it at a trained
   run's config overwrites that run's `eval_report.json` and episode files. A
