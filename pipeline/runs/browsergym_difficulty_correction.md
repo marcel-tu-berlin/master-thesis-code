@@ -145,6 +145,15 @@ Greedy accuracy answers "can the model do this task at all", which is the wrong
 question for choosing a GRPO training set; the right one is "how often do eight
 sampled rollouts disagree".
 
+A re-probe of these two families under sampling was queued and then dropped as
+redundant, which is worth recording so nobody runs it. e27's own first steps
+measure exactly what it would: the policy has barely moved after six steps, so
+those per-rollout rates are the base sampled rates, and they are the 0.10 and
+0.875 above. Spending two GPU-hours to re-derive a number the training log
+already contains would delay the arms that need the GPU. The rule stands for
+selecting a *new* family; it does not require re-measuring one already trained
+on.
+
 This is the third instance of one error in this environment: difficulty measured
 under conditions the training run does not use. The tool surface was first (five
 tools versus two), the token budget second (2048 per turn versus 2048 for a
