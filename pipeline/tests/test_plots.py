@@ -159,3 +159,58 @@ def test_make_figures_training_curves_when_log_present(tmp_path):
     written = plots.make_figures(runs, str(out))
     curve_files = [w for w in written if os.path.basename(w).startswith("training_curves_")]
     assert len(curve_files) == 1 and os.path.exists(curve_files[0])
+
+
+# --- multi-split (protocol) reports: load_report refuses to guess, but
+# --- make_figures must enumerate the splits rather than crash. Before this,
+# --- e27/e28/e29 could produce no figures at all.
+
+def _protocol_report(tmp_path, exp_id, split_names):
+    run = tmp_path / exp_id
+    run.mkdir(parents=True)
+    results = {}
+    for i, name in enumerate(split_names):
+        m = compute_metrics(
+            [SampleResult(correct=True, n_tokens=100 + i, n_steps=1),
+             SampleResult(correct=True, n_tokens=120 + i, n_steps=1),
+             SampleResult(correct=False, n_tokens=900 + i, n_steps=1),
+             SampleResult(correct=False, n_tokens=920 + i, n_steps=1)]
+        )
+        results[name] = _metrics_to_dict(m)
+    (run / "eval_report.json").write_text(
+        json.dumps({"experiment_id": exp_id, "results": results}))
+    return str(run)
+
+
+def test_make_figures_renders_one_set_per_split(tmp_path):
+    run = _protocol_report(tmp_path, "e27-x", ["held_out", "shifted"])
+    written = {os.path.basename(p) for p in
+               plots.make_figures([run], str(tmp_path / "out"))}
+    for split in ("held_out", "shifted"):
+        for kind in ("comparison", "distributions", "efficiency"):
+            assert f"{kind}_{split}.png" in written
+
+
+def test_make_figures_single_split_keeps_unsuffixed_names(tmp_path):
+    run = _protocol_report(tmp_path, "e5-x", ["agentic"])
+    written = {os.path.basename(p) for p in
+               plots.make_figures([run], str(tmp_path / "out"))}
+    assert {"comparison.png", "distributions.png", "efficiency.png"} <= written
+
+
+def test_make_figures_split_override_renders_only_that_split(tmp_path):
+    run = _protocol_report(tmp_path, "e27-x", ["held_out", "shifted"])
+    written = {os.path.basename(p) for p in
+               plots.make_figures([run], str(tmp_path / "out"), split="held_out")}
+    assert "comparison.png" in written              # single split -> no suffix
+    assert not any("shifted" in w for w in written)
+
+
+def test_make_figures_skips_a_run_missing_the_split(tmp_path):
+    both = _protocol_report(tmp_path, "e27-x", ["held_out", "shifted"])
+    only = _protocol_report(tmp_path, "e5-x", ["held_out"])
+    # Must not raise: the run without `shifted` is skipped, the other still draws.
+    written = {os.path.basename(p) for p in
+               plots.make_figures([both, only], str(tmp_path / "out"))}
+    assert "comparison_held_out.png" in written
+    assert "comparison_shifted.png" in written

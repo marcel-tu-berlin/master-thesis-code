@@ -46,6 +46,14 @@ class EvalMetrics:
     mean_token_count: float = 0.0
     mean_token_count_ci_low: float = 0.0
     mean_token_count_ci_high: float = 0.0
+    # Mean tokens over CORRECT episodes only - the efficiency number. The pooled
+    # mean above is dominated by failures, which run to the generation cap, so a
+    # change in failure rate there is indistinguishable from a change in length.
+    # That confound is what voided e9-e21. None when nothing was correct (not
+    # 0.0, which would read as perfectly efficient).
+    mean_token_count_correct: float | None = None
+    mean_token_count_correct_ci_low: float | None = None
+    mean_token_count_correct_ci_high: float | None = None
     # Fraction of correct completions whose token count is at or below the
     # per-split P10 (configurable). Captures "correct with too little
     # reasoning — likely pattern-match luck". None when there are no
@@ -275,6 +283,14 @@ def compute_metrics(
 
     correct_results = [r for r in results if r.correct]
 
+    # The efficiency number, kept next to the pooled one rather than only inside
+    # the plotting module (where it used to live and no report could reach it).
+    mean_correct = correct_lo = correct_hi = None
+    if correct_results:
+        correct_tokens = np.array([r.n_tokens for r in correct_results], dtype=float)
+        mean_correct = float(correct_tokens.mean())
+        correct_lo, correct_hi = _bootstrap_ci(correct_tokens, n_bootstrap=n_bootstrap)
+
     # Absolute-threshold overrides (e.g. from a fixed reference run via
     # load_reference_thresholds) take precedence over the per-run percentile.
     # When set, they make the over/under-thinking rate comparable across runs;
@@ -337,6 +353,9 @@ def compute_metrics(
         mean_token_count=mean_tokens,
         mean_token_count_ci_low=tokens_ci_low,
         mean_token_count_ci_high=tokens_ci_high,
+        mean_token_count_correct=mean_correct,
+        mean_token_count_correct_ci_low=correct_lo,
+        mean_token_count_correct_ci_high=correct_hi,
         underthinking_rate=underthinking_rate,
         underthinking_rate_ci_low=under_ci_low,
         underthinking_rate_ci_high=under_ci_high,

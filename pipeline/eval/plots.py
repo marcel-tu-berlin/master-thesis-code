@@ -241,13 +241,24 @@ def plot_training_curves(log_history, fig=None):
     return fig
 
 
-def make_figures(report_paths, out_dir, dpi=130):
+def _report_splits(path: str) -> list[str]:
+    """Split names a report carries, in file order."""
+    jp = os.path.join(path, "eval_report.json") if os.path.isdir(path) else path
+    with open(jp) as f:
+        return list((json.load(f).get("results") or {}))
+
+
+def make_figures(report_paths, out_dir, dpi=130, split=None):
     """Render all figures for the given run dirs / report paths into out_dir.
+
+    Without `split`, renders one figure set per split name found across the
+    reports. A protocol report (held_out + shifted) used to raise here, so the
+    browsergym campaign could produce no figures at all; a single-split report
+    still writes the unsuffixed filenames every earlier run used.
 
     Returns the list of written file paths.
     """
     os.makedirs(out_dir, exist_ok=True)
-    reports = [load_report(p) for p in report_paths]
     written = []
 
     def _save(fig, name):
@@ -256,11 +267,42 @@ def make_figures(report_paths, out_dir, dpi=130):
         plt.close(fig)
         written.append(path)
 
-    _save(plot_comparison(reports), "comparison.png")
-    _save(plot_distributions(reports), "distributions.png")
-    _save(plot_efficiency(reports), "efficiency.png")
+    if split is not None:
+        splits = [split]
+    else:
+        splits = []
+        for p in report_paths:
+            for s in _report_splits(p):
+                if s not in splits:
+                    splits.append(s)
+        splits = splits or [_SPLIT]
 
-    for p, r in zip(report_paths, reports):
+    for sp in splits:
+        # A run missing this split is skipped, not fatal: a mixed glob of
+        # single-split and protocol runs used to die on the first mismatch and
+        # lose the figures for the runs that would have worked.
+        reports = []
+        for p in report_paths:
+            try:
+                reports.append(load_report(p, sp))
+            except (ValueError, OSError) as exc:
+                print(f"skip {p} [{sp}]: {exc}")
+        if not reports:
+            continue
+        tag = f"_{sp}" if len(splits) > 1 else ""
+        for plot_fn, name in ((plot_comparison, "comparison"),
+                              (plot_distributions, "distributions"),
+                              (plot_efficiency, "efficiency")):
+            # Pre-agentic dataset-mode reports lack the CI fields these read.
+            # One such report in a glob used to abort the whole batch; say what
+            # broke and keep drawing the rest.
+            try:
+                _save(plot_fn(reports), f"{name}{tag}.png")
+            except (KeyError, TypeError, ValueError) as exc:
+                print(f"skip {name}{tag}.png: {type(exc).__name__}: {exc}")
+
+    # Training curves are per-run, not per-split - drawn once, outside the loop.
+    for p in report_paths:
         run_dir = p if os.path.isdir(p) else os.path.dirname(p)
         train_log = os.path.join(run_dir, "train_log.json")
         if not os.path.exists(train_log):
@@ -268,7 +310,7 @@ def make_figures(report_paths, out_dir, dpi=130):
         with open(train_log) as f:
             fig = plot_training_curves(json.load(f))
         if fig is not None:
-            _save(fig, f"training_curves_{_short(r['experiment_id'])}.png")
+            _save(fig, f"training_curves_{_short(os.path.basename(run_dir))}.png")
     return written
 
 
@@ -277,6 +319,8 @@ def main():
     ap.add_argument("runs", nargs="*", help="run dirs or eval_report.json paths")
     ap.add_argument("--glob", help="glob for run dirs, e.g. 'runs/e*'")
     ap.add_argument("-o", "--out", default="runs/plots", help="output dir (default runs/plots)")
+    ap.add_argument("--split", default=None,
+                    help="render only this eval split (default: one figure set per split)")
     args = ap.parse_args()
 
     paths = list(args.runs) + (sorted(globmod.glob(args.glob)) if args.glob else [])
@@ -290,7 +334,7 @@ def main():
     if not valid:
         ap.error("no runs with an eval_report.json (give run dirs or --glob)")
 
-    for w in make_figures(valid, args.out):
+    for w in make_figures(valid, args.out, split=args.split):
         print(f"wrote {w}")
 
 

@@ -79,3 +79,43 @@ def test_rejects_unknown_eval_agentic_key():
     cfg["eval"] = {"agentic": {"n_epsiodes": 100}}  # typo
     with pytest.raises(ValueError, match="eval.agentic"):
         validate_config(cfg)
+
+
+# --- training block: the last config section with no key whitelist ---
+# Every training key has a default in grpo_runner._grpo_config, so a typo used to
+# validate fine, be ignored, and leave the run training at a geometry its own
+# frozen config contradicted.
+
+def test_rejects_unknown_training_key():
+    cfg = _agentic_base()
+    cfg["training"]["max_prompt_lenght"] = 6144      # the real typo shape
+    with pytest.raises(ValueError, match="training keys"):
+        validate_config(cfg)
+
+
+def test_rejects_training_key_that_is_read_nowhere():
+    # Both were range-checked but never read: grad accum is derived from
+    # batch_size / micro_batch_size, and dataset size comes from env_config.size.
+    for dead in ("gradient_accumulation_steps", "dataset_size_limit"):
+        cfg = _agentic_base()
+        cfg["training"][dead] = 8
+        with pytest.raises(ValueError, match="training keys"):
+            validate_config(cfg)
+
+
+def test_accepts_every_training_key_the_code_reads():
+    cfg = _agentic_base()
+    cfg["training"].update(
+        max_prompt_length=1024, max_steps=300, save_steps=100,
+        n_rollouts=8, batch_size=1, micro_batch_size=2,
+        learning_rate=5e-6, kl_beta=0.001, temperature=1.0,
+        weight_decay=0.1, warmup_ratio=0.1,
+    )
+    validate_config(cfg)  # must not raise
+
+
+def test_rejects_unknown_env_server_key():
+    cfg = _agentic_base()
+    cfg["training"]["env_server"] = {"repo_pth": "/workspace/OpenEnv/envs"}
+    with pytest.raises(ValueError, match="env_server"):
+        validate_config(cfg)

@@ -21,10 +21,29 @@ _KNOWN_TOP_LEVEL_KEYS = {
 _KNOWN_REWARD_KEYS = {
     "compose_method",
     "token_length",
-    "token_entropy",
     "env_reward",
     "non_termination",
 }
+
+# Known keys under `training`. This was the last block with no whitelist, and it
+# is the one where a typo is most expensive: every key below has a default in
+# grpo_runner._grpo_config, so `max_prompt_lenght: 6144` validated fine, was
+# ignored, and the run trained at max_seq//2 while its own frozen config claimed
+# otherwise. The same silent fallback applied to n_rollouts (the GRPO group size,
+# hence the advantage denominator), micro_batch_size, kl_beta and save_steps.
+#
+# Deliberately absent: `gradient_accumulation_steps` and `dataset_size_limit`.
+# Both used to be range-checked here, and neither is read anywhere - grad accum
+# is derived from batch_size / micro_batch_size, and the dataset size comes from
+# env_config.size. Setting either now fails loudly instead of doing nothing.
+_KNOWN_TRAINING_KEYS = {
+    "mode", "env", "env_config", "env_server",
+    "max_prompt_length", "max_steps", "save_steps",
+    "n_rollouts", "batch_size", "micro_batch_size",
+    "learning_rate", "kl_beta", "temperature", "weight_decay", "warmup_ratio",
+}
+
+_KNOWN_ENV_SERVER_KEYS = {"repo_path", "port"}
 
 # Known sub-keys under training.env_config (union across env types - catches
 # typos like `datsaet` that would otherwise pass through and use the default).
@@ -50,26 +69,26 @@ _KNOWN_ENV_CONFIG_KEYS = {
 
 # Known eval keys. Closes the silent-passthrough gap that let a dead `ood_probes`
 # block and a mistyped value slip through unnoticed.
-_KNOWN_EVAL_KEYS = {"temperature", "do_sample", "max_new_tokens", "agentic"}
+# `reference_report` pins the over/under-thinking thresholds to another run's
+# token distribution (normally the E0 base-model report). Without it each run
+# uses its own P10/P75, which makes the rates invariant to a uniform change in
+# length - so they cannot detect the compression E2 exists to produce, and two
+# arms' rates are measured against two different yardsticks.
+_KNOWN_EVAL_KEYS = {"temperature", "do_sample", "max_new_tokens", "agentic",
+                    "reference_report"}
 _KNOWN_EVAL_AGENTIC_KEYS = {"n_episodes", "splits"}
 # Per-split keys. `env_config` is merged over training.env_config, so a split
 # overrides only what shifts; `seed_offset` moves the split to a disjoint region
 # of the seed -> question mapping.
 _KNOWN_EVAL_SPLIT_KEYS = {"name", "n_episodes", "env_config", "seed_offset"}
 
-# Whitelist of allowed sub-keys per reward. Catches typos in YAML (e.g.
-# `fork_mask_top_pct` after the rename to `fork_mask_top_frac`) that would
-# otherwise pass through silently and use the default.
+# Whitelist of allowed sub-keys per reward. Catches typos in YAML that would
+# otherwise pass through silently and leave the reward on its default.
 _COMMON_REWARD_SUBKEYS = {"enabled", "weight"}
 _KNOWN_REWARD_SUBKEYS: dict[str, set[str]] = {
     "token_length":  _COMMON_REWARD_SUBKEYS | {
         "max_len",
         "r_correct_short", "r_correct_long", "r_wrong_short", "r_wrong_long",
-    },
-    "token_entropy": _COMMON_REWARD_SUBKEYS | {
-        "reward_scale", "fork_mask_top_frac", "chunk_size",
-        # Deprecated alias: still accepted, builder warns.
-        "fork_mask_top_pct",
     },
     "env_reward":    _COMMON_REWARD_SUBKEYS,
     # E3 has no knobs: lambda is `weight`, the signal is the env's done flag.
@@ -86,36 +105,23 @@ _NUMERIC_COERCIONS = {
     "training.weight_decay": (0.0, 1.0),
     "training.warmup_ratio": (0.0, 1.0),
     "training.batch_size": (1, 1024),
-    "training.gradient_accumulation_steps": (1, 1024),
     "training.n_rollouts": (1, 256),
     "training.save_steps": (1, 100_000),
     "training.max_prompt_length": (1, 131072),
-    "training.dataset_size_limit": (1, 1_000_000),
 }
 
 
 def warn_inert_scalars(rewards_cfg: dict, compose_method: str) -> list[str]:
     """Return warnings for reward knobs that do nothing as configured.
 
-    Under `advantage_weighted`, per-group z-scoring is invariant to any global
-    positive scalar, so `token_entropy.reward_scale` cancels. It is live under
-    `naive_sum`, so it stays quiet there.
-
-    Default-valued scalars are not flagged (boilerplate); we warn only when a
-    value signals intent to tune (non-default reward_scale). Disabled rewards
-    are skipped.
+    Under `advantage_weighted` every component is z-scored per prompt-group, so
+    a component with no within-group variance contributes exactly 0 no matter
+    what weight it carries. Disabled rewards are skipped.
     """
     rc = rewards_cfg or {}
     warnings: list[str] = []
-    lever = "Use `weight`, the signal shape, or compose_method: naive_sum instead."
 
     if compose_method == "advantage_weighted":
-        te = rc.get("token_entropy") or {}
-        if te.get("enabled") and "reward_scale" in te and te["reward_scale"] != 0.1:
-            warnings.append(
-                f"rewards.token_entropy.reward_scale={te['reward_scale']} is inert under "
-                f"advantage_weighted (z-scoring cancels global scalars). {lever}"
-            )
         # E3 is a binary flag, so it has zero within-group variance in any group
         # where every rollout terminates - and there it contributes exactly 0.
         # The penalty then goes silent precisely where behavior is already good,
@@ -266,6 +272,23 @@ def validate_config(config: dict) -> None:
                 f"Unknown sub-keys under rewards.{reward_name}: {sorted(unknown_sub)}. "
                 f"Allowed: {sorted(allowed)}"
             )
+
+    training = config.get("training")
+    if isinstance(training, dict):
+        unknown_tr = set(training) - _KNOWN_TRAINING_KEYS
+        if unknown_tr:
+            errors.append(
+                f"Unknown training keys: {sorted(unknown_tr)}. "
+                f"Known: {sorted(_KNOWN_TRAINING_KEYS)}"
+            )
+        env_server = training.get("env_server")
+        if isinstance(env_server, dict):
+            unknown_es = set(env_server) - _KNOWN_ENV_SERVER_KEYS
+            if unknown_es:
+                errors.append(
+                    f"Unknown training.env_server keys: {sorted(unknown_es)}. "
+                    f"Known: {sorted(_KNOWN_ENV_SERVER_KEYS)}"
+                )
 
     env_config = (config.get("training") or {}).get("env_config")
     if isinstance(env_config, dict):

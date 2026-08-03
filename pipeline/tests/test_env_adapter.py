@@ -113,3 +113,63 @@ def test_answer_tool_schema_is_generatable():
     fn = get_json_schema(_adapter().answer)["function"]
     assert fn["name"] == "answer"
     assert fn["parameters"]["properties"]["answer"]["description"]
+
+
+# --- done-guard: the reward is the FIRST answer, not the last ---
+# Without it a second `answer` call re-stepped the env and overwrote self.reward,
+# so a rollout that answered correctly and then answered again trained as WRONG
+# while eval - which reads the first call - scored it correct. Two plausible
+# numbers, disagreeing about the same trajectory. Every sibling adapter
+# (textarena.move, finqa.submit_answer, repl.execute, browsergym._act) guards.
+
+class _ScoringClient(_FakeClient):
+    """Scores each submitted answer against a map, so order is observable."""
+
+    def __init__(self, scores):
+        super().__init__()
+        self.scores = scores
+
+    def step(self, action):
+        self.step_calls.append(action)
+        return _Result(_Obs(score=self.scores.get(action.answer, 0.0)))
+
+
+def test_second_answer_does_not_overwrite_the_reward():
+    client = _ScoringClient({"x=3": 1.0, "x=4": 0.0})
+    a = _adapter(client=client)
+    a.reset(seed=1)
+    a.answer("x=3")
+    assert a.reward == 1.0
+    a.answer("x=4")                      # the model second-guesses itself
+    assert a.reward == 1.0               # first answer stands
+    assert len(client.step_calls) == 1   # the env was never re-stepped
+
+
+def test_second_answer_returns_a_terminated_notice():
+    a = _adapter(client=_ScoringClient({"x=3": 1.0}))
+    a.reset(seed=1)
+    a.answer("x=3")
+    assert "already finished" in a.answer("x=4")
+
+
+def test_reset_reopens_the_episode():
+    client = _ScoringClient({"x=3": 1.0, "x=9": 1.0})
+    a = _adapter(client=client)
+    a.reset(seed=1)
+    a.answer("x=3")
+    a.reset(seed=2)                      # next episode
+    assert a.done is False and a.reward == 0.0
+    a.answer("x=9")
+    assert a.reward == 1.0
+    assert len(client.step_calls) == 2
+
+
+def test_wrong_first_answer_also_stands():
+    # The guard must not be a "keep the best score" rule - it keeps the FIRST,
+    # which is what eval scores.
+    client = _ScoringClient({"x=3": 0.0, "x=4": 1.0})
+    a = _adapter(client=client)
+    a.reset(seed=1)
+    a.answer("x=3")
+    a.answer("x=4")
+    assert a.reward == 0.0

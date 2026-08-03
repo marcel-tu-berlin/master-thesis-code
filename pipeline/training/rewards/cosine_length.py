@@ -76,30 +76,19 @@ class CosineLengthReward:
             float(getattr(e, "reward", 0.0)) >= CORRECT_REWARD_THRESHOLD
             for e in environments
         ]
-        # Prefer the exact model-generated token ids TRL/the rollout_func provide
-        # over re-encoding decoded text, so the length signal counts model tokens
-        # only. Falls back to re-encoding the decoded completion.
-        provided_ids = kwargs.get("completion_ids")
-        scores = []
-        for i, completion in enumerate(completions):
-            ids_i = provided_ids[i] if (provided_ids is not None and i < len(provided_ids)) else None
-            n_tokens = self._n_tokens(completion, ids_i)
-            scores.append(self._reward(n_tokens, correct_flags[i]))
-        return scores
-
-    @staticmethod
-    def _is_multiturn(completion) -> bool:
-        # Multi-turn iff TRL interleaved a tool-result (game feedback) message.
-        # In that case completion_ids over-counts (it includes tool tokens), so
-        # fall back to the assistant-only re-encode.
-        return isinstance(completion, list) and any(
-            isinstance(m, dict) and m.get("role") == "tool" for m in completion
-        )
-
-    def _n_tokens(self, completion, completion_ids_i) -> int:
-        # Single-turn: prefer the exact model-generated ids TRL provides (no
-        # re-encode) - keeps reasoning_gym numbers identical. Multi-turn: count
-        # assistant tokens only, excluding injected feedback.
-        if not self._is_multiturn(completion) and completion_ids_i is not None:
-            return len(completion_ids_i)
-        return model_token_count(completion, self.tokenizer)
+        # One ruler for every completion. This used to branch: raw
+        # `len(completion_ids)` when TRL had interleaved no tool message,
+        # `model_token_count` otherwise. But TRL interleaves a tool message
+        # exactly when the model called a tool, so the branch was a proxy for
+        # the correctness gate a few lines up - rollouts that answered were
+        # counted one way, rollouts that never answered (always scored wrong)
+        # the other, and the latter kept every `<think>` / `<tool_call>` /
+        # `<|im_end|>` framing token the former dropped. The wrong arm was
+        # inflated by tens of tokens purely by measurement, and because the
+        # composer z-scores per prompt-group that offset shifted every rollout's
+        # normalised value. Same class as the reasoning_content bug: a plausible
+        # number computed from the wrong token set.
+        return [
+            self._reward(model_token_count(c, self.tokenizer), correct_flags[i])
+            for i, c in enumerate(completions)
+        ]

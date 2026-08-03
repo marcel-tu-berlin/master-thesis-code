@@ -1,4 +1,6 @@
-from eval.agentic_eval import _parse_answer, _run_episodes, _metrics_to_dict, _completion_budget
+from eval.agentic_eval import (
+    _answer_from, _run_episodes, _metrics_to_dict, _completion_budget,
+)
 from eval.metrics import SampleResult, compute_metrics
 
 
@@ -20,39 +22,52 @@ def test_completion_budget_honors_max_prompt_length():
     assert _completion_budget(cfg, 2048) == 1792
 
 
-# --- _parse_answer: extract the answer from a model tool call ---
+# --- _answer_from: the answer argument of a parsed assistant message ---
+# The message shape is trl.chat_template_utils.parse_response's output, so eval
+# and training agree on what counts as a call by construction. The wire-format
+# handling (Hermes tags vs Llama's untagged `parameters`, truncated calls,
+# JSON quoted inside a think block) lives in that function and is covered
+# end-to-end in test_response_parsing.py, which needs a real tokenizer.
 
-def test_parse_answer_simple():
-    t = '<tool_call>\n{"name": "answer", "arguments": {"answer": "42"}}\n</tool_call>'
-    assert _parse_answer(t) == "42"
-
-
-def test_parse_answer_with_think_prefix():
-    t = '<think>17+25 is 42</think>\n<tool_call>{"name": "answer", "arguments": {"answer": "42"}}</tool_call>'
-    assert _parse_answer(t) == "42"
-
-
-def test_parse_answer_coerces_non_string():
-    t = '<tool_call>{"name": "answer", "arguments": {"answer": 42}}</tool_call>'
-    assert _parse_answer(t) == "42"
+def _answer_msg(value, name="answer"):
+    return {"role": "assistant", "content": "",
+            "tool_calls": [{"type": "function",
+                            "function": {"name": name, "arguments": {"answer": value}}}]}
 
 
-def test_parse_answer_takes_first_answer_call():
-    t = ('<tool_call>{"name":"answer","arguments":{"answer":"7"}}</tool_call>'
-         '<tool_call>{"name":"answer","arguments":{"answer":"8"}}</tool_call>')
-    assert _parse_answer(t) == "7"
+def test_answer_from_simple():
+    assert _answer_from(_answer_msg("42")) == "42"
 
 
-def test_parse_answer_none_without_tool_call():
-    assert _parse_answer("the answer is 42") is None
+def test_answer_from_coerces_non_string():
+    assert _answer_from(_answer_msg(42)) == "42"
 
 
-def test_parse_answer_none_on_malformed_json():
-    assert _parse_answer("<tool_call>{not valid json}</tool_call>") is None
+def test_answer_from_takes_first_answer_call():
+    msg = _answer_msg("7")
+    msg["tool_calls"].append({"type": "function",
+                              "function": {"name": "answer", "arguments": {"answer": "8"}}})
+    assert _answer_from(msg) == "7"
 
 
-def test_parse_answer_ignores_other_tools():
-    assert _parse_answer('<tool_call>{"name":"other","arguments":{"x":1}}</tool_call>') is None
+def test_answer_from_none_without_tool_call():
+    assert _answer_from({"role": "assistant", "content": "the answer is 42"}) is None
+
+
+def test_answer_from_ignores_other_tools():
+    assert _answer_from(_answer_msg("42", name="other")) is None
+
+
+def test_answer_from_none_when_argument_missing():
+    msg = {"role": "assistant", "tool_calls": [
+        {"type": "function", "function": {"name": "answer", "arguments": {}}}]}
+    assert _answer_from(msg) is None
+
+
+def test_answer_from_none_on_non_dict_arguments():
+    msg = {"role": "assistant", "tool_calls": [
+        {"type": "function", "function": {"name": "answer", "arguments": "42"}}]}
+    assert _answer_from(msg) is None
 
 
 # --- _run_episodes: drive env reset/score with an injected generator ---

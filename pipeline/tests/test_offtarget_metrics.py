@@ -93,9 +93,19 @@ def _msgs(o):
     return [{"role": "user", "content": o}]
 
 
+def _turn(name, args, n_tok):
+    """A turn_fn result: (parsed assistant message, tool name, args, tokens)."""
+    msg = {"role": "assistant", "content": ""}
+    if name is not None:
+        msg["tool_calls"] = [{"type": "function",
+                              "function": {"name": name, "arguments": args or {}}}]
+    return msg, name, args, n_tok
+
+
 def _run(scripted, max_turns=6, gen_cap=1024):
+    turns = iter([_turn(*t) for t in scripted])
     return _run_multiturn_episodes(
-        _FakeToolEnv(), 1, 0, lambda m: next(scripted),
+        _FakeToolEnv(), 1, 0, lambda m, budget: next(turns),
         max_turns=max_turns, make_messages=_msgs, tool_names=_TOOLS, gen_cap=gen_cap,
     )
 

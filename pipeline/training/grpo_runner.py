@@ -118,13 +118,17 @@ class GRPORunner:
             beta=float(t.get("kl_beta", 0.001)),
             seed=int(self.config.get("seed", 42)),
         )
-        # Multi-turn domains cap the tool-calling loop at max_turns so a rollout
-        # cannot run unbounded turns. Single-step domains leave it unset (the
-        # model calls its one tool and stops). max_tool_calling_iterations is a
-        # TRL 1.6 GRPOConfig field (confirmed at the L4 smoke).
+        # Cap the tool-calling loop. TRL treats an unset
+        # max_tool_calling_iterations as sys.maxsize, so leaving it off for
+        # single-step domains left the loop unbounded: a reasoning_gym rollout
+        # could call `answer` repeatedly until it filled the completion budget,
+        # which is itself a mechanism for the cap-bound rollouts the e22/e23 cap
+        # probes went looking for. Default to 1 - a single-step domain's model
+        # calls its one tool and stops - and let env_config.max_turns raise it.
+        # max_tool_calling_iterations is a TRL 1.6 GRPOConfig field (confirmed
+        # at the L4 smoke).
         max_turns = int((t.get("env_config") or {}).get("max_turns", 0))
-        if max_turns > 0:
-            kwargs["max_tool_calling_iterations"] = max_turns
+        kwargs["max_tool_calling_iterations"] = max_turns if max_turns > 0 else 1
         if self._use_vllm:
             kwargs["use_vllm"] = True
             kwargs["vllm_mode"] = "colocate"
@@ -183,10 +187,15 @@ class GRPORunner:
     def _save_train_log(trainer, output_dir: str) -> None:
         """Persist TRL's in-memory log_history to train_log.json.
 
-        save_strategy is off (we save only the final LoRA), so TRL never writes
-        trainer_state.json and the per-step curves - reward/kl/loss/completion
+        TRL writes a checkpoint every `save_steps` (100 by default, since
+        GRPOConfig's save_strategy is STEPS), but those carry only what the
+        trainer needs to resume. The per-step curves - reward/kl/loss/completion
         length plus the per-component reward metrics the callback merged in -
-        would vanish on exit. Dump them so eval.plots can draw training curves.
+        live in `state.log_history` and would vanish on exit. Dump them so
+        eval.plots can draw training curves.
+
+        This runs after `trainer.train()` returns, so a killed run loses the
+        file; its curves survive only as text in the batch log.
         """
         log = getattr(getattr(trainer, "state", None), "log_history", None)
         if not log:

@@ -10,6 +10,8 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from domains import build_domain
+from eval.agentic_eval import seed_block
+from training.batch import mark_smoke_checkpoint
 from training.grpo_runner import GRPORunner
 from training.env_server import build_env_server
 from training.rewards import REWARD_REGISTRY
@@ -54,6 +56,8 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
+
+
 def build_reward_components(config: dict, domain, runner: GRPORunner) -> list:
     """Build (reward_fn, weight) pairs from config using REWARD_REGISTRY."""
     rewards_cfg = config.get("rewards", {}) or {}
@@ -78,7 +82,7 @@ def build_reward_components(config: dict, domain, runner: GRPORunner) -> list:
 def apply_smoke_overrides(config: dict) -> dict:
     """Patch config for fast smoke testing: 3 steps, 2 rollouts, short seq.
 
-    Sets `_smoke=True` so downstream eval also caps to 10 samples per split.
+    Sets `_smoke=True` so downstream eval also caps to 4 episodes per split.
     """
     config.setdefault("model", {})
     config.setdefault("training", {})
@@ -104,7 +108,6 @@ def apply_smoke_overrides(config: dict) -> dict:
     config["training"]["max_steps"] = 3
     config["training"]["save_steps"] = 3
     config["training"]["n_rollouts"] = 2
-    config["training"]["dataset_size_limit"] = 64
     # Cap eval generation: a multi-turn agentic eval runs many model.generate
     # calls per episode, and the default budget (max_seq - max_prompt) lets each
     # produce ~1k tokens, so a smoke eval can take 20+ minutes. 256 is plenty to
@@ -114,7 +117,7 @@ def apply_smoke_overrides(config: dict) -> dict:
     config["_smoke"] = True
     print(f"⚠  Smoke mode: max_steps=3, n_rollouts=2, max_seq_length={seq} (<=2048), "
           f"gpu_memory_utilization={config['model']['gpu_memory_utilization']}, "
-          f"max_prompt_length={config['training']['max_prompt_length']}, dataset_size_limit=64, eval=10/split")
+          f"max_prompt_length={config['training']['max_prompt_length']}, eval=4/split")
     return config
 
 
@@ -192,7 +195,10 @@ def main() -> None:
     # and builds the TRL environment_factory against its base_url.
     env_config = config["training"].get("env_config", {}) or {}
     n_prompts = int(env_config.get("size", 500))
-    dataset = domain.build_seed_dataset(env_config, n=n_prompts, seed_base=seed)
+    # Each seed trains on its own block of the seed -> question mapping. Passing
+    # the raw seed through made --seeds 42 43 44 share 499 of 500 questions.
+    dataset = domain.build_seed_dataset(env_config, n=n_prompts,
+                                        seed_base=seed_block(seed))
     server = build_env_server(config, domain, python=sys.executable)
     make_factory = lambda base_url: domain.make_env_factory(base_url, env_config)  # noqa: E731
     print(f"Agentic env: {config['training']['env']}  seed-rows: {len(dataset)}  "
@@ -201,8 +207,7 @@ def main() -> None:
                  server=server, make_factory=make_factory)
 
     runner.save_lora(checkpoint_dir)
-    if config.get("_smoke"):
-        open(os.path.join(checkpoint_dir, ".smoke"), "w").close()
+    mark_smoke_checkpoint(checkpoint_dir, bool(config.get("_smoke")))
 
     if args.eval:
         from eval.agentic_eval import run_agentic_eval

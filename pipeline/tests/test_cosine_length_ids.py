@@ -13,12 +13,15 @@ class _Env:
         self.reward = reward
 
 
-def test_prefers_completion_ids_over_text():
+def test_completion_ids_are_ignored():
+    # One ruler for every completion. Preferring completion_ids used to make the
+    # measurement depend on whether TRL had interleaved a tool message, which it
+    # does exactly when the model called a tool - i.e. the counter branched on
+    # correctness. See test_same_ruler_for_answered_and_unanswered below.
     r = CosineLengthReward(_Tok(), max_len=10)
-    # completion_ids says 2 tokens; the decoded text would re-encode to 5.
     out_ids = r(["p"], ["a b c d e"], environments=[_Env(1.0)], completion_ids=[[1, 2]])
     out_txt = r(["p"], ["a b c d e"], environments=[_Env(1.0)])
-    assert out_ids != out_txt  # id path (2 tokens) differs from text path (5)
+    assert out_ids == out_txt
 
 
 def test_falls_back_to_text_without_ids():
@@ -71,10 +74,27 @@ def test_multiturn_counts_assistant_only_not_completion_ids():
     assert out[0] == r._reward(4, True)
 
 
-def test_singleturn_one_assistant_message_uses_completion_ids():
-    # Single assistant message, no tool message -> single-turn -> use the exact
-    # completion_ids count (3), NOT the re-encoded text (5). Reasoning_gym parity.
+def test_singleturn_counts_assistant_content_not_ids():
+    # Single assistant message, no tool message. The count is the re-encoded
+    # assistant content (5), not len(completion_ids) (3).
     r = CosineLengthReward(_Tok(), max_len=100)
     completion = [{"role": "assistant", "content": "a b c d e"}]
     out = r(["p"], [completion], environments=[_Env(1.0)], completion_ids=[[1, 2, 3]])
-    assert out[0] == r._reward(3, True)
+    assert out[0] == r._reward(5, True)
+
+
+def test_same_ruler_for_answered_and_unanswered_rollouts():
+    # THE regression guard for the two-rulers bug. Both rollouts emit identical
+    # assistant content; one called the tool (so TRL interleaved a tool message)
+    # and one did not. Under the old branch the first was measured with
+    # model_token_count and the second with raw completion_ids - and since a
+    # rollout that never answers always scores wrong, the wrong arm was
+    # systematically inflated relative to the correct arm by measurement alone.
+    r = CosineLengthReward(_Tok(), max_len=100)
+    answered = [{"role": "assistant", "content": "a b c"},
+                {"role": "tool", "content": "Recorded answer: 42"}]
+    unanswered = [{"role": "assistant", "content": "a b c"}]
+    out = r(["p", "p"], [answered, unanswered],
+            environments=[_Env(1.0), _Env(1.0)],
+            completion_ids=[[0] * 40, [0] * 9])
+    assert out[0] == out[1] == r._reward(3, True)

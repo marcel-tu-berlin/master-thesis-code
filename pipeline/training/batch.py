@@ -182,6 +182,25 @@ def _is_real_checkpoint(exp_id: str) -> bool:
     return os.path.isdir(ckpt) and not os.path.isfile(os.path.join(ckpt, ".smoke"))
 
 
+def mark_smoke_checkpoint(checkpoint_dir: str, smoke: bool) -> None:
+    """Set or clear the `.smoke` marker `_is_real_checkpoint` reads.
+
+    Lives here, next to its reader, so the two cannot drift; `training.train`
+    calls it after saving the adapter.
+
+    Clearing matters as much as setting. `save_pretrained` does not empty the
+    directory, so a marker left by an earlier --smoke run used to survive a real
+    one forever: `_is_real_checkpoint` then never skipped train, while train's
+    own clobber guard refused to overwrite without --overwrite, and the run
+    became unrunnable through the batch runner without --force.
+    """
+    marker = os.path.join(checkpoint_dir, ".smoke")
+    if smoke:
+        open(marker, "w").close()
+    elif os.path.exists(marker):
+        os.remove(marker)
+
+
 def _write_eval_stub(config_path: str, status: str, note: str = "") -> bool:
     """Backstop for T0.5: guarantee runs/<exp>/eval_report.json exists even when
     the eval phase produced none — eval skipped before the subprocess ran (no

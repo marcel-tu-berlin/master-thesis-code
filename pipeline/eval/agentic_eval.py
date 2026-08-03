@@ -6,19 +6,30 @@ the env, and reports success rate + token-efficiency metrics.
 """
 import json
 import os
-import re
 import sys
 
 from domains.env_base import CORRECT_REWARD_THRESHOLD
-from eval.metrics import SampleResult, compute_metrics
+from eval.metrics import SampleResult, compute_metrics, load_reference_thresholds
 
-# The model answers by emitting a Hermes-style tool call (Qwen3 native format):
-#   <tool_call>{"name": "answer", "arguments": {"answer": "42"}}</tool_call>
-_TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
-
-# Held-out offset: training seeds are seed..seed+size, so eval at seed+OFFSET
-# evaluates on questions the model was not trained on.
+# Held-out offset: training takes the bottom of a seed's block, so eval at
+# block + OFFSET evaluates on questions the model was not trained on.
 _EVAL_SEED_OFFSET = 100_000
+
+# Each seed owns a disjoint block of the seed -> question mapping. Passing the
+# raw config seed through as the dataset base made "replicates" overlap almost
+# completely: seeds 42/43/44 at size 500 shared 499 of 500 training questions
+# and, at a 100-episode eval, 99 of 100 eval questions - and eval is greedy, so
+# the shared ones decode identically. Pooling three such runs counts the same
+# questions three times and reports a CI far tighter than the data supports.
+#
+# The multiplier must exceed every split's seed_offset, or one seed's eval block
+# lands inside another seed's. 1e6 against offsets of 100k / 200k leaves room.
+_SEED_BLOCK = 1_000_000
+
+
+def seed_block(seed: int) -> int:
+    """Base of the question block belonging to `seed`."""
+    return int(seed) * _SEED_BLOCK
 
 
 def _completion_budget(config, model_max_seq):
@@ -36,34 +47,48 @@ def _completion_budget(config, model_max_seq):
     return max_seq - max_prompt
 
 
-def _parse_answer(text: str) -> str | None:
-    """Return the answer from the first valid `answer` tool call, else None."""
-    for m in _TOOL_CALL_RE.finditer(text):
-        try:
-            payload = json.loads(m.group(1))
-        except (ValueError, TypeError):
+def _first_tool_call(msg: dict) -> tuple | None:
+    """(name, arguments) of the first tool call in a parsed assistant message.
+
+    The message comes from `trl.chat_template_utils.parse_response`, the same
+    function TRL uses to turn a rollout's token ids into a message during
+    training. Eval used to hand-roll its own regex over the decoded text, which
+    is how eval and training ended up disagreeing about what counts as a call:
+
+    - A Qwen3 completion cut off after the tool-call JSON but before the closing
+      `</tool_call>` tag has no tool call. The hand-rolled fallback found the
+      bare JSON and scored the episode `env_done`, relabelling a truncation as a
+      clean termination - the confound that made e9-e21 uninterpretable.
+    - A JSON object quoted inside a `<think>` block is reasoning, not a call.
+      parse_response puts it in `reasoning_content` and leaves `tool_calls`
+      empty.
+    - Llama 3.x emits an untagged object with `parameters` rather than
+      `arguments`. parse_response normalises it, so one rule covers both
+      lineages instead of a per-lineage branch here.
+
+    Arguments that are not a dict (a model emitting them pre-serialised, say)
+    read as no arguments rather than raising.
+    """
+    for call in (msg.get("tool_calls") or []):
+        fn = (call or {}).get("function") or {}
+        name = fn.get("name")
+        if name is None:
             continue
-        if payload.get("name") == "answer":
-            ans = (payload.get("arguments") or {}).get("answer")
-            if ans is not None:
-                return str(ans)
+        args = fn.get("arguments")
+        return str(name), (args if isinstance(args, dict) else {})
     return None
 
 
-def _parse_tool_call(text: str) -> tuple | None:
-    """Return (name, arguments) from the FIRST valid <tool_call> JSON, else None.
-
-    General form used by the multi-turn loop (any tool name). The single-step
-    reasoning_gym path keeps its own _parse_answer (first `answer` call only).
-    """
-    for m in _TOOL_CALL_RE.finditer(text):
-        try:
-            payload = json.loads(m.group(1))
-        except (ValueError, TypeError):
+def _answer_from(msg: dict) -> str | None:
+    """The `answer` argument of the first `answer` tool call, else None."""
+    for call in (msg.get("tool_calls") or []):
+        fn = (call or {}).get("function") or {}
+        if fn.get("name") != "answer":
             continue
-        name = payload.get("name")
-        if name is not None:
-            return str(name), (payload.get("arguments") or {})
+        args = fn.get("arguments")
+        ans = args.get("answer") if isinstance(args, dict) else None
+        if ans is not None:
+            return str(ans)
     return None
 
 
@@ -81,7 +106,8 @@ def _no_call_reason(n_tokens: int, gen_cap: int | None) -> str:
     return "no_tool_call"
 
 
-def _run_episodes(env, n: int, seed_base: int, gen_fn, gen_cap=None) -> list[SampleResult]:
+def _run_episodes(env, n: int, seed_base: int, gen_fn, gen_cap=None,
+                  on_result=None) -> list[SampleResult]:
     """Run n single-step episodes. gen_fn(question) -> (answer_str|None, n_tokens).
 
     A None answer (the model never called the tool) is submitted as an empty
@@ -103,23 +129,30 @@ def _run_episodes(env, n: int, seed_base: int, gen_fn, gen_cap=None) -> list[Sam
             stop_reason="env_done" if terminated else _no_call_reason(n_tokens, gen_cap),
             tool_calls=["answer"] if terminated else [],
         ))
+        if on_result is not None:
+            on_result(i, results[-1])
     return results
 
 
 def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messages,
-                            tool_names, gen_cap=None):
+                            tool_names, gen_cap=None, on_result=None):
     """Run n multi-turn episodes greedily, tool-agnostic.
 
-    turn_fn(messages) -> (tool_name|None, arguments|None, n_tokens) produces one
-    greedy model turn given the running message list. Per episode: reset, then up
-    to max_turns turns; each turn that names one of the domain's tools dispatches
-    it on the env (the public adapter method of that name) and appends the
-    assistant + tool-feedback messages; the episode ends when the model stops
-    calling a known tool or the env reports done. Restricting dispatch to
-    `tool_names` keeps a hallucinated name (or `reset`) from being invoked. This
-    one loop drives every multi-turn domain - textarena (move), finqa (the four
-    data tools), repl (execute) - via the parsed tool name. n_tokens is the
-    per-turn generated token count (model-only, exact); n_steps is the tool count.
+    turn_fn(messages, budget) -> (message, tool_name|None, arguments|None,
+    n_tokens) produces one greedy model turn given the running message list and
+    the tokens left in the episode's generation budget. Per episode: reset, then
+    up to max_turns turns; each turn that names one of the domain's tools
+    dispatches it on the env (the public adapter method of that name) and
+    appends the model's own message plus the tool feedback; the episode ends when
+    the model stops calling a known tool, the env reports done, or the budget
+    runs out. Restricting dispatch to `tool_names` keeps a hallucinated name (or
+    `reset`) from being invoked. This one loop drives every multi-turn domain -
+    textarena (move), finqa (the four data tools), repl (execute) - via the
+    parsed tool name. n_tokens is the trajectory total (model-only, exact);
+    n_steps is the count of calls that reached the env.
+
+    `gen_cap` is the budget for the whole trajectory, matching training's
+    max_completion_length, not a fresh allowance per turn.
 
     Each episode also records why it ended and which tools it called, in order.
     The off-target panel (RQ2) is computed from those two fields, and neither is
@@ -131,27 +164,47 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
         messages = list(make_messages(obs))
         total_tokens = 0
         calls = []
+        # Generation budget for the WHOLE trajectory, not per turn. Training caps
+        # the full completion at max_completion_length, so an eval that renewed
+        # the budget every turn let an episode generate max_turns times what the
+        # policy was trained under - and `hit_generation_cap` could then never
+        # fire for the cap that actually bound training.
+        budget = gen_cap
         # Default exit: the loop used its whole turn budget without the env ever
         # reporting done. Overwritten at whichever exit the episode actually took.
         stop_reason = "max_turns"
         for _ in range(max_turns):
-            name, args, n_tok = turn_fn(messages)
+            if budget is not None and budget <= 0:
+                stop_reason = "hit_generation_cap"
+                break
+            msg, name, args, n_tok = turn_fn(messages, budget)
             total_tokens += int(n_tok)
+            turn_cap, budget = budget, (None if budget is None else budget - int(n_tok))
             if name not in tool_names:
-                stop_reason = _no_call_reason(n_tok, gen_cap)
+                stop_reason = _no_call_reason(n_tok, turn_cap)
                 break
             try:
                 feedback = getattr(env, name)(**(args or {}))
-            except TypeError as e:
-                # Malformed model arguments (wrong/extra kwargs) become feedback
-                # rather than crashing the episode.
-                feedback = f"Tool call error: {e}"
-            calls.append(name)
-            messages.append({
-                "role": "assistant", "content": "",
-                "tool_calls": [{"type": "function",
-                                "function": {"name": name, "arguments": args or {}}}],
-            })
+            except Exception as e:
+                # Malformed model arguments (TypeError) become feedback rather
+                # than crashing the episode. Everything else used to propagate:
+                # an HTTP error from the env server, a reset connection, a bad
+                # observation would kill the process on episode 95 of 100 and
+                # discard all 95 trajectories, since the jsonl was only written
+                # after the whole split returned.
+                feedback = f"Tool call error: {type(e).__name__}: {e}"
+            else:
+                # Only a call that actually reached the env counts as a step.
+                # Counting a failed dispatch inflated n_steps and, through it,
+                # mean_verification_depth in the RQ2 panel.
+                calls.append(name)
+            # The parsed message, not a stub. Rebuilding the turn as
+            # {"content": ""} threw away the model's own reasoning, so turn N+1
+            # ran on a context training never produced - TRL keeps every prior
+            # turn's generated text in the running completion. Qwen3's template
+            # re-renders `reasoning_content` on a prior assistant turn, so
+            # appending the parsed message reproduces that context.
+            messages.append(msg)
             messages.append({"role": "tool", "content": str(feedback)})
             if getattr(env, "done", False):
                 stop_reason = "env_done"
@@ -163,6 +216,8 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
             terminated=stop_reason == "env_done",
             stop_reason=stop_reason, tool_calls=calls,
         ))
+        if on_result is not None:
+            on_result(i, results[-1])
     return results
 
 
@@ -177,8 +232,18 @@ def _metrics_to_dict(m) -> dict:
         "mean_token_count": m.mean_token_count,
         "mean_token_count_ci_low": m.mean_token_count_ci_low,
         "mean_token_count_ci_high": m.mean_token_count_ci_high,
+        # The efficiency number. `mean_token_count` pools failures, which run to
+        # the generation cap, so it cannot separate "shorter" from "fails more".
+        "mean_token_count_correct": m.mean_token_count_correct,
+        "mean_token_count_correct_ci_low": m.mean_token_count_correct_ci_low,
+        "mean_token_count_correct_ci_high": m.mean_token_count_correct_ci_high,
         "underthinking_rate": m.underthinking_rate,
         "overthinking_rate": m.overthinking_rate,
+        # Which yardstick produced those two rates: a pinned reference threshold
+        # or this run's own percentile. Without it, two arms' rates look
+        # comparable when they may not be.
+        "underthinking_threshold": m.underthinking_threshold,
+        "overthinking_threshold": m.overthinking_threshold,
         "mean_steps": m.mean_steps,
         # Off-target panel (RQ2). Absent-as-None when the episodes carry no
         # termination record, so an old report is not read as "zero failures".
@@ -201,26 +266,73 @@ def _metrics_to_dict(m) -> dict:
     }
 
 
-def _write_episodes(results, seed_base: int, path: str) -> None:
+def _episode_line(index: int, seed: int, r) -> str:
     """One JSON line per episode: the durable trajectory record.
 
     The aggregate report answers the questions we thought of before the run.
     This file is what a later off-target question is answered from without
-    spending another 2h of GPU re-running the eval.
+    spending another 2h of GPU re-running the eval - so it is written and
+    flushed per episode, not once the split finishes. A split that dies on
+    episode 95 keeps 94 trajectories instead of none.
     """
-    with open(path, "w") as f:
-        for i, r in enumerate(results):
-            f.write(json.dumps({
-                "index": i,
-                "seed": seed_base + i,
-                "correct": r.correct,
-                "reward": r.reward,
-                "n_tokens": r.n_tokens,
-                "n_steps": r.n_steps,
-                "terminated": r.terminated,
-                "stop_reason": r.stop_reason,
-                "tool_calls": r.tool_calls,
-            }) + "\n")
+    return json.dumps({
+        "index": index,
+        "seed": seed,
+        "correct": r.correct,
+        "reward": r.reward,
+        "n_tokens": r.n_tokens,
+        "n_steps": r.n_steps,
+        "terminated": r.terminated,
+        "stop_reason": r.stop_reason,
+        "tool_calls": r.tool_calls,
+    }) + "\n"
+
+
+def _reference_thresholds(eval_cfg: dict) -> dict:
+    """Per-split over/under-thinking thresholds from `eval.reference_report`.
+
+    Without a reference each run uses its own P10/P75, which makes both rates
+    invariant to a uniform change in completion length: halve every token count
+    and the reported rates do not move, because the threshold moves with them.
+    That is useless for the one thing E2 is supposed to show, and it means two
+    arms' rates are measured against two different yardsticks.
+
+    Returns `{split: {"underthinking_threshold": x, "overthinking_threshold": y}}`,
+    empty when no reference is configured. Splits absent from the reference fall
+    back to the per-run percentile, which is why the resolved threshold is
+    serialized into every report.
+    """
+    path = (eval_cfg or {}).get("reference_report")
+    if not path:
+        return {}
+    thresholds = load_reference_thresholds(path)
+    print(f"Thinking-rate thresholds pinned to {path}: "
+          + ", ".join(f"{s} P10={t['underthinking_threshold']:.0f} "
+                      f"P75={t['overthinking_threshold']:.0f}"
+                      for s, t in thresholds.items()))
+    return thresholds
+
+
+def _build_report(config, checkpoint_dir, split_metrics: dict) -> dict:
+    """The eval_report.json payload.
+
+    Split out of run_agentic_eval so the `smoke` marker is testable without a
+    GPU. That marker is the whole point: batch._is_real_report has always looked
+    for it and nothing ever wrote it, so a 4-episode --smoke report counted as
+    finished work and made the next unattended batch skip the real eval.
+    """
+    return {
+        "experiment_id": config.get("experiment_id"),
+        "model_slug": (config.get("model") or {}).get("slug"),
+        "seed": config.get("seed", 42),
+        "compose_method": (config.get("rewards") or {}).get("compose_method", "advantage_weighted"),
+        "mode": "agentic",
+        # E0 (no adapter) is a first-class condition, so the report says which
+        # policy produced it rather than leaving it to the experiment_id.
+        "checkpoint": checkpoint_dir,
+        "smoke": bool(config.get("_smoke")),
+        "results": {name: _metrics_to_dict(m) for name, m in split_metrics.items()},
+    }
 
 
 def _resolve_splits(config, base_n: int) -> list[dict]:
@@ -261,6 +373,7 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
     from peft import PeftModel
+    from trl.chat_template_utils import add_response_schema, parse_response
 
     from training.registry import get_model_config
     from training.env_server import build_env_server
@@ -277,6 +390,9 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
 
     # Native tool-calling template (do NOT apply the reasoning-tag template).
     tokenizer = AutoTokenizer.from_pretrained(model_cfg["model_name"])
+    # Attaches the response_schema parse_response needs. Same call TRL makes
+    # before training, so eval and training parse a completion by one rule.
+    add_response_schema(tokenizer)
     model = AutoModelForCausalLM.from_pretrained(
         model_cfg["model_name"], quantization_config=quant_config,
         torch_dtype=dtype, device_map="auto",
@@ -295,6 +411,7 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
     do_sample = bool(eval_cfg.get("do_sample", False))
     seed = int(config.get("seed", 42))
     splits = _resolve_splits(config, base_n)
+    thresholds = _reference_thresholds(eval_cfg)
 
     # Created up front: each split writes its episode records as it finishes, so
     # a crash in a later split does not lose the earlier one's trajectories.
@@ -308,7 +425,7 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
             # the eval loop runs.
             n = min(n, 4)
         env_config = split["env_config"]
-        seed_base = seed + split["seed_offset"]
+        seed_base = seed_block(seed) + split["seed_offset"]
         # One server per split: server_env is derived from env_config (task id,
         # turn cap, data path), so a split that changes it needs its own process.
         split_config = {**config,
@@ -318,38 +435,46 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
         server.wait_until_ready()
         if server.repo_envs_path not in sys.path:
             sys.path.insert(0, server.repo_envs_path)
+
+        # Opened before the try so `finally` can always close it: a failure in
+        # make_env_factory would otherwise leave the name unbound and raise
+        # NameError from the cleanup, masking the real error.
+        ep_file = open(os.path.join(run_dir, f"episodes_{split['name']}.jsonl"), "w")
+
+        def on_result(i, r, _f=ep_file, _base=seed_base):
+            _f.write(_episode_line(i, _base + i, r))
+            _f.flush()
+
         try:
             env = domain.make_env_factory(server.base_url, env_config)()
             tools = domain.eval_tools(env)
 
+            def _generate(messages, budget):
+                enc = tokenizer.apply_chat_template(
+                    messages, tools=tools, add_generation_prompt=True,
+                    return_tensors="pt", return_dict=True,
+                ).to(model.device)
+                plen = enc["input_ids"].shape[1]
+                with torch.no_grad():
+                    out = model.generate(**enc, max_new_tokens=budget, do_sample=do_sample)
+                comp_ids = out[0][plen:]
+                # parse_response, not a regex over the decoded text: the same
+                # function TRL applies to a rollout during training.
+                msg = parse_response(tokenizer, comp_ids.tolist())
+                return msg, int(comp_ids.shape[0])
+
             def gen_fn(question):
                 messages = domain.episode_messages(question)
-                enc = tokenizer.apply_chat_template(
-                    messages, tools=tools, add_generation_prompt=True,
-                    return_tensors="pt", return_dict=True,
-                ).to(model.device)
-                plen = enc["input_ids"].shape[1]
-                with torch.no_grad():
-                    out = model.generate(**enc, max_new_tokens=max_new, do_sample=do_sample)
-                comp_ids = out[0][plen:]
-                text = tokenizer.decode(comp_ids, skip_special_tokens=False)
-                return _parse_answer(text), int(comp_ids.shape[0])
+                msg, n_tok = _generate(messages, max_new)
+                return _answer_from(msg), n_tok
 
-            def gen_turn(messages):
-                enc = tokenizer.apply_chat_template(
-                    messages, tools=tools, add_generation_prompt=True,
-                    return_tensors="pt", return_dict=True,
-                ).to(model.device)
-                plen = enc["input_ids"].shape[1]
-                with torch.no_grad():
-                    out = model.generate(**enc, max_new_tokens=max_new, do_sample=do_sample)
-                comp_ids = out[0][plen:]
-                text = tokenizer.decode(comp_ids, skip_special_tokens=False)
-                parsed = _parse_tool_call(text)
+            def gen_turn(messages, budget):
+                msg, n_tok = _generate(messages, budget)
+                parsed = _first_tool_call(msg)
                 if parsed is None:
-                    return None, None, int(comp_ids.shape[0])
+                    return msg, None, None, n_tok
                 name, call_args = parsed
-                return name, call_args, int(comp_ids.shape[0])
+                return msg, name, call_args, n_tok
 
             print(f"Agentic eval [{split['name']}]: {n} episodes "
                   f"(seed_base={seed_base}, max_new_tokens={max_new})")
@@ -363,27 +488,18 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
                     env, n, seed_base, gen_turn,
                     max_turns=max_turns, make_messages=domain.episode_messages,
                     tool_names={t.__name__ for t in tools}, gen_cap=max_new,
+                    on_result=on_result,
                 )
             else:
-                results = _run_episodes(env, n, seed_base, gen_fn, gen_cap=max_new)
+                results = _run_episodes(env, n, seed_base, gen_fn, gen_cap=max_new,
+                                        on_result=on_result)
         finally:
+            ep_file.close()
             server.stop()
 
-        split_metrics[split["name"]] = compute_metrics(results)
-        _write_episodes(results, seed_base,
-                        os.path.join(run_dir, f"episodes_{split['name']}.jsonl"))
+        split_metrics[split["name"]] = compute_metrics(results, **thresholds.get(split["name"], {}))
 
-    report = {
-        "experiment_id": config.get("experiment_id"),
-        "model_slug": (config.get("model") or {}).get("slug"),
-        "seed": config.get("seed", 42),
-        "compose_method": (config.get("rewards") or {}).get("compose_method", "advantage_weighted"),
-        "mode": "agentic",
-        # E0 (no adapter) is a first-class condition, so the report says which
-        # policy produced it rather than leaving it to the experiment_id.
-        "checkpoint": checkpoint_dir,
-        "results": {name: _metrics_to_dict(m) for name, m in split_metrics.items()},
-    }
+    report = _build_report(config, checkpoint_dir, split_metrics)
     json_path = os.path.join(run_dir, "eval_report.json")
     with open(json_path, "w") as f:
         json.dump(report, f, indent=2)
@@ -408,12 +524,19 @@ def _report_md(experiment_id, split_metrics: dict) -> str:
                    else f"{m.non_termination_rate:.3f} "
                         f"[{m.non_termination_rate_ci_low:.3f}, "
                         f"{m.non_termination_rate_ci_high:.3f}]")
+        # Correct-only first: it is the efficiency claim. The pooled mean below
+        # it moves with the failure rate, so the two must be read together.
+        correct_tok = ("n/a" if m.mean_token_count_correct is None
+                       else f"{m.mean_token_count_correct:.1f} "
+                            f"[{m.mean_token_count_correct_ci_low:.1f}, "
+                            f"{m.mean_token_count_correct_ci_high:.1f}]")
         out.append(
             f"\n## {name}\n\n"
             f"- episodes: {m.n_samples}\n"
             f"- success rate: {m.accuracy:.3f} "
             f"[{m.accuracy_ci_low:.3f}, {m.accuracy_ci_high:.3f}]\n"
-            f"- mean completion tokens: {m.mean_token_count:.1f}\n"
+            f"- mean tokens on CORRECT episodes: {correct_tok}\n"
+            f"- mean completion tokens (all episodes): {m.mean_token_count:.1f}\n"
             f"- mean steps: {m.mean_steps}\n"
             f"- underthinking rate: {m.underthinking_rate}\n"
             f"- overthinking rate: {m.overthinking_rate}\n"

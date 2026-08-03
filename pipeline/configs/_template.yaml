@@ -49,15 +49,6 @@ rewards:
     r_wrong_short: -1.0
     r_wrong_long: -0.5
 
-  # Token-entropy shaping (mask the reward to the top-fraction of tokens by
-  # entropy). reward_scale is inert under advantage_weighted (z-scoring cancels
-  # global positive scalars); use `weight` or compose_method: naive_sum.
-  token_entropy:
-    enabled: false
-    weight: 1.0
-    reward_scale: 0.1
-    fork_mask_top_frac: 0.0    # 0.0 = all tokens; 0.2 = top-20% by entropy
-
 eval:
   temperature: 0.0
   do_sample: false

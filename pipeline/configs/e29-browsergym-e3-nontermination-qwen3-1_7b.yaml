@@ -42,7 +42,10 @@ rewards:
 eval:
   temperature: 0.0
   do_sample: false
+  # Whole-trajectory budget, matching training and e27. Must equal e27's or the
+  # E1/E3 comparison is measured under two different budgets.
   max_new_tokens: 4096
+  reference_report: runs/e0-browsergym-base-qwen3-1_7b/eval_report.json
   agentic:
     splits:
       - name: held_out
