@@ -72,25 +72,84 @@ shifted split: click-checkboxes-transfer is at 0.96/0.96 with a zero gap and
 zero terminated-but-wrong, while navigate-tree carries all 13 of that split's
 premature stops.
 
-## What E0 has to settle before any transfer claim
+## Against E0: no measurable task gain, a significant off-distribution loss
 
-Against the base-model probes the trained policy looks like it gained where it
-trained and lost where it did not: click-menu-2 0.60 -> 0.70, click-dialog-2
-0.80 -> 0.86, but navigate-tree 0.85 -> 0.62 and click-checkboxes-transfer 1.00
--> 0.96.
+`e0-browsergym-base-qwen3-1_7b` ran the identical splits at the identical seeds
+and budget with no adapter, so every episode pairs. Paired data calls for a
+paired test; comparing the two runs' independent Wilson intervals would discard
+most of the power, and on this data it would have called everything null.
+McNemar exact, two-sided:
 
-**That comparison is not sound and must not be reported as one.** The probes ran
-20 episodes per family at `seed_offset` 300000; these splits are 50 per family
-at 100000 and 200000. Different seeds, different n, and the correction doc puts
-the noise floor on a 20-episode browsergym point estimate at roughly one episode
-even before that.
+| comparison | E0 -> e27 | lost | gained | p |
+|---|---|---|---|---|
+| held_out accuracy | 0.750 -> 0.780 | 4 | 7 | 0.549 |
+| click-menu-2 | 0.66 -> 0.70 | 0 | 2 | 0.500 |
+| click-dialog-2 | 0.84 -> 0.86 | 4 | 5 | 1.000 |
+| **shifted accuracy** | **0.870 -> 0.790** | **9** | **1** | **0.021** |
+| navigate-tree | 0.74 -> 0.62 | 7 | 1 | 0.070 |
+| click-checkboxes-transfer | 1.00 -> 0.96 | 2 | 0 | 0.500 |
 
-`configs/e0-browsergym-base-qwen3-1_7b.yaml` runs the identical splits at the
-identical seeds and budget with no adapter, which makes it paired episode for
-episode. If navigate-tree comes back near 0.85 there, task-success-only training
-cost 0.23 accuracy on an unseen family, and that is a specialization result the
-efficiency conditions then have to be read on top of. If it comes back near
-0.62, there is no transfer loss and the probe number was the outlier.
+**Three hundred steps of task-success-only GRPO bought no measurable accuracy on
+the families it trained on, and cost a significant amount on families it did
+not.** The loss is carried by navigate-tree (7 of 8 flips) but reaches
+significance only when both shifted families are pooled.
+
+The probe-based version of this comparison overstated it. navigate-tree probed
+0.85 at n=20 on different seeds; paired against E0 on these seeds the base rate
+is 0.74, so the drop is 0.12 rather than the 0.23 the probes implied. This is
+the second time a 20-episode browsergym estimate has moved by more than a tenth
+under re-measurement.
+
+### Length inflated on the treatment family
+
+On the 33 click-menu-2 seeds **both** models answered correctly, e27's episodes
+are longer: median delta +247 tokens, 23 longer against 10 shorter, sign test
+p=0.035. click-dialog-2 does not move (+10 tokens, p=0.296), nor does either
+shifted family.
+
+So the E1 recipe inflates length on exactly the family that has length to
+inflate, which is the family E2 has to compress. That is headroom rather than a
+problem: E2 has 247 tokens of training-induced inflation to remove before it
+even returns to base.
+
+Two cautions on this number. Marginal per-family token statistics are not usable
+here - the correct-episode sets differ between runs (33 against 35 on
+click-menu-2), so a marginal mean moves with composition; only the both-correct
+paired subset is sound. And the pooled per-split median is meaningless
+regardless: each split is an even mix of a roughly 330-token family and a
+roughly 2200-token family, so the pooled median lands in the empty space between
+the two clusters and moves arbitrarily. Report per family, and report the mean
+rather than the median when pooling.
+
+### Why the training reward rose so much more than greedy accuracy
+
+Training reward went 0.375 -> about 0.72 while greedy held-out accuracy moved
+0.750 -> 0.780. The two are not measuring the same thing: training reward is
+over rollouts sampled at temperature 1.0, greedy eval reads the mode. The
+consistent reading is that GRPO sharpened the sampling distribution onto answers
+the greedy decode was already finding, which raises sampled reward a great deal
+and greedy accuracy barely at all.
+
+Stated as the interpretation it is, not a measurement - confirming it would take
+an eval at temperature 1.0, which the protocol does not run.
+
+### What this does and does not change
+
+It does not change the E2 and E3 designs. Both are shaped on top of this exact
+recipe with e27 as their lambda=0 control, and both act within prompt-groups, so
+neither needs E1 to have improved task success in order to move length or
+termination.
+
+It does change how their results are read. The baseline they sit on is a policy
+that traded a significant amount of off-distribution accuracy for no measurable
+on-distribution gain. Any substitution E2 or E3 shows is on top of a transfer
+cost the task reward alone already imposed - and RQ2's question of whether
+reducing one inefficiency shifts the agent toward another now has a documented
+precedent in the baseline itself.
+
+Whether 300 steps at 5e-6 is the right E1 to build on is a separate design
+question. Strengthening it would break the matched budget every arm now shares,
+so it is not a change to make quietly mid-campaign.
 
 ## Two panel metrics that do not apply here
 

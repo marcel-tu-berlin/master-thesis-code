@@ -3,40 +3,45 @@
 What is executing on the GPU box (`ssh gpu-l4`). Rows leave the table once the
 results are harvested. Update rules are in CLAUDE.md.
 
-Updated: 2026-08-03 05:22 UTC (box time - last reading before the ssh proxy
-dropped, see below; not advanced past it rather than stamped with local time)
+Updated: 2026-08-03 07:30 UTC (box time)
 
 | Run | Phase | pid | Started | ETA | Notes |
 |---|---|---|---|---|---|
-| e0 browsergym base model | eval, 200 eps | 738769 | 05:18 UTC Aug 3 | ~07:10 UTC | `--base-model`, no adapter. Same two splits, seeds and 4096 budget as e27, so it pairs episode for episode. Log `/workspace/e0.log`. Watcher 739458 writes `/workspace/e0_final.txt` on exit (fires on crash too). |
+| e28 (E2 cosine) + e29 (E3 non-termination) | batch: train + eval, both arms | 769998 (batch), 769999 (e28 train) | 07:28 UTC Aug 3 | e28 ~21:00 Aug 3, e29 ~10:30 Aug 4 | One `training.batch` over both configs. Log `/workspace/e28_e29_batch.log`, per-phase logs at `runs/<exp>/batch_{train,eval}.log`. Watcher 771563 writes `/workspace/e28_e29_final.txt` on exit; watcher 771562 writes `/workspace/e28_step30.txt` at step 30. |
 
-**ssh proxy dropped again at about 05:30 UTC.** `Connection refused` on the
-forwarded port while the host answers ICMP with 0% loss - the same devpod
-failure as 12:54-14:58 UTC on Aug 2, which lasted about two hours and killed
-nothing. e0 and its watcher keep running through it. Do not relaunch.
+**e28 step-30 check is armed and is the one to read first.** It reports
+`reward/CosineLengthReward/contrib_l1` alongside the env component. If the
+cosine line comes back MISSING or near zero the reward is inert and the run
+should be stopped rather than left to burn 270 more steps - that is the failure
+mode the poly campaign only caught after the fact.
 
-### Queued behind e0
+**ssh proxy dropped 05:30-07:25 UTC**, `Connection refused` on the forwarded port
+while the host answered ICMP at 0% loss. Same devpod failure as 12:54-14:58 on
+Aug 2. e0 ran through it untouched and finished at 07:25. Do not relaunch on a
+refused connection.
 
-`e28` (E2, cosine length) and `e29` (E3, non-termination penalty) are written
-and schema-validated, launchable as soon as e0 frees the GPU. Both copy e27's
-geometry exactly - same mix, seed, budget, step count, learning rate, composer
-and eval splits - so **e27 is literally each one's lambda=0 control** rather than
-a separate baseline run. About 11.5h train + 1.7h eval each.
+## e0 landed: the E1 baseline is weaker than it looked
 
-## What e0 is for
+Paired on identical seeds, McNemar exact:
 
-e27 finished and its numbers raise one question that only a paired baseline can
-answer. Against the n=20 probes the trained policy looks like it gained where it
-trained (click-menu-2 0.60 -> 0.70, click-dialog-2 0.80 -> 0.86) and lost where
-it did not (navigate-tree 0.85 -> 0.62, click-checkboxes-transfer 1.00 -> 0.96).
+```
+held_out accuracy  0.750 -> 0.780   lost 4  gained 7   p=0.549
+shifted  accuracy  0.870 -> 0.790   lost 9  gained 1   p=0.021
+click-menu-2 tokens, 33 both-correct seeds: +247 median, 23 longer / 10 shorter, p=0.035
+```
 
-That comparison is unsound: the probes ran 20 episodes per family at
-`seed_offset` 300000, the eval splits 50 per family at 100000 and 200000. e0
-runs the identical splits at the identical seeds, which makes it paired. If
-navigate-tree comes back near 0.85, task-success-only training cost 0.23
-accuracy on an unseen family and every later condition is read on top of that.
+Three hundred steps of task-success-only GRPO bought no measurable accuracy
+where it trained and cost a significant amount where it did not, while inflating
+length on the one family that has length to inflate. That last part is headroom
+for E2 rather than a problem.
 
-Do not report a transfer claim before this lands.
+The probe-based version overstated the transfer loss: navigate-tree probed 0.85
+at n=20 but pairs against 0.74 here, so the drop is 0.12, not 0.23. Second time
+a 20-episode browsergym estimate has moved by more than a tenth.
+
+Full analysis, including why the pooled per-split token median is an artifact of
+the bimodal mix and must not be reported, is in
+`pipeline/runs/e27_e1_baseline_findings.md`.
 
 ## Before the E2 / E3 arms - two knobs checked against e27's real numbers
 
@@ -130,6 +135,10 @@ E2 and E3 results have to be read against the click-menu-2 half. Detail in
   Kill by pid before the next `e27probe*` launch.
 
 ## Harvested
+
+**e0 browsergym base model** - done, 200 eval episodes, no adapter. held_out
+0.750 / 0.860 termination, shifted 0.870 / 0.900. Paired against e27 in
+`pipeline/runs/e27_e1_baseline_findings.md`.
 
 **e27 browsergym E1 baseline** - done, 300 steps + 200 eval episodes. held_out
 0.780 success / 0.900 termination, shifted 0.790 / 0.850, one generation-cap hit
