@@ -47,8 +47,24 @@ def _completion_budget(config, model_max_seq):
     return max_seq - max_prompt
 
 
-def _first_tool_call(msg: dict) -> tuple | None:
-    """(name, arguments) of the first tool call in a parsed assistant message.
+def _tool_calls(msg: dict) -> list[tuple]:
+    """Every (name, arguments) tool call in a parsed assistant message, in order.
+
+    All of them, not the first: a turn may request several actions at once, and
+    TRL's training loop executes every one of them
+    (`grpo_trainer.py`, "Call the tools, and build the new prompt"). An eval that
+    dispatched only the first put the policy in a state training never produces.
+    Both ways of doing that are wrong and both have run:
+
+    - Appending a stub rebuilt from the one dispatched call kept the transcript
+      self-consistent but not what training generates - the model re-requested
+      the dropped actions over later turns, inflating steps and tokens.
+    - Appending the parsed message while dispatching one call is worse: the
+      transcript then shows N tool calls answered by a single tool response, and
+      the model reads the unanswered ones as having succeeded. On
+      click-checkboxes-transfer, where one turn requests four clicks, it
+      announced the task complete after a single click and stopped. That cost 19
+      of 100 shifted episodes, every one of them a loss and none a gain.
 
     The message comes from `trl.chat_template_utils.parse_response`, the same
     function TRL uses to turn a rollout's token ids into a message during
@@ -69,14 +85,15 @@ def _first_tool_call(msg: dict) -> tuple | None:
     Arguments that are not a dict (a model emitting them pre-serialised, say)
     read as no arguments rather than raising.
     """
+    out = []
     for call in (msg.get("tool_calls") or []):
         fn = (call or {}).get("function") or {}
         name = fn.get("name")
         if name is None:
             continue
         args = fn.get("arguments")
-        return str(name), (args if isinstance(args, dict) else {})
-    return None
+        out.append((str(name), (args if isinstance(args, dict) else {})))
+    return out
 
 
 def _answer_from(msg: dict) -> str | None:
@@ -138,18 +155,20 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
                             tool_names, gen_cap=None, on_result=None):
     """Run n multi-turn episodes greedily, tool-agnostic.
 
-    turn_fn(messages, budget) -> (message, tool_name|None, arguments|None,
+    turn_fn(messages, budget) -> (message, [(tool_name, arguments), ...],
     n_tokens) produces one greedy model turn given the running message list and
     the tokens left in the episode's generation budget. Per episode: reset, then
-    up to max_turns turns; each turn that names one of the domain's tools
-    dispatches it on the env (the public adapter method of that name) and
-    appends the model's own message plus the tool feedback; the episode ends when
-    the model stops calling a known tool, the env reports done, or the budget
-    runs out. Restricting dispatch to `tool_names` keeps a hallucinated name (or
-    `reset`) from being invoked. This one loop drives every multi-turn domain -
-    textarena (move), finqa (the four data tools), repl (execute) - via the
+    up to max_turns turns; each turn dispatches *every* call naming one of the
+    domain's tools, in order, and appends the model's own message followed by one
+    tool response per call; the episode ends when the model stops calling a known
+    tool, the env reports done, or the budget runs out. Dispatching all of them
+    is what TRL does in training, and a turn that requests four clicks is common
+    on browsergym. Restricting dispatch to `tool_names` keeps a hallucinated name
+    (or `reset`) from being invoked. This one loop drives every multi-turn domain
+    - textarena (move), finqa (the four data tools), repl (execute) - via the
     parsed tool name. n_tokens is the trajectory total (model-only, exact);
-    n_steps is the count of calls that reached the env.
+    n_steps is the count of calls that reached the env, so a turn issuing several
+    calls counts several steps.
 
     `gen_cap` is the budget for the whole trajectory, matching training's
     max_completion_length, not a fresh allowance per turn.
@@ -177,27 +196,13 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
             if budget is not None and budget <= 0:
                 stop_reason = "hit_generation_cap"
                 break
-            msg, name, args, n_tok = turn_fn(messages, budget)
+            msg, turn_calls, n_tok = turn_fn(messages, budget)
             total_tokens += int(n_tok)
             turn_cap, budget = budget, (None if budget is None else budget - int(n_tok))
-            if name not in tool_names:
+            known = [(name, args) for name, args in turn_calls if name in tool_names]
+            if not known:
                 stop_reason = _no_call_reason(n_tok, turn_cap)
                 break
-            try:
-                feedback = getattr(env, name)(**(args or {}))
-            except Exception as e:
-                # Malformed model arguments (TypeError) become feedback rather
-                # than crashing the episode. Everything else used to propagate:
-                # an HTTP error from the env server, a reset connection, a bad
-                # observation would kill the process on episode 95 of 100 and
-                # discard all 95 trajectories, since the jsonl was only written
-                # after the whole split returned.
-                feedback = f"Tool call error: {type(e).__name__}: {e}"
-            else:
-                # Only a call that actually reached the env counts as a step.
-                # Counting a failed dispatch inflated n_steps and, through it,
-                # mean_verification_depth in the RQ2 panel.
-                calls.append(name)
             # The parsed message, not a stub. Rebuilding the turn as
             # {"content": ""} threw away the model's own reasoning, so turn N+1
             # ran on a context training never produced - TRL keeps every prior
@@ -205,9 +210,32 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
             # re-renders `reasoning_content` on a prior assistant turn, so
             # appending the parsed message reproduces that context.
             messages.append(msg)
-            messages.append({"role": "tool", "content": str(feedback)})
-            if getattr(env, "done", False):
-                stop_reason = "env_done"
+            # One tool response per call, because the message just appended
+            # advertises every one of them. Answering only the first leaves the
+            # rest looking like they succeeded, and the model acts on that.
+            for name, args in known:
+                try:
+                    feedback = getattr(env, name)(**(args or {}))
+                except Exception as e:
+                    # Malformed model arguments (TypeError) become feedback rather
+                    # than crashing the episode. Everything else used to propagate:
+                    # an HTTP error from the env server, a reset connection, a bad
+                    # observation would kill the process on episode 95 of 100 and
+                    # discard all 95 trajectories, since the jsonl was only written
+                    # after the whole split returned.
+                    feedback = f"Tool call error: {type(e).__name__}: {e}"
+                else:
+                    # Only a call that actually reached the env counts as a step.
+                    # Counting a failed dispatch inflated n_steps and, through it,
+                    # mean_verification_depth in the RQ2 panel.
+                    calls.append(name)
+                messages.append({"role": "tool", "content": str(feedback)})
+                if getattr(env, "done", False):
+                    stop_reason = "env_done"
+                    break
+            # A call that ended the episode stops the remaining calls in the same
+            # turn from being dispatched into a finished env.
+            if stop_reason == "env_done":
                 break
         r = float(env.reward)
         results.append(SampleResult(
@@ -470,11 +498,7 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
 
             def gen_turn(messages, budget):
                 msg, n_tok = _generate(messages, budget)
-                parsed = _first_tool_call(msg)
-                if parsed is None:
-                    return msg, None, None, n_tok
-                name, call_args = parsed
-                return msg, name, call_args, n_tok
+                return msg, _tool_calls(msg), n_tok
 
             print(f"Agentic eval [{split['name']}]: {n} episodes "
                   f"(seed_base={seed_base}, max_new_tokens={max_new})")

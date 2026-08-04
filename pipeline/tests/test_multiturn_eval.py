@@ -1,53 +1,63 @@
-from eval.agentic_eval import _first_tool_call, _run_multiturn_episodes
+from eval.agentic_eval import _run_multiturn_episodes, _tool_calls
 
 
-# --- _first_tool_call: first call of any name, off a parsed assistant message ---
+# --- _tool_calls: every call, in order, off a parsed assistant message ---
 # The message shape is what trl.chat_template_utils.parse_response returns - the
 # same function TRL applies to a rollout during training. Eval used to re-parse
 # the decoded text with its own regex, which is how the two ended up disagreeing.
 
-def _assistant(name=None, args=None, content="", reasoning=None):
-    """A parse_response-shaped assistant message."""
+def _assistant(name=None, args=None, content="", reasoning=None, extra=()):
+    """A parse_response-shaped assistant message.
+
+    `extra` appends further (name, args) calls, for the multi-call turns that
+    browsergym produces routinely.
+    """
     msg = {"role": "assistant", "content": content}
     if reasoning is not None:
         msg["reasoning_content"] = reasoning
     if name is not None:
         msg["tool_calls"] = [{"type": "function",
                               "function": {"name": name, "arguments": args or {}}}]
+        msg["tool_calls"] += [{"type": "function",
+                               "function": {"name": n, "arguments": a or {}}}
+                              for n, a in extra]
     return msg
 
 
-def test_first_tool_call_returns_name_and_args():
+def test_tool_calls_returns_name_and_args():
     msg = _assistant("move", {"message": "crane"})
-    assert _first_tool_call(msg) == ("move", {"message": "crane"})
+    assert _tool_calls(msg) == [("move", {"message": "crane"})]
 
 
-def test_first_tool_call_ignores_reasoning():
+def test_tool_calls_ignores_reasoning():
     # A JSON object quoted inside the think block is reasoning, not a call.
     msg = _assistant("move", {"message": "slate"},
                      reasoning='maybe {"name": "answer", "arguments": {"answer": "0"}}')
-    assert _first_tool_call(msg) == ("move", {"message": "slate"})
+    assert _tool_calls(msg) == [("move", {"message": "slate"})]
 
 
-def test_first_tool_call_none_without_call():
-    assert _first_tool_call(_assistant(content="no tool call here")) is None
+def test_tool_calls_empty_without_call():
+    assert _tool_calls(_assistant(content="no tool call here")) == []
 
 
-def test_first_tool_call_none_on_empty_tool_calls():
-    assert _first_tool_call({"role": "assistant", "tool_calls": []}) is None
+def test_tool_calls_empty_on_empty_tool_calls():
+    assert _tool_calls({"role": "assistant", "tool_calls": []}) == []
 
 
-def test_first_tool_call_non_dict_args_read_as_empty():
+def test_tool_calls_non_dict_args_read_as_empty():
     msg = {"role": "assistant", "tool_calls": [
         {"type": "function", "function": {"name": "move", "arguments": "prestringified"}}]}
-    assert _first_tool_call(msg) == ("move", {})
+    assert _tool_calls(msg) == [("move", {})]
 
 
-def test_first_tool_call_takes_the_first_of_several():
-    msg = _assistant("move", {"message": "a"})
-    msg["tool_calls"].append(
-        {"type": "function", "function": {"name": "quit", "arguments": {}}})
-    assert _first_tool_call(msg) == ("move", {"message": "a"})
+def test_tool_calls_returns_every_call_in_order():
+    # Not just the first. TRL executes all of them during training, and a turn
+    # requesting four clicks is the normal shape on browsergym.
+    msg = _assistant("click", {"bid": "30"},
+                     extra=[("click", {"bid": "24"}), ("click", {"bid": "36"})])
+    assert _tool_calls(msg) == [("click", {"bid": "30"}),
+                                ("click", {"bid": "24"}),
+                                ("click", {"bid": "36"})]
 
 
 # --- _run_multiturn_episodes: drive a scripted game with an injected turn fn ---
@@ -87,8 +97,9 @@ def _msgs(o):
 
 
 def _turn(name, args, n_tok, **kw):
-    """A scripted turn_fn result: (message, tool name, args, tokens)."""
-    return _assistant(name, args, **kw), name, args, n_tok
+    """A scripted turn_fn result: (message, [(name, args), ...], tokens)."""
+    msg = _assistant(name, args, **kw)
+    return msg, _tool_calls(msg), n_tok
 
 
 def _scripted(*turns):
@@ -157,6 +168,86 @@ def test_multiturn_keeps_the_models_own_reasoning_in_context():
     assert len(seen) == 2
     assistant = [m for m in seen[1] if m.get("role") == "assistant"]
     assert assistant and assistant[0].get("reasoning_content") == "crane splits vowels"
+
+
+# --- a turn requesting several calls dispatches all of them ---
+# The failure this guards against, measured on seed 200051 of e27's shifted
+# split: the model emitted four clicks in one turn, the loop dispatched the
+# first and appended the message advertising all four, and the next turn saw
+# four tool calls answered by one tool response. The model read the three
+# unanswered ones as having succeeded, announced the task complete, and stopped.
+# 19 of 100 shifted episodes were lost that way, every one a loss and none a
+# gain. TRL dispatches every call during training (grpo_trainer.py, "Call the
+# tools, and build the new prompt"), so this is also what the policy trained on.
+
+class _ClickEnv:
+    """Done once every required bid has been clicked, in any order."""
+
+    def __init__(self, required):
+        self.required, self.clicked, self.done = set(required), set(), False
+
+    def reset(self, seed=0):
+        self.clicked, self.done = set(), False
+        return "page"
+
+    def click(self, bid):
+        self.clicked.add(bid)
+        self.done = self.required <= self.clicked
+        return f"clicked {bid}"
+
+    @property
+    def reward(self):
+        return 1.0 if self.done else 0.0
+
+
+def test_every_call_in_a_turn_is_dispatched():
+    env = _ClickEnv({"30", "24", "36"})
+    rs = _run_multiturn_episodes(
+        env, 1, 0,
+        _scripted(_turn("click", {"bid": "30"}, 40,
+                        extra=[("click", {"bid": "24"}), ("click", {"bid": "36"})])),
+        max_turns=8, make_messages=_msgs, tool_names={"click"})
+    assert env.clicked == {"30", "24", "36"}
+    assert rs[0].correct is True and rs[0].stop_reason == "env_done"
+    assert rs[0].n_steps == 3          # three calls reached the env, in one turn
+    assert rs[0].tool_calls == ["click", "click", "click"]
+
+
+def test_each_dispatched_call_gets_its_own_tool_response():
+    # N calls advertised, N responses. The transcript the next turn sees must not
+    # leave a call unanswered, or the model treats it as having succeeded.
+    env = _ClickEnv({"30", "24", "99"})   # never completes, so the loop runs on
+    seen = []
+
+    def turn_fn(messages, budget):
+        seen.append(list(messages))
+        return _turn("click", {"bid": "30"}, 10, extra=[("click", {"bid": "24"})])
+
+    _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=2,
+                            make_messages=_msgs, tool_names={"click"})
+    roles = [m["role"] for m in seen[1]]
+    assert roles == ["user", "assistant", "tool", "tool"]
+
+
+def test_calls_after_the_env_is_done_are_not_dispatched():
+    # A turn may request more actions than the episode needs. Once the env is
+    # done the rest must not run into a finished env.
+    env = _ClickEnv({"30"})
+    rs = _run_multiturn_episodes(
+        env, 1, 0,
+        _scripted(_turn("click", {"bid": "30"}, 12, extra=[("click", {"bid": "99"})])),
+        max_turns=8, make_messages=_msgs, tool_names={"click"})
+    assert env.clicked == {"30"}
+    assert rs[0].n_steps == 1 and rs[0].stop_reason == "env_done"
+
+
+def test_unknown_names_are_filtered_but_known_ones_still_run():
+    env = _ClickEnv({"30"})
+    rs = _run_multiturn_episodes(
+        env, 1, 0,
+        _scripted(_turn("reset", {}, 9, extra=[("click", {"bid": "30"})])),
+        max_turns=8, make_messages=_msgs, tool_names={"click"})
+    assert env.clicked == {"30"} and rs[0].n_steps == 1
 
 
 # --- the generation budget covers the whole trajectory, not each turn ---

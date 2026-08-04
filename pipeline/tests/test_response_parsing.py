@@ -17,7 +17,7 @@ pytest.importorskip("trl")
 from transformers import AutoTokenizer                       # noqa: E402
 from trl.chat_template_utils import add_response_schema, parse_response  # noqa: E402
 
-from eval.agentic_eval import _answer_from, _first_tool_call  # noqa: E402
+from eval.agentic_eval import _answer_from, _tool_calls  # noqa: E402
 
 QWEN = "Qwen/Qwen3-1.7B"
 LLAMA = "unsloth/Llama-3.2-1B-Instruct"
@@ -58,18 +58,18 @@ def test_qwen_truncated_call_is_not_a_call(qwen):
     msg = _parse(qwen, '<think>17+25</think>\n<tool_call>\n'
                        '{"name": "answer", "arguments": {"answer": "42"}}')
     assert _answer_from(msg) is None
-    assert _first_tool_call(msg) is None
+    assert _tool_calls(msg) == []
 
 
 def test_qwen_json_quoted_in_think_is_not_a_call(qwen):
     msg = _parse(qwen, '<think>maybe {"name": "answer", "arguments": '
                        '{"answer": "0"}} hmm</think>\nI give up.')
     assert _answer_from(msg) is None
-    assert _first_tool_call(msg) is None
+    assert _tool_calls(msg) == []
 
 
 def test_qwen_prose_only_is_not_a_call(qwen):
-    assert _first_tool_call(_parse(qwen, "I think the answer is 42.")) is None
+    assert _tool_calls(_parse(qwen, "I think the answer is 42.")) == []
 
 
 # --- Llama 3.x: untagged, `parameters` rather than `arguments` ---
@@ -81,11 +81,11 @@ def test_llama_untagged_call_is_parsed(llama):
 
 def test_llama_multi_tool_call_is_parsed(llama):
     msg = _parse(llama, '{"name": "click", "parameters": {"bid": "17"}}')
-    assert _first_tool_call(msg) == ("click", {"bid": "17"})
+    assert _tool_calls(msg) == [("click", {"bid": "17"})]
 
 
 def test_llama_prose_only_is_not_a_call(llama):
-    assert _first_tool_call(_parse(llama, "I think the answer is 42.")) is None
+    assert _tool_calls(_parse(llama, "I think the answer is 42.")) == []
 
 
 # --- the context the multi-turn loop rebuilds must keep the reasoning ---

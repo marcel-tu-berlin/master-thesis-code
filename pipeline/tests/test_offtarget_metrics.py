@@ -94,12 +94,14 @@ def _msgs(o):
 
 
 def _turn(name, args, n_tok):
-    """A turn_fn result: (parsed assistant message, tool name, args, tokens)."""
+    """A turn_fn result: (parsed assistant message, [(name, args), ...], tokens)."""
     msg = {"role": "assistant", "content": ""}
+    calls = []
     if name is not None:
         msg["tool_calls"] = [{"type": "function",
                               "function": {"name": name, "arguments": args or {}}}]
-    return msg, name, args, n_tok
+        calls = [(name, args or {})]
+    return msg, calls, n_tok
 
 
 def _run(scripted, max_turns=6, gen_cap=1024):
