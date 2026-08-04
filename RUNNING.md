@@ -3,7 +3,7 @@
 What is executing on the GPU box (`ssh gpu-l4`). Rows leave the table once the
 results are harvested. Update rules are in CLAUDE.md.
 
-Updated: 2026-08-04 14:25 UTC (box time)
+Updated: 2026-08-04 16:49 UTC (box time)
 
 | run | phase | pid | started | ETA |
 |---|---|---|---|---|
@@ -19,10 +19,38 @@ throughout, which is the check that the adapter is not talking to a stale server
 `tools/call_frequency` runs 1.0 to 4.25, so multi-call turns are as real in
 training as the eval fix now assumes.
 
-One number to revisit around step 50: `clipped_ratio` hit 0.375 at step 2. That
-is inside the pre-fix run's own range (mean 0.025, max 0.500, clipping on 42 of
-300 steps) so it is not a new problem at n=6, but e28's `max_len: 4096` was
-chosen off those pre-fix lengths and a sustained rise would undercut it.
+**Clipping recheck at step 98: closed, e28's `max_len: 4096` stands.** The step-2
+`clipped_ratio` of 0.375 was noise. Over the same first 98 logged steps:
+
+```
+                 clipped_ratio             mean_len  max_len  reward  frac_zero_std
+NEW  post-fix    mean 0.022  max 0.375  12/98   1448     3842    0.744    0.47
+OLD  pre-fix     mean 0.026  max 0.375  15/98   1524     3951    0.634    0.48
+```
+
+Marginally less clipping than before, and the longest completion is still under
+the cap. `tools/failure_frequency` is 0.000 on all 98 steps.
+
+**The seed-block fix breaks the e0 pairing, and e0 must be re-evaluated.** Mean
+reward runs 0.744 against the old run's 0.634 over the same steps - same config,
+so that is seed 42 landing on different training questions. The same shift moves
+the eval: `runs/e0-browsergym-base-qwen3-1_7b/episodes_held_out.jsonl` holds seeds
+100042..100141, while the retrained e27 will score `seed_block(42) + 100000` =
+42100000..42100099. Zero overlap, so the paired McNemar in
+`e27_e1_baseline_findings.md` - which is what made the shifted transfer loss
+significant at p=0.021 - cannot be recomputed against the new e27.
+
+One re-eval fixes both open problems, because e0's token figures also carry the
+~400/episode multi-call inflation that the "+247 median tokens" result rests on.
+Preserve the existing directory first, the same way e27's was, since
+`--base-model` writes into `runs/<experiment_id>/` regardless:
+
+```
+mv runs/e0-browsergym-base-qwen3-1_7b runs/e0-PREFIXCODE-browsergym-base-qwen3-1_7b
+cd /workspace/master-thesis-code/pipeline && setsid nohup ../.venv/bin/python -m eval.runner \
+  --config configs/e0-browsergym-base-qwen3-1_7b.yaml --base-model \
+  > /workspace/e0_reeval.log 2>&1 < /dev/null &
+```
 
 Log at `/workspace/e27_retrain.log`. The pre-fix-code run is preserved at
 `runs/e27-PREFIXCODE-browsergym-e1-baseline-qwen3-1_7b/` rather than overwritten,
@@ -137,9 +165,12 @@ paired probe above clears them. Both the eval loop and the training path changed
 so nothing measured before today is comparable to anything measured after. Two
 GPU jobs, in order:
 
-1. Retrain e27 + eval (~12h). Required because the seed-block fix changes which
-   questions seed 42 trains on, and e28/e29 must share e27's scheme.
-2. Launch e28/e29 (~20h).
+1. **Running now:** retrain e27 + eval (~14h). Required because the seed-block fix
+   changes which questions seed 42 trains on, and e28/e29 must share e27's scheme.
+2. Re-eval e0 on the new seed scheme (~3.3h), command above. Blocks the
+   e0-vs-e27 pairing and the "+247 median tokens" re-derivation, both of which
+   `e27_e1_baseline_findings.md` currently rests on.
+3. Launch e28/e29 (~20h).
 
 `runs/e27-.../eval_report_pre_fix.json` is the pre-fix reference (100 episodes
 per split, held_out 0.780, shifted 0.790). Do not delete it until step 1's diff
