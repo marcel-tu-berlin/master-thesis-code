@@ -3,9 +3,18 @@
 What is executing on the GPU box (`ssh gpu-l4`). Rows leave the table once the
 results are harvested. Update rules are in CLAUDE.md.
 
-Updated: 2026-08-04 13:42 UTC (box time)
+Updated: 2026-08-04 14:08 UTC (box time)
 
-Nothing running. GPU free. Next launch is the e27 retrain (see Queued below).
+| run | phase | pid | started | ETA |
+|---|---|---|---|---|
+| e27 retrain | train 300 steps, then eval 200 eps | 1008154 (batch) / 1008156 (train) | 14:07 UTC Aug 4 | ~02:00 UTC Aug 5 |
+
+Log at `/workspace/e27_retrain.log`. The pre-fix-code run is preserved at
+`runs/e27-PREFIXCODE-browsergym-e1-baseline-qwen3-1_7b/` rather than overwritten,
+because it holds `eval_report_pre_fix.json` and the episode files the paired
+probe was measured against, plus its own checkpoints. The retrain therefore
+writes into a clean `runs/e27-browsergym-e1-baseline-qwen3-1_7b/` and the
+overwrite guard stays armed.
 
 ## The eval dispatched one tool call per turn. TRL dispatches all of them.
 
@@ -147,11 +156,15 @@ predicate wants `checkpoint-final` to skip training, so the partial directory
 will not be mistaken for a finished run:
 
 ```
-cd /workspace/master-thesis-code/pipeline && nohup .venv/bin/python -m training.batch \
+cd /workspace/master-thesis-code/pipeline && setsid nohup ../.venv/bin/python -m training.batch \
   configs/e28-browsergym-e2-cosine-qwen3-1_7b.yaml \
   configs/e29-browsergym-e3-nontermination-qwen3-1_7b.yaml \
-  --train --eval --force > /workspace/e28_e29_batch.log 2>&1 &
+  --train --eval --force > /workspace/e28_e29_batch.log 2>&1 < /dev/null &
 ```
+
+The venv is at the repo root, so it is `../.venv/bin/python` from `pipeline/`;
+an earlier version of this command said `.venv/bin/python` and would have died on
+the spot. `setsid` and `< /dev/null` are what let the job outlive the ssh drops.
 
 Budget about 8.7h for e28 train at the observed 105 s/it, then its eval, then e29
 in full - roughly 20h for the pair. Check :8080 and :8000 first, per the launch
