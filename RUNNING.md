@@ -3,79 +3,119 @@
 What is executing on the GPU box (`ssh gpu-l4`). Rows leave the table once the
 results are harvested. Update rules are in CLAUDE.md.
 
-Updated: 2026-08-03 23:45 UTC (box time)
+Updated: 2026-08-04 13:42 UTC (box time)
 
-| run | phase | pid | started | ETA |
-|---|---|---|---|---|
-| e27paired-oldseeds | eval, 200 eps | 931071 | 23:42 UTC | ~03:10 UTC |
+Nothing running. GPU free. Next launch is the e27 retrain (see Queued below).
 
-## e27 post-fix re-eval: DONE, unharvested - and the ssh drop killed nothing
+## The eval dispatched one tool call per turn. TRL dispatches all of them.
 
-It finished at 22:31 UTC while the connection was down. The previous entry here
-said the run had died with the box; it had not. `setsid`/`nohup` held, and the
-DevPod outage only cut my view of it. That is now the second observation of
-container processes surviving an ssh outage (2026-08-02 was the first), so the
-rule in Traps below stands: check `pgrep` on reconnect before assuming anything
-died, and never relaunch on a refused connection.
+Found 2026-08-04 by the paired probe, which is the only reason it was found: the
+unpaired re-eval showed the same drop and blamed it on the sample.
 
-Results, both splits at n=100, against the pre-fix reference:
+The first paired run (kept at `runs/e27paired-oldseeds-MULTICALLBUG-qwen3-1_7b/`)
+came back held_out 0.780 -> 0.750 and shifted 0.790 -> **0.600**, with **19
+losses and 0 gains** on shifted. One-directional, so not noise.
+
+Replaying the worst seed (200051, `python /workspace/debug_turn.py 200051 6`)
+showed what happens. The model emits four clicks in one turn - bb, Gppj, Cxrb,
+Submit, exactly the task. The loop dispatched the first and appended the parsed
+message advertising all four. The next turn's prompt therefore held four
+`<tool_call>` blocks answered by a single `<tool_response>`, and the model read
+the three unanswered ones as having succeeded: *"The task is complete. The
+checkboxes have been selected, and the Submit button has been clicked."* No tool
+call, episode over, scored wrong.
+
+Both eval behaviours were wrong, in different ways:
+
+- **Before the review fixes**, the loop appended a stub rebuilt from the one
+  dispatched call. Self-consistent, so the model just re-requested the dropped
+  clicks over later turns and got there eventually - at 4 steps and 2848 tokens.
+  Divergent from training, and it inflated tokens and steps on every multi-click
+  task.
+- **After them**, appending the parsed message while still dispatching one call
+  made the transcript inconsistent, which is what cost the 19 episodes.
+
+`trl/trainer/grpo_trainer.py` ("Call the tools, and build the new prompt")
+appends the full assistant message and then loops over `tool_call_list`,
+executing every call. Training has always done this. So the fix is to dispatch
+all of them and append one tool response per call, which is now what
+`_run_multiturn_episodes` does (`_first_tool_call` became `_tool_calls`).
+
+Verified on the same seed: four calls dispatched, env done, reward 1.0, **915
+tokens in one turn** against 2848 in four. 253 tests on the box, 240 locally,
+including four new ones in `test_multiturn_eval.py` that pin the multi-call
+transcript shape.
+
+**Consequences for numbers already written up.** Training is unaffected - TRL
+did this correctly all along, so e27's policy is fine. Every eval number ever
+produced by this pipeline was measured one-call-per-turn, which on multi-click
+families overstates tokens and steps by roughly 3x. e0-vs-e27 in
+`e27_e1_baseline_findings.md` is still internally valid, since both arms were
+measured the same way, but its absolute token figures are not comparable to
+anything measured after today and the "+247 median tokens" result there needs
+re-deriving before it is cited.
+
+## The paired probe: the fixes are clean, and the eval got harder on purpose
+
+`e27paired-oldseeds` finished 12:17 UTC, 200 episodes, post-fix code over the
+pre-fix question set. Diff with `/workspace/paired_diff.py`.
 
 ```
-held_out  accuracy 0.780 -> 0.740   steps 1.78 -> 2.36   tokens 1711 -> 1419
-shifted   accuracy 0.790 -> 0.660   steps 1.94 -> 1.60   tokens 1231 ->  749
-stop_reasons held_out  pre {done 90, no_tool_call 10}
-                      post {done 89, max_turns 8, no_tool_call 3}
-stop_reasons shifted   pre {done 85, no_tool_call 14, hit_generation_cap 1}
-                      post {done 68, max_turns 3, no_tool_call 29}
+                        held_out            shifted
+accuracy         0.780 -> 0.750      0.790 -> 0.780
+flips            3 lost / 0 gained   2 lost / 1 gained
+both-correct     28 shorter/5 longer 34 shorter/0 longer
+                 mean -319.4 tok     mean -271.2 tok
+
+pooled n=200  McNemar lost 5 gained 1  p=0.219
+token sign test  held_out p=6.6e-05   shifted p=1.2e-10
+all episodes  mean -396.1 tokens
 ```
 
-**This diff does not measure the code fixes, and must not be quoted as if it
-did.** The seed-block fix moved the eval seeds from `seed + offset` to
-`seed_block(seed) + offset`, so the pre-fix run scored seeds 100042..100141 and
-200042..200141 while the post-fix run scored 42100000..42100099 and
-42200000..42200099. Zero overlap. Every number above is a different sample of 100
-MiniWoB instances, and the accuracy change mixes the code change with a fresh
-draw. The task mix is at least held constant - browsergym picks
-`tasks[seed % len]` and both bases are even, so both runs are 50/50.
+Accuracy does not move detectably. Token count does, hard, in one direction:
+shifted has zero episodes that got *longer* out of 77 both-correct pairs. A
+further 15 held_out and 10 shifted episodes were relabelled without changing
+correctness, e.g. `no_tool_call/2st/3746tok -> max_turns/8st/2864tok` - same
+failure, honest stop reason, 900 fewer phantom tokens. Mean steps rise (1.78 ->
+2.33) because a step is now a dispatched call, so a four-click turn counts four.
 
-Three of the four predictions held: `mean_token_count_correct` is present,
-thresholds are pinned to e0's (held_out P10=243.9 P75=2484, shifted P10=261.7
-P75=2017.5), and `"smoke": false` is recorded. The fourth was wrong in a way
-worth keeping: `hit_generation_cap` did not appear, it *disappeared* (1 -> 0),
-and a `max_turns` bucket showed up that the pre-fix loop could never report.
-That is the expected consequence of the trajectory-budget fix - the budget is now
-spent across the whole trajectory instead of being handed to every turn afresh -
-but the direction is the opposite of what I predicted.
+**All five losses were replayed under both loop modes** (`debug_turn.py <seed>
+10 [--first-only]`, where `--first-only` reproduces the pre-fix dispatch). Two
+distinct mechanisms, both of them the old loop handing the model information
+that training never gives it:
 
-**e27paired-oldseeds resolves it.** It runs the post-fix code over the pre-fix
-question set, making the comparison paired. `seed_block(0) == 0`, so `seed: 0`
-with `seed_offset: 100042 / 200042` reproduces the old seed bases exactly; every
-other field is copied from the post-fix run. Config at
-`/workspace/e27paired-oldseeds.yaml` (deliberately outside the repo - it is a
-diagnostic, not an arm). Against `eval_report_pre_fix.json` it isolates the code
-change; against `eval_report.json` it isolates the sample.
+- **The pre-fix stub dropped `reasoning_content`.** Seed 100106, turn 0 is
+  byte-identical in both modes. Turn 1's prompt is 1732 tokens post-fix against
+  548 pre-fix, and the gap is the model's own 1204-token think block. Rebuilding
+  a stub from `{name, arguments}` silently discarded it. With the think block in
+  context the model clicks bid 44 and scores 0; without it, bid 41 and scores 1.
+- **The pre-fix loop bought extra observations with the dropped calls.** Seed
+  200063, the model asks for clicks 21/24/27/32 in one turn. Post-fix dispatches
+  all four blind, the 4th bid is wrong, and the next turn declares the task
+  complete. Pre-fix dispatched only 21, so the model saw three more page states
+  and revised its way to 21/27/24/36, which is right.
 
-Do not start the retrain until this lands. The whole point of re-evaluating a
-fixed checkpoint was to check the fixes before spending 32 GPU-hours on them,
-and right now the largest observed move is unattributed.
+**TRL concatenates, it does not re-render**, which settles which behaviour is
+faithful: `grpo_trainer.py:1578` is commented "Build token IDs by concatenation:
+prompt + completion + tool_suffix", and line 1590 does
+`prompt_ids + completion_ids + suffix_ids`. The raw generated tokens carry the
+think block forward verbatim, and every call in `tool_call_list` is dispatched.
+The post-fix eval re-renders through `apply_chat_template` instead, but arrives
+at the same content - 401 prompt + 1204 completion + ~127 tool and framing = the
+1732 observed. So both flip mechanisms are the eval ceasing to be easier than
+training. Pre-fix accuracy was optimistic by about 2pp (ns) and long by about 400
+tokens.
 
-Read progress from `episodes_held_out.jsonl` (written and flushed per episode
-since the C6 fix), NOT from the log - Python block-buffers stdout to a file, so
-the log sits frozen at model loading for the whole run.
+## Queued
 
-## Queued after the paired probe
+All 16 review fixes are applied and verified (`pipeline/FIX_PLAN.md`), and the
+paired probe above clears them. Both the eval loop and the training path changed,
+so nothing measured before today is comparable to anything measured after. Two
+GPU jobs, in order:
 
-All 16 review fixes are applied and verified (`pipeline/FIX_PLAN.md`). Both the
-eval loop and the training path changed, so nothing measured before today is
-comparable to anything measured after. Three GPU jobs, in order:
-
-1. **RUNNING NOW: e27paired-oldseeds** (~3.5h). The unpaired re-eval above could
-   not attribute its own biggest move, so this repeats it on the pre-fix seeds.
-   Blocking, because items 2 and 3 cost 32 GPU-hours on the assumption that the
-   fixes are right.
-2. Retrain e27 + eval (~12h). Required because the seed-block fix changes which
+1. Retrain e27 + eval (~12h). Required because the seed-block fix changes which
    questions seed 42 trains on, and e28/e29 must share e27's scheme.
-3. Launch e28/e29 (~20h).
+2. Launch e28/e29 (~20h).
 
 `runs/e27-.../eval_report_pre_fix.json` is the pre-fix reference (100 episodes
 per split, held_out 0.780, shifted 0.790). Do not delete it until step 1's diff
@@ -344,12 +384,32 @@ E2 and E3 results have to be read against the click-menu-2 half. Detail in
   never with an import.
 - **`ss` is not installed on the box.** `ss ... | grep` prints nothing whether or
   not the port is held, which reads as "port free". Use `pgrep -af server.app`.
+- **Read eval progress from `runs/<exp>/episodes_<split>.jsonl`, not from the
+  log.** Episodes are written and flushed one per line, but Python block-buffers
+  stdout to a file, so the log sits frozen at "loading model" for the whole run
+  and reads like a hang.
 - **Never write a watcher as `while pgrep -f '<pattern>'; do sleep N; done`.** The
   watcher's own command line contains the pattern, so it matches itself and spins
   forever after the job it watches exits. Three have been killed this way (273631,
   297350, 908606). Poll the output file instead, or match on the pid.
 
 ## Harvested
+
+**e27paired-oldseeds** - done, 200 episodes, harvested into the section above.
+Diagnostic, not an arm: config at `/workspace/e27paired-oldseeds.yaml`, kept
+outside the repo on purpose. `seed_block(0) == 0`, so `seed: 0` with
+`seed_offset: 100042 / 200042` reproduces the pre-fix seed bases exactly. The
+run with the multi-call bug is preserved at
+`runs/e27paired-oldseeds-MULTICALLBUG-qwen3-1_7b/`.
+
+**The unpaired post-fix re-eval in `runs/e27-.../eval_report.json` must not be
+quoted as a measurement of the fixes.** The seed-block fix moved eval seeds from
+`seed + offset` to `seed_block(seed) + offset`, so it scored 42100000..42100099
+and 42200000..42200099 against the pre-fix run's 100042..100141 and
+200042..200141. Zero overlap, so its accuracy change mixes the code change with a
+fresh draw of 100 MiniWoB instances - which is exactly how the multi-call bug
+nearly got dismissed as sample noise. `eval_report_pre_fix.json` is the pre-fix
+reference (held_out 0.780, shifted 0.790); keep it.
 
 **e0 browsergym base model** - done, 200 eval episodes, no adapter. held_out
 0.750 / 0.860 termination, shifted 0.870 / 0.900. Paired against e27 in
