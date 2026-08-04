@@ -3,11 +3,26 @@
 What is executing on the GPU box (`ssh gpu-l4`). Rows leave the table once the
 results are harvested. Update rules are in CLAUDE.md.
 
-Updated: 2026-08-04 14:08 UTC (box time)
+Updated: 2026-08-04 14:25 UTC (box time)
 
 | run | phase | pid | started | ETA |
 |---|---|---|---|---|
-| e27 retrain | train 300 steps, then eval 200 eps | 1008154 (batch) / 1008156 (train) | 14:07 UTC Aug 4 | ~02:00 UTC Aug 5 |
+| e27 retrain | train 300 steps, then eval 200 eps | 1008154 (batch) / 1008156 (train) | 14:07 UTC Aug 4 | ~04:00 UTC Aug 5 |
+
+Rate settled at 115-131 s/it after a fast first step, so train ends about 00:45
+UTC and the 200-episode eval adds roughly 3h.
+
+**Step-6 health check passed.** `frac_reward_zero_std` averages 0.50 at mean
+reward 0.708, against the 0.70 at mean reward 0.931 that got attempt 1 killed for
+saturation, so half the steps carry gradient. `tools/failure_frequency` is 0.00
+throughout, which is the check that the adapter is not talking to a stale server.
+`tools/call_frequency` runs 1.0 to 4.25, so multi-call turns are as real in
+training as the eval fix now assumes.
+
+One number to revisit around step 50: `clipped_ratio` hit 0.375 at step 2. That
+is inside the pre-fix run's own range (mean 0.025, max 0.500, clipping on 42 of
+300 steps) so it is not a new problem at n=6, but e28's `max_len: 4096` was
+chosen off those pre-fix lengths and a sustained rise would undercut it.
 
 Log at `/workspace/e27_retrain.log`. The pre-fix-code run is preserved at
 `runs/e27-PREFIXCODE-browsergym-e1-baseline-qwen3-1_7b/` rather than overwritten,
