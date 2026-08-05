@@ -3,10 +3,39 @@
 What is executing on the GPU box (`ssh gpu-l4`). Rows leave the table once the
 results are harvested. Update rules are in CLAUDE.md.
 
-Updated: 2026-08-05 23:10 UTC (box time)
+Updated: 2026-08-05 23:20 UTC (box time)
 
-Nothing running. GPU free. Nothing should launch until the batch-size question
-below is decided - every run so far has been trained one prompt at a time.
+| run | phase | pid | started | ETA |
+|---|---|---|---|---|
+| e27bs8probe | train only, 40 steps, batch_size 8 | 1877378 (batch) / 1877380 (train) | 23:20 UTC Aug 5 | 3-8h, rate-dependent |
+
+## e27bs8probe: does raising batch_size restore the gradient?
+
+`batch_size: 8`, `max_steps: 40`, everything else identical to e27 - the `diff`
+is three lines. Train only: 40 steps cannot produce a good policy, so an eval
+would burn 3h measuring nothing. The question is whether the gradient signal
+works, and that is answered from `train_log.json`.
+
+**The right yardstick is "steps with any gradient", not
+`frac_reward_zero_std`.** That metric is the fraction of prompt-*groups* with
+zero variance, so at batch_size 8 it should stay near 0.47 - roughly half of
+individual prompts saturate either way. What must change is that a step now
+draws on 8 groups instead of 1, so a step is dead only if all 8 saturate at
+once: expected to go from ~50% of steps to ~99%.
+
+Pass looks like: steps-with-gradient near 100%, and a reward curve that acquires
+a trend instead of wandering. Fail looks like either unchanged, which would mean
+the batch size was never the constraint.
+
+Resource check before launch: 188 GB RAM with 174 free, 48 CPUs, GPU empty, so
+64 concurrent playwright browsers are affordable. `max_concurrent=64` confirmed
+in the launch banner.
+
+ASSUMPTION: `gpu_memory_utilization: 0.30` leaves vLLM about 7 GB of KV cache,
+which cannot hold 64 sequences at 4096 tokens simultaneously. vLLM schedules
+within its budget rather than failing, so this costs step rate, not correctness.
+The step rate is being watched to confirm; if it scales linearly with completions
+(about 750 s/it) the run takes 8.4h, and if vLLM batches well it is far less.
 
 ## ROOT CAUSE: every optimizer step trains on a single prompt
 
