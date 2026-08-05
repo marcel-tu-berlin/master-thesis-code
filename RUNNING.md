@@ -3,28 +3,73 @@
 What is executing on the GPU box (`ssh gpu-l4`). Rows leave the table once the
 results are harvested. Update rules are in CLAUDE.md.
 
-Updated: 2026-08-05 11:15 UTC (box time)
+Updated: 2026-08-05 23:10 UTC (box time)
 
-| run | phase | pid | started | ETA |
-|---|---|---|---|---|
-| e27rep2 (replication) | train 300 steps, then eval 200 eps | 1477866 (batch) / 1477868 (train) | 11:15 UTC Aug 5 | ~22:30 UTC |
+Nothing running. GPU free. Nothing should launch until the batch-size question
+below is decided - every run so far has been trained one prompt at a time.
 
-## e27rep2: is the 13pp swing the question draw or run noise?
+## ROOT CAUSE: every optimizer step trains on a single prompt
 
-Identical config, identical seed 42, identical post-fix code, identical question
-set. `diff` against the config that produced the 0.620 run is exactly one line,
-`experiment_id`. The only thing that varies is run nondeterminism (vLLM sampling,
-CUDA).
+`batch_size` is not set in any browsergym config, and `grpo_runner.py:105`
+defaults it to 1:
 
-This decides the experimental design, which is why it runs before any arm:
+```
+total_completions = batch_size(1) * n_rollouts(8) = 8
+micro = 1  ->  grad_accum = 8  ->  one optimizer step = ONE prompt-group
+```
 
-- Lands near **0.620** -> the question draw is the cause. e27/e28/e29 at seed 42
-  share training and eval questions, the draw cancels in the paired comparison,
-  and one seed per arm is defensible.
-- Lands anywhere **else** -> run noise alone is 13pp, nothing cancels, and every
-  arm needs three seeds (~72h for the three).
+When all 8 rollouts of that one prompt share a correctness label the group has
+zero advantage variance and the step contributes nothing. Measured across three
+runs, that is about half of them:
 
-Config `/workspace/e27rep2.yaml`, log `/workspace/e27rep2.log`.
+```
+        reward by third              frac_reward_zero_std   steps with ANY gradient
+run1    0.746  0.650  0.708                0.473                158/300
+run2    0.750  0.674  0.723                0.500                150/300
+old     0.631  0.677  0.728                0.460                162/300
+```
+
+So each run is roughly 150 gradient updates, each derived from a single
+question. That explains all three symptoms at once and needs no other cause: no
+learning trend in any run, half the steps dead, and a parameter trajectory
+dominated by which few prompts happened to produce signal.
+
+**e27rep2 measured the consequence.** Identical config, identical seed 42,
+identical question set - `diff` against the run that produced 0.650 is one line,
+`experiment_id`:
+
+```
+held_out    click-menu-2     0.400 -> 0.280   lost 7 gained 1   p=0.070
+            click-dialog-2   0.900 -> 0.840   lost 3 gained 0   p=0.250
+            OVERALL          0.650 -> 0.560
+shifted     OVERALL          0.820 -> 0.800
+```
+
+Run nondeterminism alone moves held_out 9pp. The question draw was never the
+main cause, and one seed per arm is not defensible as things stand.
+
+**Token noise is smaller than accuracy noise**, which matters because token
+efficiency is the actual outcome:
+
+```
+correct-episode median tokens, two identical runs        n
+  click-dialog-2               244 ->  278   +14%       42
+  click-checkboxes-transfer    581 ->  513   -12%       45
+  navigate-tree                312 ->  312     0%       34
+  click-menu-2                1290 -> 1636   +27%       13  (small n)
+```
+
+About +/-13% on the well-populated families, against the -24% the e24/e25 poly
+pair measured for a cosine arm. Roughly 2x noise: marginal at one seed,
+workable at three - but only once training does something at all.
+
+**Nothing should launch until batch_size is decided.** Raising it to 4-8 makes
+zero-variance steps nearly impossible (every prompt in the batch would have to
+saturate) and cuts gradient variance proportionally, but multiplies generation
+cost per step. At a fixed ~8h budget the trade is 300 single-prompt steps
+against roughly 37 eight-prompt steps, and 37 optimizer steps at LoRA LR 5e-6 is
+probably too few. Doing this properly looks like 20-60h per run, which is a
+change to the compute budget of the whole thesis, not a config tweak.
 
 ## ANSWERED TWICE: no bug. e27 at n=1 is not a usable baseline.
 
