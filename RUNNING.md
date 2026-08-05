@@ -3,42 +3,71 @@
 What is executing on the GPU box (`ssh gpu-l4`). Rows leave the table once the
 results are harvested. Update rules are in CLAUDE.md.
 
-Updated: 2026-08-04 16:49 UTC (box time)
+Updated: 2026-08-05 01:35 UTC (box time)
 
 | run | phase | pid | started | ETA |
 |---|---|---|---|---|
-| e27 retrain | train 300 steps, then eval 200 eps | 1008154 (batch) / 1008156 (train) | 14:07 UTC Aug 4 | ~04:00 UTC Aug 5 |
+| e27retrain-oldseeds | eval, 200 eps | 1408788 | 01:35 UTC Aug 5 | ~04:50 UTC |
 
-Rate settled at 115-131 s/it after a fast first step, so train ends about 00:45
-UTC and the 200-episode eval adds roughly 3h.
+## The retrained e27 dropped on the family it trains on. Cause not yet known.
 
-**Step-6 health check passed.** `frac_reward_zero_std` averages 0.50 at mean
-reward 0.708, against the 0.70 at mean reward 0.931 that got attempt 1 killed for
-saturation, so half the steps carry gradient. `tools/failure_frequency` is 0.00
-throughout, which is the check that the adapter is not talking to a stale server.
-`tools/call_frequency` runs 1.0 to 4.25, so multi-call turns are as real in
-training as the eval fix now assumes.
-
-**Clipping recheck at step 98: closed, e28's `max_len: 4096` stands.** The step-2
-`clipped_ratio` of 0.375 was noise. Over the same first 98 logged steps:
+e27 retrained cleanly - 300 steps in 7h50m, training curve indistinguishable from
+the pre-fix run (both wander 0.62-0.75, both end at 0.756 over the last 50 steps,
+`frac_reward_zero_std` 0.41-0.53 in both). Then the eval came back split:
 
 ```
-                 clipped_ratio             mean_len  max_len  reward  frac_zero_std
-NEW  post-fix    mean 0.022  max 0.375  12/98   1448     3842    0.744    0.47
-OLD  pre-fix     mean 0.026  max 0.375  15/98   1524     3951    0.634    0.48
+held_out              NEW      OLD pre-fix   OLD post-fix(old seeds)
+  click-menu-2       0.400       0.700           0.660      <- trained on
+  click-dialog-2     0.900       0.860           0.840      <- trained on
+  overall            0.650       0.780           0.750
+
+shifted
+  navigate-tree      0.680       0.620           0.620      <- never trained
+  click-checkbox-tr  0.960       0.960           0.940      <- never trained
+  overall            0.820       0.790           0.780
 ```
 
-Marginally less clipping than before, and the longest completion is still under
-the cap. `tools/failure_frequency` is 0.000 on all 98 steps.
+Better on both untrained families, worse only on click-menu-2. Wilson intervals
+on click-menu-2 do not overlap: 0.400 [0.267, 0.549] against 0.660 [0.521,
+0.777]. Its non-terminating episodes went 10/50 to 15/50, including four
+`hit_generation_cap` where both older runs had none.
 
-**The seed-block fix breaks the e0 pairing, and e0 must be re-evaluated.** Mean
-reward runs 0.744 against the old run's 0.634 over the same steps - same config,
-so that is seed 42 landing on different training questions. The same shift moves
-the eval: `runs/e0-browsergym-base-qwen3-1_7b/episodes_held_out.jsonl` holds seeds
-100042..100141, while the retrained e27 will score `seed_block(42) + 100000` =
-42100000..42100099. Zero overlap, so the paired McNemar in
-`e27_e1_baseline_findings.md` - which is what made the shifted transfer loss
+The task mix is not the explanation, checked rather than assumed:
+`adapter.py:122` is `self._tasks[s % len(self._tasks)]` and both seed bases are
+even, so every run above is exactly 50/50.
+
+**The comparison is unpaired, which is the whole problem.** The seed-block fix
+moved the eval to 42100000 / 42200000 while the older reports scored 100042 /
+200042 - disjoint question sets, so the difference mixes the new policy with a
+fresh draw. Two live candidates: the retrain regressed on click-menu-2, or the
+new click-menu-2 instances are harder.
+
+`e27retrain-oldseeds` separates them by running the retrained checkpoint over the
+old question set, so the policy is the only thing that differs from
+`e27paired-oldseeds`. Config at `/workspace/e27retrain-oldseeds.yaml`, log at
+`/workspace/e27retrain_oldseeds.log`. click-menu-2 near 0.66 means the new seeds
+are harder; near 0.40 means the retrain regressed.
+
+**e28/e29 are held until this resolves.** They use e27 as their baseline, and
+20 GPU-hours of arms against a baseline that cannot be explained is how the
+e9-e21 sweep became uninterpretable.
+
+**Also still true: the seed-block fix breaks the e0 pairing.** Training mean
+reward ran 0.744 against the old run's 0.634 over the same steps - same config,
+so that is seed 42 landing on different questions.
+`runs/e0-browsergym-base-qwen3-1_7b/episodes_held_out.jsonl` holds seeds
+100042..100141 while the retrained e27 scored 42100000..42100099, so the paired
+McNemar in `e27_e1_baseline_findings.md` - what made the shifted transfer loss
 significant at p=0.021 - cannot be recomputed against the new e27.
+
+**Step-6 and step-98 health checks both passed** and are recorded here because
+they rule out the cheap explanations for the drop. Gradient signal was live
+(`frac_reward_zero_std` 0.47 at mean reward 0.744, against the 0.70 at 0.931 that
+got attempt 1 killed for saturation). `tools/failure_frequency` was 0.000 on
+every logged step, so the adapter was never talking to a stale server. Clipping
+came in *below* the pre-fix run over the same 98 steps (mean 0.022 vs 0.026, max
+0.375 both, longest completion 3842 against a 4096 cap), so e28's `max_len: 4096`
+stands and the step-2 spike of 0.375 was noise.
 
 One re-eval fixes both open problems, because e0's token figures also carry the
 ~400/episode multi-call inflation that the "+247 median tokens" result rests on.
