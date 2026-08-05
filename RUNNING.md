@@ -9,7 +9,54 @@ Updated: 2026-08-05 04:12 UTC (box time)
 |---|---|---|---|---|
 | e0-oldseeds (zero point) | eval, 200 eps, no adapter | 1441607 | 04:12 UTC Aug 5 | ~07:30 UTC |
 
-## ANSWERED: the retrain regressed, and only on click-menu-2
+## ANSWERED TWICE: no bug. e27 at n=1 is not a usable baseline.
+
+The zero point landed. All three on identical seeds under post-fix code:
+
+```
+click-menu-2 (n=50)     acc     non-term   correct-tok med   vs base
+  base (e0)            0.600     17/50         2106           -
+  old policy           0.660     11/50         1861           lost 0 gained 3  p=0.250
+  new policy           0.480     18/50         1262           lost 6 gained 0  p=0.031
+
+click-dialog-2 (n=50)
+  base 0.840 / old 0.840 / new 0.760          base->old: 5 lost 5 gained, p=1.000
+
+OVERALL held_out    base 0.720   old 0.750   new 0.620
+```
+
+The retrained policy is significantly worse than **not training at all** on
+click-menu-2. The old run's entire benefit was termination (non-term 17/50 ->
+11/50); the new run failed to learn it (17/50 -> 18/50).
+
+**The cause is not a bug.** Every training-path change in `8a01cc8` was traced:
+
+- `max_tool_calling_iterations` reads as the obvious suspect from the commit
+  message, but the old code was `if max_turns > 0: kwargs[...] = max_turns` and
+  browsergym sets `max_turns: 8`. Both versions pass 8. The fix only changes
+  domains that leave `max_turns` unset.
+- `token_entropy` was deleted and `cosine_length` changed; e27 uses neither.
+  `env_reward` is untouched.
+- The rest is log dumping, smoke handling and checkpoint marking - no gradient
+  path.
+- The two frozen `config.yaml` files differ by one eval-only key
+  (`reference_report`).
+
+One difference remains: `seed_base=seed_block(seed)` changed which 500 questions
+seed 42 trains on. Same code, same hyperparameters, different draw.
+
+**So this is run-to-run variance, and it is large enough to invalidate the
+experimental design as it stands.** One run of this config landed at +0.03
+against base, another at -0.10 and significantly so. e28 and e29 at one seed each
+cannot be read against an e27 that swings 13pp on question draw alone - the
+noise is bigger than the token-efficiency effect they exist to measure.
+
+Note for the design: under the old scheme seeds 42/43/44 shared 499 of 500
+questions, so a seed sweep would have measured training noise only. Under the
+fixed scheme a seed sweep measures question draw and training noise together,
+which is the honest quantity but a larger one.
+
+## Superseded observation, kept for the record
 
 `e27retrain-oldseeds` landed. Paired on identical seeds, post-fix code on both
 sides, so the policy is the only difference:
