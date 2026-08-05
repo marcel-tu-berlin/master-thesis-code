@@ -3,11 +3,28 @@
 What is executing on the GPU box (`ssh gpu-l4`). Rows leave the table once the
 results are harvested. Update rules are in CLAUDE.md.
 
-Updated: 2026-08-05 04:12 UTC (box time)
+Updated: 2026-08-05 11:15 UTC (box time)
 
 | run | phase | pid | started | ETA |
 |---|---|---|---|---|
-| e0-oldseeds (zero point) | eval, 200 eps, no adapter | 1441607 | 04:12 UTC Aug 5 | ~07:30 UTC |
+| e27rep2 (replication) | train 300 steps, then eval 200 eps | 1477866 (batch) / 1477868 (train) | 11:15 UTC Aug 5 | ~22:30 UTC |
+
+## e27rep2: is the 13pp swing the question draw or run noise?
+
+Identical config, identical seed 42, identical post-fix code, identical question
+set. `diff` against the config that produced the 0.620 run is exactly one line,
+`experiment_id`. The only thing that varies is run nondeterminism (vLLM sampling,
+CUDA).
+
+This decides the experimental design, which is why it runs before any arm:
+
+- Lands near **0.620** -> the question draw is the cause. e27/e28/e29 at seed 42
+  share training and eval questions, the draw cancels in the paired comparison,
+  and one seed per arm is defensible.
+- Lands anywhere **else** -> run noise alone is 13pp, nothing cancels, and every
+  arm needs three seeds (~72h for the three).
+
+Config `/workspace/e27rep2.yaml`, log `/workspace/e27rep2.log`.
 
 ## ANSWERED TWICE: no bug. e27 at n=1 is not a usable baseline.
 
@@ -28,6 +45,22 @@ OVERALL held_out    base 0.720   old 0.750   new 0.620
 The retrained policy is significantly worse than **not training at all** on
 click-menu-2. The old run's entire benefit was termination (non-term 17/50 ->
 11/50); the new run failed to learn it (17/50 -> 18/50).
+
+The shifted split shows nothing at all - base is as good as both policies:
+
+```
+shifted (n=50 each)          base    old policy   new policy
+  navigate-tree              0.660     0.620        0.640     both p>=0.625 vs base
+  click-checkboxes-transfer  0.940     0.940        0.960     both p=1.000  vs base
+  OVERALL                    0.800     0.780        0.800
+```
+
+Put together, 300 steps of task-success GRPO on this domain does nothing on the
+untrained families and, on the trained ones, ranges from nothing (old run: 0
+lost, 3 gained on click-menu-2, p=0.250) to significant harm (new run: 6 lost, 0
+gained, p=0.031). The harvested e27 finding said training bought no measurable
+accuracy; with the base model measured under the same code on the same seeds,
+the stronger statement holds.
 
 **The cause is not a bug.** Every training-path change in `8a01cc8` was traced:
 
