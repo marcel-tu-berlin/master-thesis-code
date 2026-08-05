@@ -3,13 +3,61 @@
 What is executing on the GPU box (`ssh gpu-l4`). Rows leave the table once the
 results are harvested. Update rules are in CLAUDE.md.
 
-Updated: 2026-08-05 01:35 UTC (box time)
+Updated: 2026-08-05 04:12 UTC (box time)
 
 | run | phase | pid | started | ETA |
 |---|---|---|---|---|
-| e27retrain-oldseeds | eval, 200 eps | 1408788 | 01:35 UTC Aug 5 | ~04:50 UTC |
+| e0-oldseeds (zero point) | eval, 200 eps, no adapter | 1441607 | 04:12 UTC Aug 5 | ~07:30 UTC |
 
-## The retrained e27 dropped on the family it trains on. Cause not yet known.
+## ANSWERED: the retrain regressed, and only on click-menu-2
+
+`e27retrain-oldseeds` landed. Paired on identical seeds, post-fix code on both
+sides, so the policy is the only difference:
+
+```
+held_out                     old policy -> new policy   flips        p       non-term
+  click-menu-2                  0.660  ->  0.480        lost 9 gain 0  0.004   11/50 -> 18/50
+  click-dialog-2                0.840  ->  0.760        lost 7 gain 3  0.344    0/50 ->  1/50
+  OVERALL                       0.750  ->  0.620
+
+shifted
+  navigate-tree                 0.620  ->  0.640        lost 0 gain 1  1.000   19/50 -> 17/50
+  click-checkboxes-transfer     0.940  ->  0.960        lost 0 gain 1  1.000    3/50 ->  2/50
+  OVERALL                       0.780  ->  0.800
+```
+
+Nine losses and zero gains on click-menu-2. Both untrained shifted families are
+strictly non-worse - zero losses, one gain each. So the damage is confined to
+click-menu-2, the harder of the two families the run trains on.
+
+The earlier unpaired 0.660 -> 0.400 splits into both causes, policy dominating:
+
+```
+0.660  old policy, old seeds
+0.480  new policy, old seeds   <- policy  -0.18  (significant)
+0.400  new policy, new seeds   <- seeds   -0.08
+```
+
+The failure mode is termination, not wrong answers. click-menu-2 non-termination
+went 11/50 to 18/50, with five `hit_generation_cap` where the old policy had
+none, while correct-episode tokens *fell* from 1861 to 1262.
+
+**Zero point running.** Neither policy tells us whether the retrain fell below
+where training started, because e0's only report is pre-fix code on pre-fix
+seeds. `e0-oldseeds` runs the base model with no adapter over the same question
+set under post-fix code. Config `/workspace/e0-oldseeds.yaml`, log
+`/workspace/e0_oldseeds.log`. Base near 0.66 on click-menu-2 means this retrain
+actively damaged the policy; base near 0.48 means training never helped there and
+the old run's 0.66 was the outlier.
+
+Two candidates once the zero point lands, in order: the seed-block fix moved
+training onto different click-menu-2 instances, or one of the other fifteen
+training-path fixes changed the gradient. `checkpoint-100/200/300` are on disk,
+so the regression can be bisected across training without retraining anything.
+
+**e28/e29 stay held.**
+
+## Original observation, kept for the record
 
 e27 retrained cleanly - 300 steps in 7h50m, training curve indistinguishable from
 the pre-fix run (both wander 0.62-0.75, both end at 0.756 over the last 50 steps,
