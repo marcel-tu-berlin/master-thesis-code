@@ -3,9 +3,40 @@
 What is executing on the GPU box (`ssh gpu-l4`). Rows leave the table once the
 results are harvested. Update rules are in CLAUDE.md.
 
-Updated: 2026-08-06 07:20 UTC (box time)
+Updated: 2026-08-06 11:54 UTC (box time)
 
-Nothing running. GPU free.
+| run | phase | pid | started | ETA |
+|---|---|---|---|---|
+| e24bs4 + e25bs4 poly pair | train 150 steps each, then eval, sequential | 2268241 (batch) / 2268243 (train) | 11:54 UTC Aug 6 | ~36h, rate-dependent |
+
+## The poly cosine pair, re-run unconfounded
+
+`batch_size: 4`, `max_steps: 150`, otherwise identical to e24/e25 - the `diff`
+is three lines each. Log `/workspace/e24_e25_bs4.log`, configs
+`/workspace/e2{4,5}bs4-*.yaml`.
+
+This is the first cosine test that is clean on both known defects at once:
+
+- **Token counting.** e24/e25 ran 2026-07-29 with `model_token_count` reading 8%
+  of the real completion, because Qwen3 puts the think block in
+  `reasoning_content`. Fixed since, verified on the box before the e28 launch.
+- **The batch-size confound below.** At `batch_size: 4` a step is dead only if all
+  four groups saturate (0.46^4 = 4.5%), so the env-only baseline gets a gradient
+  on roughly 95% of steps instead of 43%, and stops being trained 300x less than
+  the arm it is compared against.
+
+150 steps at batch_size 4 is 600 prompts per arm, double the 300 the old runs
+saw, with far better conditioned updates.
+
+Cost, corrected: poly is **not** cheaper per step than browsergym. The stored
+logs show e24 took 9h50m and e25 8h17m at 95-118 s/it, the same rate. The earlier
+"~6h/arm" came from a 2048-budget run and was wrong. Poly wins only because the
+pair is two arms rather than three: about 36h against 84h for browsergym.
+
+ASSUMPTION: `gpu_memory_utilization: 0.23` leaves vLLM roughly 5 GB, which cannot
+hold 32 sequences at 5120 tokens, so it schedules within budget and the run is
+slower than 4x rather than failing. Same trade as the browsergym probe, where it
+held. Watching the step rate.
 
 ## batch_size 1 confounded every treatment-vs-baseline comparison ever run
 
