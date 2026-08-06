@@ -3,11 +3,33 @@
 What is executing on the GPU box (`ssh gpu-l4`). Rows leave the table once the
 results are harvested. Update rules are in CLAUDE.md.
 
-Updated: 2026-08-06 11:54 UTC (box time)
+Updated: 2026-08-06 12:18 UTC (box time)
 
 | run | phase | pid | started | ETA |
 |---|---|---|---|---|
-| e24bs4 + e25bs4 poly pair | train 150 steps each, then eval, sequential | 2268241 (batch) / 2268243 (train) | 11:54 UTC Aug 6 | ~36h, rate-dependent |
+| e24bs4 + e25bs4 poly pair | train 150 steps each, then eval, sequential | 2268241 (batch) / 2268243 (train) | 11:54 UTC Aug 6 | ~22h (measured 210 s/it) |
+
+## Standing rule: batch_size 4 everywhere
+
+Every arm of every comparison runs `batch_size: 4`, `n_rollouts: 8`, and the same
+`max_steps`. Fixing only one of the three rebuilds the confound: a treatment arm
+that sees more prompts, or more updates, than its baseline is not a reward
+ablation. `grpo_runner.py` now defaults `batch_size` to 4 (a19b1ff) so a config
+that omits it can no longer silently train at 1, and `train.py` prints the
+geometry at startup so the value is in every log.
+
+**Why 4 and not 8.** Coverage gains almost nothing above 4 (0.46^4 = 4.5% dead
+steps, 0.46^8 = 0.2%) and the step costs exactly double: the live poly run
+measures 210 s/it at 32 completions, so 8 would be ~420. The GPU sits at 20.3 of
+23 GB at bs=4, so doubling the generation batch spends headroom that is not
+there. And at a fixed prompt budget a larger batch buys gradient quality by
+spending optimizer steps - 600 prompts is 150 LoRA updates at bs=4 and 75 at
+bs=8. This setup is step-starved, not noise-starved. bs=1 was pathological; 4 is
+past the knee.
+
+Remaining campaign at bs=4, from the 674 s/it measured at bs=8 on browsergym
+(~340 s/it at bs=4): e27/e28/e29 are about 14h/arm at 150 steps, 43h for the
+three, against 84h had they run at bs=8.
 
 ## The poly cosine pair, re-run unconfounded
 
