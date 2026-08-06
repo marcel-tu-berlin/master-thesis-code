@@ -4,6 +4,8 @@ import subprocess
 import sys
 import time
 
+from training.config_schema import DEFAULT_BATCH_SIZE, DEFAULT_N_ROLLOUTS
+
 
 class EnvServerProcess:
     """Launch an OpenEnv env server as a local subprocess (no Docker) and tear
@@ -123,10 +125,21 @@ def build_env_server(config, domain, python=None) -> EnvServerProcess:
     t = config.get("training", {}) or {}
     es = t.get("env_server", {}) or {}
     env_config = t.get("env_config", {}) or {}
-    n_envs = int(t.get("batch_size", 1)) * int(t.get("n_rollouts", 8))
+    # Same defaults as grpo_runner._grpo_config, imported from one place: the
+    # trainer opens batch_size * n_rollouts env sessions, and a server sized
+    # from a different default dies with SessionCapacityError on the first
+    # rollout slot past its cap.
+    n_envs = (int(t.get("batch_size", DEFAULT_BATCH_SIZE))
+              * int(t.get("n_rollouts", DEFAULT_N_ROLLOUTS)))
     return EnvServerProcess(
         env_module=domain.server_module,
-        port=int(es.get("port", 8077)),
+        # 8000 is every OpenEnv server's own default. finqa/repl/textarena/
+        # browsergym bind it unconditionally (their apps ignore the --port argv
+        # this process passes), and reasoning_gym honors whatever --port it
+        # gets - so one shared default keeps the readiness probe and the
+        # server's actual port equal for every domain. start() still refuses a
+        # port something else already holds.
+        port=int(es.get("port", 8000)),
         repo_envs_path=es.get("repo_path", "/workspace/OpenEnv/envs"),
         max_concurrent=max(8, n_envs),
         server_env=domain.server_env(env_config),

@@ -78,8 +78,9 @@ def test_eval_splits_stay_disjoint_from_training_and_each_other():
 def test_block_size_exceeds_every_split_offset():
     # If a seed's offset reached the next block, seed 42's shifted split would
     # land inside seed 43's questions.
-    from eval.agentic_eval import _SEED_BLOCK, _EVAL_SEED_OFFSET
-    assert _SEED_BLOCK > 2 * _EVAL_SEED_OFFSET
+    from eval.agentic_eval import _EVAL_SEED_OFFSET
+    from training.config_schema import SEED_BLOCK
+    assert SEED_BLOCK > 2 * _EVAL_SEED_OFFSET
 
 
 def test_old_scheme_would_have_overlapped():

@@ -79,7 +79,10 @@ def test_wait_until_ready_times_out():
 def test_build_env_server_defaults():
     srv = build_env_server(_agentic_cfg(n_rollouts=8, batch_size=1), _Dom(), python="/p")
     assert srv.command()[:3] == ["/p", "-m", "reasoning_gym_env.server.app"]
-    assert srv.port == 8077
+    # 8000 is every OpenEnv server's own default; four of the five domain
+    # servers bind it unconditionally and ignore the --port argv, so a default
+    # of anything else only ever worked for reasoning_gym.
+    assert srv.port == 8000
     assert srv.repo_envs_path == "/workspace/OpenEnv/envs"
     assert srv.max_concurrent == 8  # max(8, 1*8)
 
@@ -87,6 +90,15 @@ def test_build_env_server_defaults():
 def test_build_env_server_sizes_concurrency_to_generation_batch():
     srv = build_env_server(_agentic_cfg(n_rollouts=16, batch_size=2), _Dom())
     assert srv.max_concurrent == 32  # 2*16 > floor of 8
+
+
+def test_build_env_server_default_geometry_matches_the_trainer():
+    # The trainer defaults batch_size to 4 (grpo_runner, via the shared
+    # constants in config_schema). A server sized from a stale default of 1
+    # capped sessions at 8 while the trainer opened 32 rollout envs, and the
+    # 9th slot's first reset() died with SessionCapacityError at step 1.
+    srv = build_env_server(_agentic_cfg(), _Dom())
+    assert srv.max_concurrent == 32  # DEFAULT_BATCH_SIZE 4 * DEFAULT_N_ROLLOUTS 8
 
 
 def test_build_env_server_config_overrides():

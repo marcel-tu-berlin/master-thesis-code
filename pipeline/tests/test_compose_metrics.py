@@ -13,6 +13,8 @@ AdvantageWeightedComposer imports torch lazily; torch is available in
 import importlib.util
 import os
 
+import pytest
+
 # Direct-load compose.py by path so we skip the training.rewards package
 # __init__ (which imports every reward builder -> torch + datasets). torch is
 # lazy inside AdvantageWeightedComposer, so NaiveSumComposer loads clean.
@@ -77,7 +79,7 @@ def test_advantage_weighted_zscores_per_group():
     class Comp:
         def __call__(self, prompts, completions, **kw):
             return [0.0, 2.0, 5.0, 5.0]
-    comp = AdvantageWeightedComposer([(Comp(), 1.0)])
+    comp = AdvantageWeightedComposer([(Comp(), 1.0)], num_generations=2)
     out = comp(["p", "p", "q", "q"], ["a", "b", "c", "d"])
     inv = 2 ** 0.5
     assert abs(out[0] + 1 / inv) < 1e-5
@@ -85,11 +87,36 @@ def test_advantage_weighted_zscores_per_group():
     assert out[2] == 0.0 and out[3] == 0.0
 
 
+def test_advantage_weighted_groups_positionally_not_by_prompt_text():
+    # The Wordle regression: a seed-invariant reset observation makes every
+    # prompt in the batch byte-identical. Grouping by adjacent equality merged
+    # the whole batch into ONE z-scoring group, normalizing each component
+    # across different games; TRL's advantages are positional blocks of
+    # num_generations, so the composer must cut the same blocks.
+    class Comp:
+        def __call__(self, prompts, completions, **kw):
+            return [0.0, 2.0, 5.0, 5.0]
+    comp = AdvantageWeightedComposer([(Comp(), 1.0)], num_generations=2)
+    out = comp(["p", "p", "p", "p"], ["a", "b", "c", "d"])
+    inv = 2 ** 0.5
+    assert abs(out[0] + 1 / inv) < 1e-5 and abs(out[1] - 1 / inv) < 1e-5
+    assert out[2] == 0.0 and out[3] == 0.0
+
+
+def test_advantage_weighted_rejects_indivisible_batch():
+    class Comp:
+        def __call__(self, prompts, completions, **kw):
+            return [0.0, 2.0, 5.0]
+    comp = AdvantageWeightedComposer([(Comp(), 1.0)], num_generations=2)
+    with pytest.raises(ValueError, match="groups of 2"):
+        comp(["p", "p", "p"], ["a", "b", "c"])
+
+
 def test_advantage_weighted_weight_applies_after_zscoring():
     class Comp:
         def __call__(self, prompts, completions, **kw):
             return [0.0, 2.0]
-    comp = AdvantageWeightedComposer([(Comp(), 2.0)])
+    comp = AdvantageWeightedComposer([(Comp(), 2.0)], num_generations=2)
     out = comp(["p", "p"], ["a", "b"])
     inv = 2 ** 0.5
     assert abs(out[0] + 2 / inv) < 1e-5 and abs(out[1] - 2 / inv) < 1e-5

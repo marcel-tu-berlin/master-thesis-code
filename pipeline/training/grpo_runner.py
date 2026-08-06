@@ -11,6 +11,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from trl import GRPOConfig, GRPOTrainer
 
+from training.config_schema import (DEFAULT_BATCH_SIZE, DEFAULT_N_ROLLOUTS,
+                                    resolve_max_turns)
 from training.registry import LORA_TARGET_MODULES, get_model_config
 
 
@@ -91,8 +93,8 @@ class GRPORunner:
         # length) does not saturate, so the defect hit env-only baselines about
         # twice as hard as the treatment arms they were compared against. A step
         # is dead only when every group in it saturates: 0.46^4 = 4.5%.
-        n_rollouts = int(t.get("n_rollouts", 8))
-        batch_size = int(t.get("batch_size", 4))
+        n_rollouts = int(t.get("n_rollouts", DEFAULT_N_ROLLOUTS))
+        batch_size = int(t.get("batch_size", DEFAULT_BATCH_SIZE))
         total_completions = batch_size * n_rollouts
         micro = int(t.get("micro_batch_size", 2))
         if micro < 1 or total_completions % micro != 0:
@@ -137,12 +139,11 @@ class GRPORunner:
         # single-step domains left the loop unbounded: a reasoning_gym rollout
         # could call `answer` repeatedly until it filled the completion budget,
         # which is itself a mechanism for the cap-bound rollouts the e22/e23 cap
-        # probes went looking for. Default to 1 - a single-step domain's model
-        # calls its one tool and stops - and let env_config.max_turns raise it.
-        # max_tool_calling_iterations is a TRL 1.6 GRPOConfig field (confirmed
-        # at the L4 smoke).
-        max_turns = int((t.get("env_config") or {}).get("max_turns", 0))
-        kwargs["max_tool_calling_iterations"] = max_turns if max_turns > 0 else 1
+        # probes went looking for. resolve_max_turns is shared with the eval
+        # loop, so an unset env_config.max_turns means the same episode process
+        # (one iteration) on both sides. max_tool_calling_iterations is a TRL
+        # 1.6 GRPOConfig field (confirmed at the L4 smoke).
+        kwargs["max_tool_calling_iterations"] = resolve_max_turns(t.get("env_config"))
         if self._use_vllm:
             kwargs["use_vllm"] = True
             kwargs["vllm_mode"] = "colocate"

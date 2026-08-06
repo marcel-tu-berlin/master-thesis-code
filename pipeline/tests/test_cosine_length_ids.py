@@ -60,6 +60,14 @@ def test_requires_environments():
         r(["p"], ["a b"])
 
 
+def test_rejects_environments_completions_length_mismatch():
+    # Same guard as EnvReward: a silent misalignment gates the length reward on
+    # the wrong rollout's correctness - a per-rollout sign flip in the signal.
+    r = CosineLengthReward(_Tok(), max_len=10)
+    with pytest.raises(ValueError, match="length"):
+        r(["p", "p"], ["a b", "c d"], environments=[_Env(1.0)])
+
+
 def test_multiturn_counts_assistant_only_not_completion_ids():
     # A multi-turn completion (assistant/tool/assistant) with a long completion_ids
     # stream that includes tool tokens. The reward must use the assistant-only

@@ -1,3 +1,5 @@
+import pytest
+
 from eval.agentic_eval import _run_multiturn_episodes, _tool_calls
 
 
@@ -241,13 +243,41 @@ def test_calls_after_the_env_is_done_are_not_dispatched():
     assert rs[0].n_steps == 1 and rs[0].stop_reason == "env_done"
 
 
-def test_unknown_names_are_filtered_but_known_ones_still_run():
+def test_unknown_names_get_an_error_response_but_never_reach_the_env():
+    # Training answers EVERY call: TRL's dispatch raises "Tool X not found." for
+    # an unknown name and feeds it back as an {"error": ...} tool message. An
+    # eval that silently filtered the call left it advertised-but-unanswered -
+    # the exact transcript state the multi-call fix exists to prevent - while
+    # still never invoking the hallucinated name on the env.
+    env = _ClickEnv({"30", "99"})            # not done after one click
+    seen = []
+
+    def turn_fn(messages, budget):
+        seen.append(list(messages))
+        return _turn("reset", {}, 9, extra=[("click", {"bid": "30"})])
+
+    rs = _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=2,
+                                 make_messages=_msgs, tool_names={"click"})
+    assert env.clicked == {"30"}             # reset never dispatched
+    assert rs[0].tool_calls == ["click", "click"]   # dispatched calls only
+    roles = [m["role"] for m in seen[1]]
+    assert roles == ["user", "assistant", "tool", "tool"]
+    unknown_response = seen[1][2]
+    assert unknown_response["name"] == "reset"
+    assert "not found" in unknown_response["content"]
+
+
+def test_a_turn_of_only_unknown_names_continues_with_error_feedback():
+    # TRL keeps iterating after a failed call; ending the episode here would
+    # score a recoverable hallucination as no_tool_call.
     env = _ClickEnv({"30"})
     rs = _run_multiturn_episodes(
         env, 1, 0,
-        _scripted(_turn("reset", {}, 9, extra=[("click", {"bid": "30"})])),
-        max_turns=8, make_messages=_msgs, tool_names={"click"})
-    assert env.clicked == {"30"} and rs[0].n_steps == 1
+        _scripted(_turn("navigate", {"url": "x"}, 5),
+                  _turn("click", {"bid": "30"}, 5)),
+        max_turns=4, make_messages=_msgs, tool_names={"click"})
+    assert rs[0].correct is True and rs[0].stop_reason == "env_done"
+    assert rs[0].n_steps == 1
 
 
 # --- the generation budget covers the whole trajectory, not each turn ---
@@ -301,13 +331,36 @@ def test_short_turn_without_a_call_is_not_a_cap_hit():
     assert rs[0].stop_reason == "no_tool_call"
 
 
-# --- an env-side error must not discard the split ---
-# Only TypeError used to be caught, so an HTTP error / reset connection /
-# malformed observation propagated out and killed the process before any
-# episode record was written.
+def test_tool_feedback_is_charged_against_the_budget():
+    # Training counts interleaved tool results toward max_completion_length
+    # (TRL rolls back results that would exceed it). An eval that charged only
+    # model tokens ran materially longer trajectories than the cap it claims to
+    # mirror - browsergym injects pages of up to 2000 chars per turn for free.
+    env = _FakeGameEnv("zzzzz", fail_after=99)
+    budgets = []
+
+    def turn_fn(messages, budget):
+        budgets.append(budget)
+        return _turn("move", {"message": "aaaaa"}, 100)
+
+    rs = _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=8,
+                                 make_messages=_msgs, tool_names={"move"},
+                                 gen_cap=1000, count_tokens=lambda s: 150)
+    # Each turn: -100 generated, -150 tool feedback.
+    assert budgets == [1000, 750, 500, 250]
+    assert rs[0].stop_reason == "hit_generation_cap"
+
+
+# --- model-caused dispatch errors are feedback; infrastructure errors abort ---
+# TypeError (the model inventing an argument name) is agent behavior and becomes
+# error feedback, exactly as TRL's training dispatch does. Anything else - an
+# HTTP error, a reset connection, a dead env server - propagates: every finished
+# episode is already flushed via on_result, and scoring episodes against dead
+# infrastructure fabricates a policy regression (reward 0.0, non-termination
+# spike) that reads exactly like the mislabelled-truncation confound.
 
 class _ExplodingEnv:
-    """Env whose tool raises something that is not a TypeError."""
+    """Env whose tool raises the given exception."""
 
     def __init__(self, exc=RuntimeError("env server gone")):
         self.reward = 0.0
@@ -323,22 +376,24 @@ class _ExplodingEnv:
         raise self.exc
 
 
-def test_env_error_becomes_feedback_not_a_crash():
-    env = _ExplodingEnv()
+def test_infra_error_aborts_the_split():
+    env = _ExplodingEnv(RuntimeError("env server gone"))
+    with pytest.raises(RuntimeError, match="env server gone"):
+        _run_multiturn_episodes(
+            env, 2, 0, _scripted(*[_turn("move", {"action": "x"}, 5)] * 4),
+            max_turns=2, make_messages=_msgs, tool_names={"move"})
+
+
+def test_bad_model_arguments_become_feedback_not_a_crash():
+    # move() takes `message`; the model inventing `wrong_kw` raises TypeError at
+    # dispatch. The episode survives with error feedback, and the failed
+    # dispatch is not counted as a step (that inflated n_steps and, through it,
+    # mean_verification_depth in the RQ2 panel).
+    env = _FakeGameEnv("zzzzz", fail_after=99)
     rs = _run_multiturn_episodes(
-        env, 2, 0, _scripted(*[_turn("move", {"action": "x"}, 5)] * 4),
+        env, 1, 0, _scripted(*[_turn("move", {"wrong_kw": "x"}, 5)] * 2),
         max_turns=2, make_messages=_msgs, tool_names={"move"})
-    assert len(rs) == 2                       # both episodes survived
-    assert all(r.stop_reason == "max_turns" for r in rs)
-
-
-def test_failed_dispatch_is_not_counted_as_a_step():
-    # calls.append used to run even when the call never reached the env, which
-    # inflated n_steps and mean_verification_depth in the RQ2 panel.
-    env = _ExplodingEnv()
-    rs = _run_multiturn_episodes(
-        env, 1, 0, _scripted(*[_turn("move", {"action": "x"}, 5)] * 3),
-        max_turns=3, make_messages=_msgs, tool_names={"move"})
+    assert rs[0].stop_reason == "max_turns"
     assert rs[0].n_steps == 0
     assert rs[0].tool_calls == []
 

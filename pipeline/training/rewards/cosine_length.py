@@ -72,6 +72,12 @@ class CosineLengthReward:
                 "CosineLengthReward requires kwargs['environments'] (agentic mode). "
                 "TRL's environment_factory path supplies the live env instances."
             )
+        # Same guard as EnvReward: a silent misalignment would gate the length
+        # reward on the wrong rollout's correctness - a per-rollout sign flip.
+        if len(environments) != len(completions):
+            raise ValueError(
+                f"environments length {len(environments)} != completions {len(completions)}"
+            )
         correct_flags = [
             float(getattr(e, "reward", 0.0)) >= CORRECT_REWARD_THRESHOLD
             for e in environments

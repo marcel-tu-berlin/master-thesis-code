@@ -119,3 +119,46 @@ def test_rejects_unknown_env_server_key():
     cfg["training"]["env_server"] = {"repo_pth": "/workspace/OpenEnv/envs"}
     with pytest.raises(ValueError, match="env_server"):
         validate_config(cfg)
+
+
+# --- split seed_offset must stay inside one seed's question block ---
+# The eval seed base is seed * SEED_BLOCK + offset, so an offset at or above
+# SEED_BLOCK lands inside the NEXT seed's block: seed 42's shifted split would
+# evaluate on exactly the questions the seed-43 replicate trained on, silently.
+
+def _cfg_with_offset(offset):
+    cfg = _agentic_base()
+    cfg["eval"] = {"agentic": {"splits": [{"name": "s", "seed_offset": offset}]}}
+    return cfg
+
+
+def test_accepts_split_seed_offset_below_block():
+    validate_config(_cfg_with_offset(200_000))  # must not raise
+
+
+def test_rejects_split_seed_offset_at_or_above_seed_block():
+    with pytest.raises(ValueError, match="seed_offset"):
+        validate_config(_cfg_with_offset(1_000_000))
+
+
+def test_rejects_negative_split_seed_offset():
+    with pytest.raises(ValueError, match="seed_offset"):
+        validate_config(_cfg_with_offset(-1))
+
+
+def test_rejects_non_int_split_seed_offset():
+    with pytest.raises(ValueError, match="seed_offset"):
+        validate_config(_cfg_with_offset("far"))
+
+
+# --- one turn-cap resolution for training and eval ---
+
+def test_resolve_max_turns_defaults_to_one_on_both_sides():
+    # Unset max_turns must mean the same episode process in training and eval.
+    # The old pair of defaults - TRL capped at 1, eval looping 8 - measured a
+    # policy under an episode length it never trained with.
+    from training.config_schema import resolve_max_turns
+    assert resolve_max_turns(None) == 1
+    assert resolve_max_turns({}) == 1
+    assert resolve_max_turns({"max_turns": 0}) == 1
+    assert resolve_max_turns({"max_turns": 6}) == 6

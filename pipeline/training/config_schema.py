@@ -1,3 +1,30 @@
+# Shared batch-geometry defaults. grpo_runner (the trainer's geometry) and
+# env_server (MAX_CONCURRENT_ENVS sizing) both resolve batch_size/n_rollouts;
+# a default that lives in only one of them is how the server ended up capped
+# at 8 sessions while the trainer opened 32 rollout envs against it.
+DEFAULT_BATCH_SIZE = 4
+DEFAULT_N_ROLLOUTS = 8
+
+# Each config seed owns a disjoint block of the seed -> question mapping
+# (question seed = config_seed * SEED_BLOCK + offset). Every eval split's
+# seed_offset must stay below this or one seed's eval lands inside the next
+# seed's training questions; _split_errors enforces it at validation.
+SEED_BLOCK = 1_000_000
+
+
+def resolve_max_turns(env_config) -> int:
+    """The tool-loop turn cap training and eval must agree on.
+
+    training.env_config.max_turns is the single cap key. Training maps the
+    resolved value to TRL's max_tool_calling_iterations and the eval loop runs
+    the same number of turns; both call this resolver so an unset key means the
+    same episode process on both sides (one tool-calling iteration) instead of
+    a silent train/eval divergence.
+    """
+    max_turns = int((env_config or {}).get("max_turns", 0))
+    return max_turns if max_turns > 0 else 1
+
+
 _REQUIRED_KEYS = {
     "experiment_id": "experiment_id (str)",
     "model.slug": "model.slug (str) — must match a key in training/registry.py",
@@ -175,6 +202,21 @@ def _split_errors(splits) -> list[str]:
                     f"Unknown eval.agentic.splits[{i}].env_config keys: "
                     f"{sorted(unknown_ec)}. Known: {sorted(_KNOWN_ENV_CONFIG_KEYS)}"
                 )
+        offset = s.get("seed_offset")
+        if offset is not None:
+            try:
+                off = int(offset)
+            except (TypeError, ValueError):
+                errors.append(
+                    f"eval.agentic.splits[{i}].seed_offset={offset!r} is not an int"
+                )
+            else:
+                if not (0 <= off < SEED_BLOCK):
+                    errors.append(
+                        f"eval.agentic.splits[{i}].seed_offset={off} out of range "
+                        f"[0, {SEED_BLOCK}): an offset at or above the seed-block "
+                        f"size evaluates on another seed's training questions"
+                    )
     return errors
 
 

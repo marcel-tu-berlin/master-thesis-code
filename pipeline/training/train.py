@@ -16,7 +16,8 @@ from training.grpo_runner import GRPORunner
 from training.env_server import build_env_server
 from training.rewards import REWARD_REGISTRY
 from training.rewards.compose import build_composer
-from training.config_schema import validate_config, warn_inert_scalars
+from training.config_schema import (DEFAULT_N_ROLLOUTS, validate_config,
+                                    warn_inert_scalars)
 from transformers import TrainerCallback, set_seed
 
 
@@ -175,7 +176,10 @@ def main() -> None:
         raise ValueError("No reward components enabled. Check config rewards section.")
 
     method = config.get("rewards", {}).get("compose_method", "advantage_weighted")
-    reward_fn = build_composer(components, method)
+    # The composer z-scores per GRPO group, cut positionally in blocks of
+    # num_generations - the same resolution grpo_runner hands TRL.
+    n_rollouts = int(config["training"].get("n_rollouts", DEFAULT_N_ROLLOUTS))
+    reward_fn = build_composer(components, method, n_rollouts)
 
     callbacks = []
     # The callback holds the same composer instance passed as the reward fn, so

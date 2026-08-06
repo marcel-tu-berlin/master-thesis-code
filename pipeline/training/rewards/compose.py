@@ -5,29 +5,25 @@ from typing import Callable
 # exercised) without pulling the full deep-learning stack.
 
 
-def _group_indices(prompts) -> list[list[int]]:
-    """Partition completions into prompt-groups for per-group z-scoring.
+def _group_indices(n: int, group_size: int) -> list[list[int]]:
+    """Positional prompt-groups for per-group z-scoring.
 
-    TRL GRPOTrainer's reward function receives `prompts` of length
-    batch_size * num_generations, with each prompt repeated num_generations
-    times *consecutively*. We rely on that ordering and compare each prompt
-    to its predecessor with `==` only — no hashing, so no chance of a
-    64-bit collision merging two distinct prompts into one group.
-
-    Returns a list of index-lists, one per group.
+    TRL groups advantages positionally - rewards.view(-1, num_generations)
+    (grpo_trainer.py) - so the composer must cut the same consecutive blocks.
+    Grouping by adjacent prompt equality matched that only while neighbouring
+    groups never shared their prompt text; a domain whose reset observation is
+    seed-invariant (Wordle: the target word is hidden, every prompt in the
+    batch is byte-identical) merged the whole batch into one z-scoring group
+    and normalized each component across different games.
     """
-    if not prompts:
-        return []
-    groups: list[list[int]] = []
-    cur: list[int] = [0]
-    for i in range(1, len(prompts)):
-        if prompts[i] == prompts[i - 1]:
-            cur.append(i)
-        else:
-            groups.append(cur)
-            cur = [i]
-    groups.append(cur)
-    return groups
+    if group_size <= 0:
+        raise ValueError(f"group_size must be positive, got {group_size}")
+    if n % group_size:
+        raise ValueError(
+            f"{n} completions do not divide into groups of {group_size}; "
+            f"num_generations is out of sync with the trainer"
+        )
+    return [list(range(i, i + group_size)) for i in range(0, n, group_size)]
 
 
 def _drain_step_metrics(composer) -> dict:
@@ -56,14 +52,17 @@ class AdvantageWeightedComposer:
     zero-mean unit-std before summing ensures weights faithfully control contribution.
 
     Per-group normalization: GRPO advantages are computed within each prompt-group
-    (n_rollouts completions for one prompt). When `per_device_train_batch_size > 1`,
-    the reward function receives multiple groups concatenated. Z-scoring across
-    that concatenation conflates rewards across different prompts, distorting the
-    relative ranking inside each group. We z-score per group instead.
+    (n_rollouts completions for one prompt). With batch_size > 1 the reward
+    function receives multiple groups concatenated - consecutive blocks of
+    `num_generations` completions, the same positional cut TRL applies to the
+    advantages. Z-scoring across the concatenation conflates rewards across
+    different prompts, distorting the relative ranking inside each group.
     """
 
-    def __init__(self, components: list[tuple[Callable, float]]) -> None:
+    def __init__(self, components: list[tuple[Callable, float]],
+                 num_generations: int) -> None:
         self.components = components
+        self.num_generations = int(num_generations)
         self.__name__ = "advantage_weighted_composer"
         # Per-step diagnostics, drained by a TrainerCallback (T2.1). Purely
         # observational — never read back into the composed reward.
@@ -74,7 +73,7 @@ class AdvantageWeightedComposer:
 
         n = len(completions)
         total = [0.0] * n
-        groups = _group_indices(prompts)
+        groups = _group_indices(n, self.num_generations)
 
         call_metrics: dict[str, float] = {}
         for fn, weight in self.components:
@@ -151,10 +150,11 @@ class NaiveSumComposer:
 
 def build_composer(
     components: list[tuple[Callable, float]],
-    method: str = "advantage_weighted",
+    method: str,
+    num_generations: int,
 ) -> AdvantageWeightedComposer | NaiveSumComposer:
     if method == "advantage_weighted":
-        return AdvantageWeightedComposer(components)
+        return AdvantageWeightedComposer(components, num_generations)
     if method == "naive_sum":
         return NaiveSumComposer(components)
     raise ValueError(f"Unknown compose_method: {method!r}. Choose advantage_weighted | naive_sum")

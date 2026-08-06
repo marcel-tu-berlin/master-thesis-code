@@ -10,6 +10,7 @@ import sys
 
 from domains.env_base import CORRECT_REWARD_THRESHOLD
 from eval.metrics import SampleResult, compute_metrics, load_reference_thresholds
+from training.config_schema import SEED_BLOCK, resolve_max_turns
 
 # Held-out offset: training takes the bottom of a seed's block, so eval at
 # block + OFFSET evaluates on questions the model was not trained on.
@@ -22,14 +23,14 @@ _EVAL_SEED_OFFSET = 100_000
 # the shared ones decode identically. Pooling three such runs counts the same
 # questions three times and reports a CI far tighter than the data supports.
 #
-# The multiplier must exceed every split's seed_offset, or one seed's eval block
-# lands inside another seed's. 1e6 against offsets of 100k / 200k leaves room.
-_SEED_BLOCK = 1_000_000
+# SEED_BLOCK must exceed every split's seed_offset, or one seed's eval block
+# lands inside another seed's; config_schema._split_errors enforces that at
+# validation, next to the constant.
 
 
 def seed_block(seed: int) -> int:
     """Base of the question block belonging to `seed`."""
-    return int(seed) * _SEED_BLOCK
+    return int(seed) * SEED_BLOCK
 
 
 def _completion_budget(config, model_max_seq):
@@ -152,26 +153,41 @@ def _run_episodes(env, n: int, seed_base: int, gen_fn, gen_cap=None,
 
 
 def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messages,
-                            tool_names, gen_cap=None, on_result=None):
+                            tool_names, gen_cap=None, count_tokens=None,
+                            on_result=None):
     """Run n multi-turn episodes greedily, tool-agnostic.
 
     turn_fn(messages, budget) -> (message, [(tool_name, arguments), ...],
     n_tokens) produces one greedy model turn given the running message list and
     the tokens left in the episode's generation budget. Per episode: reset, then
-    up to max_turns turns; each turn dispatches *every* call naming one of the
-    domain's tools, in order, and appends the model's own message followed by one
-    tool response per call; the episode ends when the model stops calling a known
-    tool, the env reports done, or the budget runs out. Dispatching all of them
-    is what TRL does in training, and a turn that requests four clicks is common
-    on browsergym. Restricting dispatch to `tool_names` keeps a hallucinated name
-    (or `reset`) from being invoked. This one loop drives every multi-turn domain
-    - textarena (move), finqa (the four data tools), repl (execute) - via the
-    parsed tool name. n_tokens is the trajectory total (model-only, exact);
-    n_steps is the count of calls that reached the env, so a turn issuing several
-    calls counts several steps.
+    up to max_turns turns; each turn appends the model's own message followed by
+    one tool response per call it advertised - every call gets an answer, which
+    is what TRL does in training. A call naming one of the domain's tools is
+    dispatched to the env; a hallucinated name (or `reset`) is never invoked and
+    gets the same {"error": "Tool X not found."} feedback TRL's dispatch
+    produces, and the episode continues - training regenerates after error
+    feedback, so ending the episode here would score a recoverable
+    hallucination as no_tool_call. The episode ends when the model emits no
+    call at all, the env reports done, or the budget runs out. This one loop
+    drives every multi-turn domain - textarena (move), finqa (the four data
+    tools), repl (execute) - via the parsed tool name. n_tokens is the
+    trajectory total (model-only, exact); n_steps is the count of calls that
+    reached the env, so a turn issuing several calls counts several steps.
 
     `gen_cap` is the budget for the whole trajectory, matching training's
-    max_completion_length, not a fresh allowance per turn.
+    max_completion_length, not a fresh allowance per turn. `count_tokens(text)`
+    charges each tool response against that budget too: TRL counts interleaved
+    tool results toward max_completion_length (rolling back results that would
+    exceed it), so an eval that charged only model tokens ran materially longer
+    trajectories than the cap it claims to mirror. None (unit tests) charges
+    nothing.
+
+    An exception from a tool dispatch that is not a TypeError propagates and
+    aborts the split. Every finished episode is already flushed via on_result,
+    and scoring episodes against dead infrastructure (a crashed env server, a
+    reset connection) fabricates a policy regression - reward 0.0 and a
+    non-termination spike - that reads exactly like the mislabelled-truncation
+    confound this eval was rebuilt to eliminate.
 
     Each episode also records why it ended and which tools it called, in order.
     The off-target panel (RQ2) is computed from those two fields, and neither is
@@ -199,8 +215,7 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
             msg, turn_calls, n_tok = turn_fn(messages, budget)
             total_tokens += int(n_tok)
             turn_cap, budget = budget, (None if budget is None else budget - int(n_tok))
-            known = [(name, args) for name, args in turn_calls if name in tool_names]
-            if not known:
+            if not turn_calls:
                 stop_reason = _no_call_reason(n_tok, turn_cap)
                 break
             # The parsed message, not a stub. Rebuilding the turn as
@@ -211,25 +226,34 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
             # appending the parsed message reproduces that context.
             messages.append(msg)
             # One tool response per call, because the message just appended
-            # advertises every one of them. Answering only the first leaves the
-            # rest looking like they succeeded, and the model acts on that.
-            for name, args in known:
-                try:
-                    feedback = getattr(env, name)(**(args or {}))
-                except Exception as e:
-                    # Malformed model arguments (TypeError) become feedback rather
-                    # than crashing the episode. Everything else used to propagate:
-                    # an HTTP error from the env server, a reset connection, a bad
-                    # observation would kill the process on episode 95 of 100 and
-                    # discard all 95 trajectories, since the jsonl was only written
-                    # after the whole split returned.
-                    feedback = f"Tool call error: {type(e).__name__}: {e}"
+            # advertises every one of them - a call left unanswered reads to the
+            # model as having succeeded, and it acts on that.
+            for name, args in turn_calls:
+                if name not in tool_names:
+                    # Never dispatched, but answered: the exact error shape
+                    # TRL's training dispatch feeds back for an unknown name.
+                    feedback = str({"error": f"Tool {name} not found."})
                 else:
-                    # Only a call that actually reached the env counts as a step.
-                    # Counting a failed dispatch inflated n_steps and, through it,
-                    # mean_verification_depth in the RQ2 panel.
-                    calls.append(name)
-                messages.append({"role": "tool", "content": str(feedback)})
+                    try:
+                        feedback = getattr(env, name)(**(args or {}))
+                    except TypeError as e:
+                        # Malformed model arguments are agent behavior; training
+                        # turns the exception into error feedback, so eval does
+                        # too. Any other exception is infrastructure and
+                        # propagates - see the docstring.
+                        feedback = str({"error": str(e)})
+                    else:
+                        # Only a call that actually reached the env counts as a
+                        # step. Counting a failed dispatch inflated n_steps and,
+                        # through it, mean_verification_depth in the RQ2 panel.
+                        calls.append(name)
+                fb = str(feedback)
+                # `name` mirrors TRL's tool-message shape. The budget charge
+                # mirrors its accounting: the content's token count, leaving
+                # only the few per-message template framing tokens uncounted.
+                messages.append({"role": "tool", "name": name, "content": fb})
+                if budget is not None and count_tokens is not None:
+                    budget -= count_tokens(fb)
                 if getattr(env, "done", False):
                     stop_reason = "env_done"
                     break
@@ -503,16 +527,21 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
             print(f"Agentic eval [{split['name']}]: {n} episodes "
                   f"(seed_base={seed_base}, max_new_tokens={max_new})")
             if getattr(domain, "multi_turn", False):
-                # env_config.max_turns is the single turn cap - training passes it
-                # to TRL as max_tool_calling_iterations and each domain maps it to
-                # its server's own cap var, so eval must read the same key or it
-                # measures a different episode length than training produced.
-                max_turns = int(env_config.get("max_turns", 8))
+                # env_config.max_turns is the single turn cap - training passes
+                # it to TRL as max_tool_calling_iterations via the same
+                # resolver, so an unset key means the same episode process on
+                # both sides instead of training at 1 iteration while eval runs
+                # 8.
+                max_turns = resolve_max_turns(env_config)
+                # Tool responses are charged against the trajectory budget with
+                # the same tokenizer that counts the model's own tokens.
+                def count_text_tokens(text):
+                    return len(tokenizer(text, add_special_tokens=False)["input_ids"])
                 results = _run_multiturn_episodes(
                     env, n, seed_base, gen_turn,
                     max_turns=max_turns, make_messages=domain.episode_messages,
                     tool_names={t.__name__ for t in tools}, gen_cap=max_new,
-                    on_result=on_result,
+                    count_tokens=count_text_tokens, on_result=on_result,
                 )
             else:
                 results = _run_episodes(env, n, seed_base, gen_fn, gen_cap=max_new,

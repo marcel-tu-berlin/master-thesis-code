@@ -104,14 +104,20 @@ class FinQAEnvAdapter:
         ground-truth answer for scoring (deterministic after the seed-patch); the
         question text shown to the model is read locally from finqa.csv at the
         same seed (the server's metadata channel is dropped by the serializer).
-        `prompt` and other dataset columns arrive as kwargs and are ignored.
+        The seed is required: an unseeded server reset arms a *random* question
+        while this method would show row 0, so the episode would be scored
+        against an answer the model never saw - silently, reward ~0 regardless
+        of model quality. `prompt` and other dataset columns arrive as kwargs
+        and are ignored.
         """
-        if seed is not None:
-            self._client.reset(seed=seed)
-        else:
-            self._client.reset()
+        if seed is None:
+            raise ValueError(
+                "FinQA reset requires a seed: the shown question is read locally "
+                "at seed % len while an unseeded server reset scores a random one"
+            )
+        self._client.reset(seed=seed)
         questions = _load_questions(self._data_path)
-        row = questions[(seed or 0) % len(questions)]
+        row = questions[seed % len(questions)]
         self._company = row["company"]
         self.reward = 0.0
         self.done = False
