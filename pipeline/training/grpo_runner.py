@@ -78,12 +78,21 @@ class GRPORunner:
         max_completion_len = self._max_seq - max_prompt_len
 
         # Bound activation memory: forward/backward completions in small
-        # micro-batches and accumulate gradients over a full prompt-group
-        # (batch_size * n_rollouts) per optimizer step. GRPO advantages are
-        # unaffected (computed per group at reward time over the full generation
-        # batch), so max_steps still counts prompts, not micro-steps.
+        # micro-batches and accumulate gradients over `batch_size` whole
+        # prompt-groups per optimizer step.
+        #
+        # `batch_size` defaults to 4, not 1, and the difference is not a
+        # performance knob. TRL centres advantages on the per-group mean
+        # (grpo_trainer.py:2177, scale_rewards="group"), so a group whose
+        # rollouts all score alike yields exactly zero advantage. A binary
+        # env_reward saturates that way ~46% of the time, so at batch_size 1 -
+        # one group per step - roughly half of all optimizer steps applied a
+        # zero update. A shaped reward that varies within the group (cosine
+        # length) does not saturate, so the defect hit env-only baselines about
+        # twice as hard as the treatment arms they were compared against. A step
+        # is dead only when every group in it saturates: 0.46^4 = 4.5%.
         n_rollouts = int(t.get("n_rollouts", 8))
-        total_completions = int(t.get("batch_size", 1)) * n_rollouts
+        total_completions = int(t.get("batch_size", 4)) * n_rollouts
         micro = int(t.get("micro_batch_size", 2))
         if micro < 1 or total_completions % micro != 0:
             micro = 1
@@ -103,10 +112,9 @@ class GRPORunner:
             fp16=not torch.cuda.is_bf16_supported(),
             gradient_checkpointing=True,
             # TRL 1.6 counts per_device_train_batch_size in completions, and a
-            # full prompt-group is num_generations completions. Set it to
-            # batch_size * n_rollouts so one optimizer step consumes whole
-            # groups (1 prompt-group/step at batch_size=1) and max_steps tracks
-            # the number of prompts trained on, not micro-steps within a group.
+            # full prompt-group is num_generations completions. Micro-batch the
+            # forward pass and accumulate, so one optimizer step still consumes
+            # whole groups and max_steps counts steps of `batch_size` prompts.
             per_device_train_batch_size=micro,
             gradient_accumulation_steps=grad_accum,
             num_generations=n_rollouts,

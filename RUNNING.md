@@ -80,9 +80,12 @@ compared a baseline that barely trained against a treatment arm that did, and an
 difference between them mixes the reward's shape with 300x more gradient. e28
 against e27 would have reproduced it exactly.
 
-**Raising batch_size removes the confound as a side effect.** With 8 groups per
-step, `env_reward` has variance across prompts even when each prompt is
-internally uniform:
+**Raising batch_size removes the confound as a side effect.** Not because
+`env_reward` gains variance across prompts - it cannot help, because TRL centres
+on the per-group mean (`grpo_trainer.py:2177`, `scale_rewards` defaults to
+`"group"`), so cross-group differences never reach an advantage. It works because
+an optimizer step accumulates gradient over every group in the batch, and is dead
+only when *all* of them are internally uniform:
 
 ```
                         steps with gradient    grad_norm median   min        max

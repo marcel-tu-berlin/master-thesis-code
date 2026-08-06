@@ -33,6 +33,43 @@ current is a hard requirement for every run, not a courtesy:
 
 A run missing from `RUNNING.md` is a run nobody can find after a context reset.
 
+## Task tracking (taskwarrior)
+
+Pipeline work is tracked in taskwarrior under the `thesis` context (`project:thesis`).
+`RUNNING.md` says what the GPU is doing right now; taskwarrior says what work is
+open and what comes next. Do not duplicate a run's live state into a task.
+
+Always pass the context explicitly, so the command is correct no matter which
+context happens to be active:
+
+```bash
+task rc.context=thesis add "run seed 43/44 replication of e24/e25"   # add
+task rc.context=thesis list                                          # read open work
+task rc.context=thesis <id> annotate "bootstrap CI crosses zero"     # record a finding
+task rc.context=thesis <id> modify +blocked                          # retag / re-scope
+task rc.context=thesis <id> done                                     # finished
+task rc.context=thesis rc.confirmation=off <id> delete               # obsolete, never done
+```
+
+`delete` prompts for confirmation, which hangs a non-interactive shell - hence
+`rc.confirmation=off`. Only ever pass it to `delete`.
+
+When to touch it:
+
+- **Add** when work is agreed but not started - a planned experiment, a fix that
+  is out of scope for the current turn, a harvest that has to wait for a run.
+  One task per unit of work someone could pick up cold.
+- **Annotate** when a task's outcome or blocker becomes known but the task is not
+  finished. Findings belong on the task; the numbers stay in `runs/`.
+- **Done** as soon as the work lands and is verified, not when the code is
+  written. A launched run is not a done task.
+- **Delete** when a task is obsolete (premise refuted, superseded by another
+  task). `delete` is not `done` - do not close abandoned work as completed.
+
+Read the open list before proposing next steps, and reconcile it when a run is
+harvested. A stale task list misdirects the next session exactly like a stale
+`RUNNING.md` does.
+
 ## Environment Setup
 
 ```bash
