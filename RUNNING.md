@@ -3,13 +3,83 @@
 What is executing on the GPU box (`ssh gpu-l4`). Rows leave the table once the
 results are harvested. Update rules are in CLAUDE.md.
 
-Updated: 2026-08-05 23:20 UTC (box time)
+Updated: 2026-08-06 07:20 UTC (box time)
 
-| run | phase | pid | started | ETA |
-|---|---|---|---|---|
-| e27bs8probe | train only, 40 steps, batch_size 8 | 1877378 (batch) / 1877380 (train) | 23:20 UTC Aug 5 | 3-8h, rate-dependent |
+Nothing running. GPU free.
 
-## e27bs8probe: does raising batch_size restore the gradient?
+## batch_size 1 confounded every treatment-vs-baseline comparison ever run
+
+The batch-size probe passed, and checking whether the defect reached other runs
+turned up something larger. **No config in this repo has ever set
+`batch_size`**, so every experiment trained one prompt per optimizer step. That
+does not hit all arms equally:
+
+```
+                                       gradient   grad_norm median
+ENV-ONLY arms (baselines)
+  e10  poly env-only                      41%        2.51e-04
+  e12  poly env-only hibudget             41%        2.25e-04
+  e24  poly env-only 4k                   43%        2.32e-04
+  e20  countdown env-only                 50%        5.85e-03
+  e27  browsergym env-only (x3)         50-54%    2.5e-03..9.5e-03
+  e26  finqa                               3%        1.47e-04
+
+COSINE / ENTROPY arms (treatments)
+  e11  poly cosine hibudget                74%        8.70e-02
+  e13  poly cosine w4                      79%        7.89e-02
+  e17  poly cosine w16                     71%        7.63e-02
+  e18  poly cosine w16 naive_sum           73%        8.16e-02
+  e25  poly cosine 4k                      77%        5.11e-02
+  e21  countdown cosine                    68%        4.44e-02
+  e19  poly entropy                       100%        1.22e-01
+```
+
+Three matched pairs - e12/e11, e24/e25, e20/e21 - and the split is clean along
+env-only versus shaped-reward. Every treatment arm got roughly twice the steps
+with a gradient, at a magnitude about 300x larger.
+
+**The mechanism is not a bug, which is why it went unseen.** `env_reward` is
+binary, so a prompt-group whose 8 rollouts share a correctness label has zero
+within-group variance and contributes nothing after z-scoring. The cosine reward
+is continuous in length and always has variance. At batch_size 1, where a step is
+one group, that difference *is* the training signal.
+
+So the e9-e25 campaign never compared two versions of one training run. It
+compared a baseline that barely trained against a treatment arm that did, and any
+difference between them mixes the reward's shape with 300x more gradient. e28
+against e27 would have reproduced it exactly.
+
+**Raising batch_size removes the confound as a side effect.** With 8 groups per
+step, `env_reward` has variance across prompts even when each prompt is
+internally uniform:
+
+```
+                        steps with gradient    grad_norm median   min        max
+e27bs8probe (bs=8)         40/40 = 100%           0.0398        0.0103    0.0944
+e27 run1    (bs=1)         20/40 =  50%           0.0005        0.00e+00  0.4231
+e27 run2    (bs=1)         19/40 =  48%           0.0007        0.00e+00  0.8264
+```
+
+The baseline moves from 300x below the cosine arms to within 2x of them.
+`frac_reward_zero_std` stayed at 0.419, confirming that individual prompts
+saturate exactly as often as before - a step is simply no longer one prompt.
+`tools/failure_frequency` was 0.000 across all 40 steps at 64 concurrent
+browsers, and clipping averaged 0.025.
+
+Measured cost: 674 s/it for 64 completions, so 300 steps is 56h. `batch_size: 4`
+leaves 0.46^4 = 4.5% dead steps, still about 95% coverage, at roughly half the
+rate - near 28h for 300 steps, which looks like the better point on the curve.
+
+40 steps cannot show whether training now *learns*; the reward curve is still
+flat (0.725 / 0.648 / 0.631 / 0.713 by quarter). The probe answers the gradient
+question only.
+
+Also worth recording: e26 finqa trained on 3% of its steps. Its disqualification
+stands - 1% per-rollout accuracy means nearly every group is uniformly wrong -
+but the stated cause should be that the task is too hard to produce variance, not
+that the model cannot learn it.
+
+## The superseded probe writeup
 
 `batch_size: 8`, `max_steps: 40`, everything else identical to e27 - the `diff`
 is three lines. Train only: 40 steps cannot produce a good policy, so an eval
