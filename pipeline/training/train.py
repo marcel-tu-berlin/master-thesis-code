@@ -187,12 +187,6 @@ def main() -> None:
     print(f"Experiment: {exp_id}  (agentic)")
     print(f"Reward components: {[type(fn).__name__ for fn, _ in components]}")
     print(f"Compose method: {method}")
-    # Batch geometry in every log: batch_size drives how often a step has any
-    # gradient at all, and it silently defaulted to 1 for the whole e9-e25
-    # campaign. Comparisons are only valid between arms that agree on all three.
-    _t = config["training"]
-    print(f"Batch geometry: batch_size={_t.get('batch_size', 4)}  "
-          f"n_rollouts={_t.get('n_rollouts', 8)}  max_steps={_t.get('max_steps', 500)}")
 
     checkpoint_dir = os.path.join(run_dir, "checkpoint-final")
 

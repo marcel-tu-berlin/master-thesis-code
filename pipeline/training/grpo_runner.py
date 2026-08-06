@@ -92,11 +92,17 @@ class GRPORunner:
         # twice as hard as the treatment arms they were compared against. A step
         # is dead only when every group in it saturates: 0.46^4 = 4.5%.
         n_rollouts = int(t.get("n_rollouts", 8))
-        total_completions = int(t.get("batch_size", 4)) * n_rollouts
+        batch_size = int(t.get("batch_size", 4))
+        total_completions = batch_size * n_rollouts
         micro = int(t.get("micro_batch_size", 2))
         if micro < 1 or total_completions % micro != 0:
             micro = 1
         grad_accum = total_completions // micro
+        max_steps = int(t.get("max_steps", 500))
+        # Print the resolved geometry: cross-arm comparisons are only valid
+        # between runs that agree on it, and the log is where that is checked.
+        print(f"Batch geometry: batch_size={batch_size}  n_rollouts={n_rollouts}  "
+              f"micro_batch_size={micro}  grad_accum={grad_accum}  max_steps={max_steps}")
 
         kwargs = dict(
             temperature=float(t.get("temperature", 1.0)),
@@ -119,7 +125,7 @@ class GRPORunner:
             gradient_accumulation_steps=grad_accum,
             num_generations=n_rollouts,
             max_completion_length=max_completion_len,
-            max_steps=int(t.get("max_steps", 500)),
+            max_steps=max_steps,
             save_steps=int(t.get("save_steps", 100)),
             output_dir=output_dir,
             report_to="none",
