@@ -162,12 +162,39 @@ def warn_inert_scalars(rewards_cfg: dict, compose_method: str) -> list[str]:
     return warnings
 
 
-def _split_errors(splits) -> list[str]:
+def _max_turns_error(env_cfg: dict, label: str):
+    """Reject an explicit max_turns that resolve_max_turns would silently rewrite.
+
+    resolve_max_turns coerces 0 and negatives to 1, so without this check a
+    config stating max_turns: 0 trains and evals as a 1-turn episode while its
+    frozen config records the 0 - the recorded cap and the executed cap disagree.
+    """
+    mt = env_cfg.get("max_turns")
+    if mt is None:
+        return None
+    try:
+        mt_i = int(mt)
+    except (TypeError, ValueError):
+        return f"{label}.max_turns={mt!r} is not an int"
+    if mt_i < 1:
+        return (f"{label}.max_turns={mt_i} must be >= 1: resolve_max_turns "
+                f"would run 1 turn while the frozen config records {mt_i}")
+    return None
+
+
+def _split_errors(splits, train_size: int = 500,
+                  default_n_episodes: int = 100) -> list[str]:
     """Validate eval.agentic.splits.
 
     Split names key the report and the per-split episodes file, so a missing or
     duplicate name silently overwrites another split's results - checked here
     rather than discovered after a 2h eval.
+
+    An explicit seed_offset is checked at both ends of its episode range
+    [offset, offset + n_episodes): the low end against this seed's own training
+    questions [0, train_size), the high end against SEED_BLOCK. Checking only
+    the offset let a split near the block edge validate and still run its last
+    episodes on the next seed's training questions.
     """
     if splits is None:
         return []
@@ -200,6 +227,17 @@ def _split_errors(splits) -> list[str]:
                     f"Unknown eval.agentic.splits[{i}].env_config keys: "
                     f"{sorted(unknown_ec)}. Known: {sorted(_KNOWN_ENV_CONFIG_KEYS)}"
                 )
+            mt_err = _max_turns_error(env_cfg, f"eval.agentic.splits[{i}].env_config")
+            if mt_err:
+                errors.append(mt_err)
+        n_eps = s.get("n_episodes", default_n_episodes)
+        try:
+            n_eps = int(n_eps)
+        except (TypeError, ValueError):
+            errors.append(
+                f"eval.agentic.splits[{i}].n_episodes={s.get('n_episodes')!r} is not an int"
+            )
+            n_eps = None
         offset = s.get("seed_offset")
         if offset is not None:
             try:
@@ -209,11 +247,22 @@ def _split_errors(splits) -> list[str]:
                     f"eval.agentic.splits[{i}].seed_offset={offset!r} is not an int"
                 )
             else:
-                if not (0 <= off < SEED_BLOCK):
+                if off < 0:
                     errors.append(
-                        f"eval.agentic.splits[{i}].seed_offset={off} out of range "
-                        f"[0, {SEED_BLOCK}): an offset at or above the seed-block "
-                        f"size evaluates on another seed's training questions"
+                        f"eval.agentic.splits[{i}].seed_offset={off} is negative"
+                    )
+                elif off < train_size:
+                    errors.append(
+                        f"eval.agentic.splits[{i}].seed_offset={off} lands inside "
+                        f"this seed's training questions [0, {train_size}): a "
+                        f"held-out split would replay trained questions"
+                    )
+                if n_eps is not None and off >= 0 and off + n_eps > SEED_BLOCK:
+                    errors.append(
+                        f"eval.agentic.splits[{i}].seed_offset={off} + "
+                        f"n_episodes={n_eps} crosses SEED_BLOCK={SEED_BLOCK}: the "
+                        f"last episodes would run on the next seed's training "
+                        f"questions"
                     )
     return errors
 
@@ -338,6 +387,9 @@ def validate_config(config: dict) -> None:
                 f"Unknown training.env_config keys: {sorted(unknown_ec)}. "
                 f"Known: {sorted(_KNOWN_ENV_CONFIG_KEYS)}"
             )
+        mt_err = _max_turns_error(env_config, "training.env_config")
+        if mt_err:
+            errors.append(mt_err)
 
     eval_cfg = config.get("eval")
     if isinstance(eval_cfg, dict):
@@ -354,7 +406,22 @@ def validate_config(config: dict) -> None:
                     f"Unknown eval.agentic keys: {sorted(unknown_ag)}. "
                     f"Known: {sorted(_KNOWN_EVAL_AGENTIC_KEYS)}"
                 )
-            errors.extend(_split_errors(agentic.get("splits")))
+            # Mirror the resolutions the pipeline itself applies: training
+            # questions occupy [0, env_config.size) with train.py's default of
+            # 500, and a split without n_episodes falls back to
+            # eval.agentic.n_episodes (agentic_eval defaults it to 100).
+            size_val = env_config.get("size", 500) if isinstance(env_config, dict) else 500
+            try:
+                train_size = int(size_val)
+            except (TypeError, ValueError):
+                train_size = 500
+            try:
+                default_n = int(agentic.get("n_episodes", 100))
+            except (TypeError, ValueError):
+                default_n = 100
+            errors.extend(_split_errors(agentic.get("splits"),
+                                        train_size=train_size,
+                                        default_n_episodes=default_n))
 
     unknown_top = set(config.keys()) - _KNOWN_TOP_LEVEL_KEYS
     if unknown_top:

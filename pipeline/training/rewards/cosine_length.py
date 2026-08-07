@@ -65,7 +65,8 @@ class CosineLengthReward:
 
     def __call__(self, prompts, completions, **kwargs) -> list[float]:
         # Agentic (environment_factory): TRL passes the live env instances as
-        # kwargs['environments']; correctness is env.reward > 0 (no answer column).
+        # kwargs['environments']; correctness is env.reward >=
+        # CORRECT_REWARD_THRESHOLD (0.5; no answer column).
         environments = kwargs.get("environments")
         if environments is None:
             raise ValueError(

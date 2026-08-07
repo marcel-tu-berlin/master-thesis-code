@@ -152,6 +152,63 @@ def test_rejects_non_int_split_seed_offset():
         validate_config(_cfg_with_offset("far"))
 
 
+# --- the whole split range must dodge training questions and the block edge ---
+# Bounding only the offset let two contaminations validate: an offset below
+# env_config.size replays this seed's own training questions, and an offset
+# near SEED_BLOCK runs its last episodes in the next seed's block, whose
+# bottom is that seed's training range. Both inflate "held-out" accuracy.
+
+def test_rejects_split_range_crossing_the_next_seed_block():
+    # 999_950 < SEED_BLOCK, but the default 100 episodes run through 1_000_049.
+    with pytest.raises(ValueError, match="crosses SEED_BLOCK"):
+        validate_config(_cfg_with_offset(999_950))
+
+
+def test_accepts_split_range_ending_exactly_at_the_block_edge():
+    cfg = _agentic_base()
+    cfg["eval"] = {"agentic": {"splits": [
+        {"name": "s", "seed_offset": 999_950, "n_episodes": 50}]}}
+    validate_config(cfg)  # 999_950 + 50 == SEED_BLOCK: last episode is 999_999
+
+
+def test_rejects_split_offset_inside_the_training_range():
+    # _agentic_base trains on env_config.size == 8 questions, offsets [0, 8).
+    with pytest.raises(ValueError, match="training questions"):
+        validate_config(_cfg_with_offset(4))
+
+
+def test_accepts_split_offset_at_the_training_range_end():
+    validate_config(_cfg_with_offset(8))  # first offset past the trained ones
+
+
+# --- an explicit max_turns the resolver would silently rewrite is rejected ---
+# resolve_max_turns coerces 0 and negatives to 1, so a config stating
+# max_turns: 0 used to train and eval as a 1-turn episode while its frozen
+# config recorded 0 - the recorded cap and the executed cap disagreed.
+
+def test_rejects_explicit_zero_or_negative_max_turns():
+    for bad in (0, -3):
+        cfg = _agentic_base()
+        cfg["training"]["env_config"]["max_turns"] = bad
+        with pytest.raises(ValueError, match="max_turns"):
+            validate_config(cfg)
+
+
+def test_rejects_non_int_max_turns():
+    cfg = _agentic_base()
+    cfg["training"]["env_config"]["max_turns"] = "six"
+    with pytest.raises(ValueError, match="max_turns"):
+        validate_config(cfg)
+
+
+def test_rejects_zero_max_turns_in_a_split_env_config():
+    cfg = _agentic_base()
+    cfg["eval"] = {"agentic": {"splits": [
+        {"name": "s", "env_config": {"max_turns": 0}}]}}
+    with pytest.raises(ValueError, match="max_turns"):
+        validate_config(cfg)
+
+
 # --- one turn-cap resolution for training and eval ---
 
 def test_resolve_max_turns_defaults_to_one_on_both_sides():

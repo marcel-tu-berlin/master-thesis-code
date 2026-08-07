@@ -398,6 +398,20 @@ def test_bad_model_arguments_become_feedback_not_a_crash():
     assert rs[0].tool_calls == []
 
 
+def test_typeerror_from_inside_the_tool_body_aborts_the_split():
+    # The dispatch classifies TypeError by binding the arguments first, so only
+    # argument-shape errors count as agent behavior. A TypeError raised by the
+    # tool body itself - the documented openenv-skew signature, an older core
+    # rejecting `metadata=` - is infrastructure and propagates like any other
+    # exception. Catching it used to feed it back as {'error': ...} and score
+    # every following episode against broken infra.
+    env = _ExplodingEnv(TypeError("StepResult() got an unexpected keyword argument 'metadata'"))
+    with pytest.raises(TypeError, match="metadata"):
+        _run_multiturn_episodes(
+            env, 1, 0, _scripted(_turn("move", {"action": "x"}, 5)),
+            max_turns=2, make_messages=_msgs, tool_names={"move"})
+
+
 def test_on_result_fires_per_episode():
     # The durability hook: records are written as they are produced, so a crash
     # part-way through a split keeps what came before it.

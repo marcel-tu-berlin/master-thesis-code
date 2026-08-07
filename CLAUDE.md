@@ -39,6 +39,12 @@ What it requires on every change:
 When in doubt, stop and confirm rather than ship and let the next eval catch it.
 The next eval is nine hours of GPU time.
 
+**Working code is enough.** Change code only to fix an actual, verified bug.
+Do not refactor, restyle, or "improve" code for its own sake - in this repo every
+change carries regression risk against results already on disk, so churn has a
+real cost and polish has none. Technical debt that is not producing wrong numbers
+gets reported, not rewritten.
+
 ## Void results, do not cite
 
 Two errors invalidated whole campaigns. Both are written up in full in

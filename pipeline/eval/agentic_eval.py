@@ -4,6 +4,7 @@ Runs the trained policy against the live OpenEnv environment for N held-out
 episodes (seeds disjoint from training), parses each tool call, scores it via
 the env, and reports success rate + token-efficiency metrics.
 """
+import inspect
 import json
 import os
 import sys
@@ -182,12 +183,15 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
     trajectories than the cap it claims to mirror. None (unit tests) charges
     nothing.
 
-    An exception from a tool dispatch that is not a TypeError propagates and
-    aborts the split. Every finished episode is already flushed via on_result,
-    and scoring episodes against dead infrastructure (a crashed env server, a
-    reset connection) fabricates a policy regression - reward 0.0 and a
-    non-termination spike - that reads exactly like the mislabelled-truncation
-    confound this eval was rebuilt to eliminate.
+    Arguments that do not fit the tool's signature (checked by binding them
+    before the call) are agent behavior and become error feedback. Any
+    exception raised by the call itself - including a TypeError from inside
+    the tool body or the env client - propagates and aborts the split. Every
+    finished episode is already flushed via on_result, and scoring episodes
+    against dead infrastructure (a crashed env server, a reset connection)
+    fabricates a policy regression - reward 0.0 and a non-termination spike -
+    that reads exactly like the mislabelled-truncation confound this eval was
+    rebuilt to eliminate.
 
     Each episode also records why it ended and which tools it called, in order.
     The off-target panel (RQ2) is computed from those two fields, and neither is
@@ -234,15 +238,22 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
                     # TRL's training dispatch feeds back for an unknown name.
                     feedback = str({"error": f"Tool {name} not found."})
                 else:
+                    fn = getattr(env, name)
                     try:
-                        feedback = getattr(env, name)(**(args or {}))
+                        inspect.signature(fn).bind(**(args or {}))
                     except TypeError as e:
                         # Malformed model arguments are agent behavior; training
                         # turns the exception into error feedback, so eval does
-                        # too. Any other exception is infrastructure and
-                        # propagates - see the docstring.
+                        # too. Binding against the signature keeps that
+                        # classification to the arguments alone: catching the
+                        # call's own TypeError also swallowed TypeErrors raised
+                        # inside the tool body (infrastructure, e.g. an openenv
+                        # version skew), scoring episodes against broken infra.
+                        # Every exception the call raises propagates - see the
+                        # docstring.
                         feedback = str({"error": str(e)})
                     else:
+                        feedback = fn(**(args or {}))
                         # Only a call that actually reached the env counts as a
                         # step. Counting a failed dispatch inflated n_steps and,
                         # through it, mean_verification_depth in the RQ2 panel.
