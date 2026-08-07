@@ -133,7 +133,7 @@ def build_env_server(config, domain, python=None) -> EnvServerProcess:
               * int(t.get("n_rollouts", DEFAULT_N_ROLLOUTS)))
     return EnvServerProcess(
         env_module=domain.server_module,
-        # 8000 is every OpenEnv server's own default. finqa/repl/textarena/
+        # 8000 is every OpenEnv server's own default. repl/textarena/
         # browsergym bind it unconditionally (their apps ignore the --port argv
         # this process passes), and reasoning_gym honors whatever --port it
         # gets - so one shared default keeps the readiness probe and the

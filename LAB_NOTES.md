@@ -17,6 +17,7 @@ chronological order.
 - [Traps that have each cost real time](#traps-that-have-each-cost-real-time)
 
 **Standing decisions**
+- [Contract a new OpenEnv env must meet](#contract-a-new-openenv-env-must-meet)
 - [Standing rule: batch_size 4 everywhere](#standing-rule-batch_size-4-everywhere)
 - [Before the E2 / E3 arms - two knobs checked against e27's real numbers](#before-the-e2--e3-arms---two-knobs-checked-against-e27s-real-numbers)
 
@@ -48,7 +49,9 @@ chronological order.
   the configs ask for. A different `training.env_server.port` would fail loud
   (nothing answers the client), not silent.
 - **OpenEnv clone updated** `d372fab` -> `024eedc`. Rollback point is `d372fab`.
-  The finqa patches survived the pull and are saved in `openenv-patches/`.
+  The clone carries no local patches any more: the only ones were finqa's, deleted
+  with the env. Their two lessons live in "Contract a new OpenEnv env must meet"
+  below.
 - **`openenv-core` must stay uninstalled.** It ships the same `openenv` import
   name as the repo (`0.4.2.dev0`) and shadows it; the skew fails at the first
   client `reset()` with a `metadata=` TypeError, not at import. `setup.sh` handles
@@ -152,6 +155,25 @@ chronological order.
   `smoke_conflict` refuses a `--smoke` eval over a real report. A base-model eval
   still needs its own config with its own `experiment_id` (the `e0` / `e0b`
   pattern) - the guard makes that loud instead of silent.
+
+## Contract a new OpenEnv env must meet
+
+Two requirements, both learned by finqa failing them. finqa is gone but the
+contract is not: an env that misses either one breaks GRPO rather than the env.
+
+1. **`create_app` must take `max_concurrent_envs` from `MAX_CONCURRENT_ENVS`, and
+   the env class must set `SUPPORTS_CONCURRENT_SESSIONS = True`.** Omitting it
+   defaults the cap to 1, and the server then closes every WebSocket session after
+   the first: the second rollout slot's `reset()` dies with `ConnectionClosedOK`.
+   The pipeline runs one server for `batch_size * n_rollouts` clients.
+   reasoning_gym, textarena and browsergym all wire this through; finqa did not,
+   and needed a patch.
+2. **`reset(seed=N)` must be a deterministic function of N.** finqa picked its
+   question from an unseeded global shuffle and ignored `seed` entirely, so rollout
+   slots sharing a server got different questions and the GRPO group was not a
+   group - eight rollouts of eight different problems, z-scored against each other.
+   This fails silently: the run trains, the loss moves, the advantage is noise.
+   `pipeline/probes/bg_seed_check.py` is the check; run it against any new env.
 
 ## Standing rule: batch_size 4 everywhere
 

@@ -79,7 +79,7 @@ class REPLEnvAdapter:
             # Done-guard: once a final answer is recorded, further code cannot
             # corrupt the terminal reward.
             return "The task is already answered; no further code is accepted."
-        # step(REPLAction) is the canonical path (matches textarena/finqa); the
+        # step(REPLAction) is the canonical path (matches textarena); the
         # client's execute() convenience wraps the same call.
         from repl_env import REPLAction
 

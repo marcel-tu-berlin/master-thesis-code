@@ -45,10 +45,11 @@ class BrowserGymEnvAdapter:
     translates a tool call into it, so this adapter does not parse or format
     actions itself.
 
-    Unlike finqa, no server patch is needed. reset(seed=N) is deterministic
-    (verified: same seed reproduces goal and accessibility tree, and survives an
-    intervening reset), and reset(task_name=...) switches family per episode, so
-    one server serves the whole mixed task set.
+    No server patch is needed, which is the bar the deleted finqa env failed:
+    reset(seed=N) is deterministic (verified - the same seed reproduces goal and
+    accessibility tree, and survives an intervening reset), and
+    reset(task_name=...) switches family per episode, so one server serves the
+    whole mixed task set.
 
     The client is injectable so the unit tests exercise the adapter logic without
     the OpenEnv install or a running server.
@@ -72,7 +73,7 @@ class BrowserGymEnvAdapter:
     def _connect(base_url):
         # Lazy: the browsergym client lives in the cloned OpenEnv repo's envs/
         # package (not on PyPI). .sync() wraps it for TRL, which rejects async
-        # tools, matching the reasoning_gym/textarena/finqa pattern.
+        # tools, matching the reasoning_gym/textarena pattern.
         from browsergym_env import BrowserGymEnv
 
         return BrowserGymEnv(base_url).sync()

@@ -18,8 +18,6 @@ CASES = [
      {"REASONING_GYM_DATASET": "polynomial_equations"}),
     ("textarena", "textarena_env.server.app", 8202, {"TEXTARENA_ENV_ID": "Wordle-v0"}),
     ("repl", "repl_env.server.app", 8203, {}),
-    ("finqa", "finqa_env.server.app", 8204,
-     {"FINQA_DATA_PATH": "/workspace/OpenEnv/envs/finqa_env/data"}),
 ]
 
 

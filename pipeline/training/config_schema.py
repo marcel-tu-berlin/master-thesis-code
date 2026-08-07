@@ -79,8 +79,6 @@ _KNOWN_ENV_CONFIG_KEYS = {
     "dataset", "dataset_name", "dataset_config", "size",
     # textarena
     "env_id", "num_players",
-    # finqa
-    "data_path",
     # browsergym: `tasks` is the MiniWoB family list the seed cycles through
     # (`tasks[seed % len]`), so it also sets the training task mix. `miniwob_url`
     # points at the served miniwob-plusplus HTML, which browsergym-miniwob does
@@ -88,9 +86,9 @@ _KNOWN_ENV_CONFIG_KEYS = {
     "tasks", "benchmark", "miniwob_url",
     # Every multi-turn domain: the ONE turn cap. Read by training
     # (max_tool_calling_iterations), by the eval loop, and mapped to each
-    # server's own env var (TEXTARENA_MAX_TURNS / FINQA_MAX_STEPS /
-    # REPL_MAX_ITERATIONS). finqa's `max_steps` and repl's `max_iterations`
-    # were per-domain aliases that let the three caps drift apart.
+    # server's own env var (TEXTARENA_MAX_TURNS / REPL_MAX_ITERATIONS).
+    # repl's `max_iterations` and the deleted finqa's `max_steps` were
+    # per-domain aliases that let the caps drift apart.
     "max_turns",
 }
 

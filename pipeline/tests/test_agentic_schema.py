@@ -58,11 +58,12 @@ def test_build_domain_dispatches_reasoning_gym():
     assert isinstance(d, ReasoningGymDomain)
 
 
-def test_build_domain_dispatches_finqa():
-    # The stale dispatch in eval/runner.py never learned finqa/repl.
-    from domains.finqa import FinQADomain
-    d = build_domain({"training": {"env": "finqa"}})
-    assert isinstance(d, FinQADomain)
+def test_build_domain_dispatches_repl():
+    # A domain added after the dispatch was duplicated: the stale copy in
+    # eval/runner.py never learned the later ones.
+    from domains.repl import REPLDomain
+    d = build_domain({"training": {"env": "repl"}})
+    assert isinstance(d, REPLDomain)
 
 
 def test_build_domain_rejects_unknown_env():

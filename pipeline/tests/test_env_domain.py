@@ -87,13 +87,6 @@ def test_reasoning_gym_eval_tools_is_answer():
 # whose server cap lives under its own key leaves the training tool loop
 # unbounded. Every multi-turn domain reads the same `max_turns`.
 
-def test_finqa_server_env_maps_max_turns_to_its_step_cap():
-    from domains.finqa import FinQADomain
-
-    env = FinQADomain().server_env({"max_turns": 12})
-    assert env["FINQA_MAX_STEPS"] == "12"
-
-
 def test_repl_server_env_maps_max_turns_to_its_iteration_cap():
     from domains.repl import REPLDomain
 
@@ -109,6 +102,6 @@ def test_schema_rejects_the_old_per_domain_cap_aliases():
         with pytest.raises(ValueError, match="env_config"):
             validate_config({
                 "experiment_id": "x", "model": {"slug": "qwen3-1.7b"},
-                "training": {"mode": "agentic", "env": "finqa",
+                "training": {"mode": "agentic", "env": "repl",
                              "env_config": {stale: 12}},
             })
