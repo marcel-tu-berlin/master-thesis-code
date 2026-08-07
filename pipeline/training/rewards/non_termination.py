@@ -13,10 +13,9 @@ class NonTerminationPenalty:
     not finishing. Weights stay positive across every reward in the registry.
 
     `done` is the adapter's termination flag - set by the terminal tool
-    (reasoning_gym `answer`, repl's FINAL, textarena's solving move) or, in
-    browsergym, by whichever action makes the env itself report done. An episode
-    that ran out of turns, stopped emitting tool calls, or filled the token budget
-    leaves it False.
+    (reasoning_gym's `answer`) or, in browsergym, by whichever action makes the
+    env itself report done. An episode that ran out of turns, stopped emitting
+    tool calls, or filled the token budget leaves it False.
 
     Caveat, and the reason the E3 sweep runs under `naive_sum`: under
     `advantage_weighted` each component is z-scored per prompt-group, and a

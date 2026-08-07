@@ -2,13 +2,25 @@
 
 Decisions and trade-offs from integrating two new agentic environments, for review.
 
-**Status, 2026-08-07: finqa has since been removed.** The e26 qualification run
-disqualified it (0/60 held-out episodes, 1% training accuracy, a gradient on 10 of
-300 steps) and browsergym took its place, so the domain, its adapter, its configs
-and its OpenEnv server patches were deleted rather than carried as dead weight. The
-numbers are in `pipeline/runs/e26_finqa_qualification_findings.md` and the reusable
-server contract is in `LAB_NOTES.md`. Everything below is kept as the record of why
-it was integrated in the first place; read it as history, not as current state.
+**Status, 2026-08-07: both environments have since been removed, as has
+textarena.** The e26 qualification run disqualified finqa (0/60 held-out episodes,
+1% training accuracy, a gradient on 10 of 300 steps) and browsergym took its
+place. repl and textarena were deleted in the same sweep: neither backed a live
+experiment, and each carried cost - textarena a PyPI dependency plus an NLTK
+corpus download in `setup.sh`, repl a deliberately trivial arithmetic task family
+plus three box deps `setup.sh` never installed. Neither produced a number anyone
+cites, so nothing is invalidated. The live domains are reasoning_gym and
+browsergym.
+
+What outlived the code: the e26 numbers in
+`pipeline/runs/e26_finqa_qualification_findings.md`, which set the criterion every
+candidate env is now judged against; the reusable server contract in
+`LAB_NOTES.md`; and BACKLOG item 5, which records how to bring repl back if
+browsergym ever fails. `git show ace8954` restores finqa and repl,
+`git show 2b26343` restores textarena.
+
+Everything below is the record of why they were integrated in the first place.
+Read it as history, not as current state.
 
 ## Summary
 

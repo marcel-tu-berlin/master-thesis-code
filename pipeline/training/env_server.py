@@ -133,12 +133,12 @@ def build_env_server(config, domain, python=None) -> EnvServerProcess:
               * int(t.get("n_rollouts", DEFAULT_N_ROLLOUTS)))
     return EnvServerProcess(
         env_module=domain.server_module,
-        # 8000 is every OpenEnv server's own default. repl/textarena/
-        # browsergym bind it unconditionally (their apps ignore the --port argv
-        # this process passes), and reasoning_gym honors whatever --port it
-        # gets - so one shared default keeps the readiness probe and the
-        # server's actual port equal for every domain. start() still refuses a
-        # port something else already holds.
+        # 8000 is every OpenEnv server's own default. browsergym binds it
+        # unconditionally (its app ignores the --port argv this process passes),
+        # and reasoning_gym honors whatever --port it gets - so one shared
+        # default keeps the readiness probe and the server's actual port equal
+        # for every domain. start() still refuses a port something else already
+        # holds.
         port=int(es.get("port", 8000)),
         repo_envs_path=es.get("repo_path", "/workspace/OpenEnv/envs"),
         max_concurrent=max(8, n_envs),

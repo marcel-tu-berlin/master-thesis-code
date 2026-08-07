@@ -77,18 +77,18 @@ _KNOWN_ENV_SERVER_KEYS = {"repo_path", "port"}
 _KNOWN_ENV_CONFIG_KEYS = {
     # reasoning_gym
     "dataset", "dataset_name", "dataset_config", "size",
-    # textarena
-    "env_id", "num_players",
     # browsergym: `tasks` is the MiniWoB family list the seed cycles through
     # (`tasks[seed % len]`), so it also sets the training task mix. `miniwob_url`
     # points at the served miniwob-plusplus HTML, which browsergym-miniwob does
     # not ship - without it the env raises "core is not defined" at first reset.
     "tasks", "benchmark", "miniwob_url",
     # Every multi-turn domain: the ONE turn cap. Read by training
-    # (max_tool_calling_iterations), by the eval loop, and mapped to each
-    # server's own env var (TEXTARENA_MAX_TURNS / REPL_MAX_ITERATIONS).
-    # repl's `max_iterations` and the deleted finqa's `max_steps` were
-    # per-domain aliases that let the caps drift apart.
+    # (max_tool_calling_iterations) and by the eval loop, and mapped by
+    # `server_env` to the server's own var for any env that has a server-side
+    # cap (browsergym has none, so its cap is client-side only and the two
+    # readers cannot disagree). The deleted repl and finqa domains each carried
+    # a per-domain alias (`max_iterations`, `max_steps`); those aliases let the
+    # caps drift apart, so the schema rejects them.
     "max_turns",
 }
 

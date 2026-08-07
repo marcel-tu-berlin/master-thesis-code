@@ -84,17 +84,26 @@ def test_reasoning_gym_eval_tools_is_answer():
 
 # --- one turn cap across training, eval, and each server (max_turns) ---
 # TRL treats an unset max_tool_calling_iterations as sys.maxsize, so a domain
-# whose server cap lives under its own key leaves the training tool loop
-# unbounded. Every multi-turn domain reads the same `max_turns`.
+# whose cap lives under its own key leaves the training tool loop unbounded.
+# Every multi-turn domain reads the same `max_turns`; browsergym has no
+# server-side cap at all, so for it the key is enforced client-side only (TRL's
+# max_tool_calling_iterations and the eval turn loop, both via
+# resolve_max_turns - covered in test_validate_config).
 
-def test_repl_server_env_maps_max_turns_to_its_iteration_cap():
-    from domains.repl import REPLDomain
+def test_browsergym_server_env_carries_no_turn_cap():
+    # Asserting the absence on purpose: browsergym's server has no step cap, so
+    # a var invented here would read as authoritative while capping nothing.
+    from domains.browsergym import BrowserGymDomain
 
-    env = REPLDomain().server_env({"max_turns": 12})
-    assert env["REPL_MAX_ITERATIONS"] == "12"
+    env = BrowserGymDomain().server_env({"max_turns": 12})
+    assert not [k for k in env if "TURN" in k or "STEP" in k or "ITERATION" in k]
+    assert env["BROWSERGYM_BENCHMARK"] == "miniwob"
 
 
 def test_schema_rejects_the_old_per_domain_cap_aliases():
+    # `max_steps` (finqa) and `max_iterations` (repl) were per-domain aliases for
+    # the same cap; both domains are deleted, but the aliases must stay rejected
+    # rather than silently ignored, or a config carrying one caps nothing.
     import pytest
     from training.config_schema import validate_config
 
@@ -102,6 +111,6 @@ def test_schema_rejects_the_old_per_domain_cap_aliases():
         with pytest.raises(ValueError, match="env_config"):
             validate_config({
                 "experiment_id": "x", "model": {"slug": "qwen3-1.7b"},
-                "training": {"mode": "agentic", "env": "repl",
+                "training": {"mode": "agentic", "env": "browsergym",
                              "env_config": {stale: 12}},
             })

@@ -260,18 +260,24 @@ question), `episode_reward` / `is_correct` (read the env score), and
 `server_module` (the `python -m ...` server entry point the runner launches).
 
 `build_domain(config)` (`domains/__init__.py`) maps `training.env` to a domain and
-imports it lazily, so one environment's dependencies never block another. The four:
+imports it lazily, so one environment's dependencies never block another. Two exist:
 `reasoning_gym` (the reward-science domain, task families such as
-`polynomial_equations`), `browsergym` (the E1/E2/E3 domain, MiniWoB), `textarena`,
-`repl`.
+`polynomial_equations`) and `browsergym` (the E1/E2/E3 domain, MiniWoB).
 
-A `finqa` domain existed and was deleted after e26 disqualified it (0/60 held-out,
-1% training accuracy, a gradient on 10 of 300 steps). The findings stay in
+Three domains existed and were deleted. `finqa` after e26 disqualified it (0/60
+held-out, 1% training accuracy, a gradient on 10 of 300 steps); `textarena` and
+`repl` because neither backs a live experiment and both were carrying cost -
+textarena a PyPI dependency plus an NLTK corpus download in `setup.sh`, repl a
+deliberately trivial arithmetic task family. None of the three produced a number
+anyone cites, so nothing is invalidated; `git show ace8954` (finqa, repl) and
+`git show 2b26343` (textarena) restore them if a premise returns.
+
+Two things they leave behind. The e26 findings stay at
 `pipeline/runs/e26_finqa_qualification_findings.md` because they establish the
 criterion every candidate environment is now judged against: base-model accuracy in
-the 40-80% band, and at least two tools. The server contract its patches encoded
-(`MAX_CONCURRENT_ENVS`, a deterministic `reset(seed=N)`) is in `LAB_NOTES.md` and
-applies to any new env.
+the 40-80% band, and at least two tools. And the server contract finqa's patches
+encoded (`MAX_CONCURRENT_ENVS`, a deterministic `reset(seed=N)`) is in
+`LAB_NOTES.md` and applies to any new env.
 
 Each config seed owns a disjoint block of the seed-to-question mapping (question
 seed = `config_seed * SEED_BLOCK + offset`, `SEED_BLOCK = 1_000_000` in
@@ -438,11 +444,16 @@ single-tool domain such as reasoning_gym and only carry information in a
 multi-tool env.
 
 **One turn cap.** `training.env_config.max_turns` is the only turn-cap key for
-every multi-turn domain: training passes it to TRL as
-`max_tool_calling_iterations`, the eval loop reads it, and each domain maps it to
-its server's own var (`TEXTARENA_MAX_TURNS` / `REPL_MAX_ITERATIONS`). TRL treats
-an unset `max_tool_calling_iterations` as
-`sys.maxsize`, so a per-domain alias leaves the training tool loop unbounded.
+every multi-turn domain. Both readers go through `resolve_max_turns`
+(`training/config_schema.py`): training passes the result to TRL as
+`max_tool_calling_iterations` and the eval loop runs that many turns, so an unset
+key means the same one-iteration episode on both sides instead of a silent
+train/eval divergence. TRL treats an unset `max_tool_calling_iterations` as
+`sys.maxsize`, so a per-domain alias leaves the training tool loop unbounded -
+which is why the schema still rejects the aliases the deleted domains used
+(`max_steps`, `max_iterations`). browsergym has no server-side step cap, so its
+cap is client-side only and `server_env` maps nothing; a domain whose server does
+cap steps maps `max_turns` onto that var there.
 
 ### LoRA Configuration
 

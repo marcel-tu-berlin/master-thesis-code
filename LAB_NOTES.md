@@ -166,8 +166,8 @@ contract is not: an env that misses either one breaks GRPO rather than the env.
    defaults the cap to 1, and the server then closes every WebSocket session after
    the first: the second rollout slot's `reset()` dies with `ConnectionClosedOK`.
    The pipeline runs one server for `batch_size * n_rollouts` clients.
-   reasoning_gym, textarena and browsergym all wire this through; finqa did not,
-   and needed a patch.
+   reasoning_gym and browsergym both wire this through; finqa did not, and needed
+   a patch.
 2. **`reset(seed=N)` must be a deterministic function of N.** finqa picked its
    question from an unseeded global shuffle and ignored `seed` entirely, so rollout
    slots sharing a server got different questions and the GRPO group was not a
@@ -214,8 +214,8 @@ three, against 84h had they run at bs=8.
 ## Before the E2 / E3 arms - two knobs checked against e27's real numbers
 
 **E3 is live.** `NonTerminationPenalty` reads `env.done`, and
-`BrowserGymEnvAdapter` sets it (`__init__`, `_act`, `reset`). The component's
-docstring lists reasoning_gym / finqa / repl / textarena terminal tools and not
+`BrowserGymEnvAdapter` sets it (`__init__`, `_act`, `reset`). At the time the
+component's docstring listed only the deleted domains' terminal tools and not
 browsergym, so this was worth confirming rather than assuming: browsergym has no
 terminal tool, the env reports `done` when the page task completes after a
 `click`. E3 runs under `naive_sum`, matching e27.

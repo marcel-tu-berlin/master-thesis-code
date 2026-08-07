@@ -16,8 +16,9 @@ sys.path.insert(0, "/workspace/OpenEnv/envs")
 CASES = [
     ("reasoning_gym", "reasoning_gym_env.server.app", 8201,
      {"REASONING_GYM_DATASET": "polynomial_equations"}),
-    ("textarena", "textarena_env.server.app", 8202, {"TEXTARENA_ENV_ID": "Wordle-v0"}),
-    ("repl", "repl_env.server.app", 8203, {}),
+    ("browsergym", "browsergym_env.server.app", 8202,
+     {"BROWSERGYM_BENCHMARK": "miniwob", "BROWSERGYM_TASK_NAME": "click-option",
+      "BROWSERGYM_HEADLESS": "true"}),
 ]
 
 

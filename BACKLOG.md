@@ -82,20 +82,28 @@ E2 arm. The cheap option is to re-run nothing and simply stop citing the poly
 null. The thorough option is one re-run of the e24/e25 pair, which would convert
 "we never tested it there" into an actual result at about 17h per seed.
 
-## 5. Retarget the repl env at a reasoning_gym task source
+## 5. Retarget the repl env at a reasoning_gym task source - DORMANT, the code is deleted
 
-Fallback if no off-the-shelf OpenEnv environment clears both bars the e26 run
-established (base accuracy 40-80%, and at least two tools). Recorded because it
-is cheap and reuses everything, not because it is the current plan.
+The premise resolved: browsergym cleared both e26 bars (click-option 0.50 base
+success inside the 40-80% band, two tools, and an off-target axis that moves
+independently of task success), and e27 is a real E1 baseline on it. So the
+fallback was never needed, and the repl domain was deleted along with textarena
+rather than carried as an unused branch.
 
-`domains/repl/tasks.py` mints its own tasks, so repl's difficulty is ours to set.
-The current family (sum / maximum / minimum of a list) is deliberately trivial;
-its own docstring names the upgrade: "Upgrade target: a richer task source (e.g.
+This item stays because the reasoning survives the code. If browsergym ever fails
+and no off-the-shelf env clears both bars, restore the domain with
+`git show ace8954 -- pipeline/domains/repl` and start from step 1 below. Restoring
+also needs the box deps repl required and `setup.sh` never installed
+(`uv pip install --python .venv/bin/python smolagents gradio pypdf`).
+
+`domains/repl/tasks.py` minted its own tasks, so repl's difficulty is ours to set.
+Its family (sum / maximum / minimum of a list) was deliberately trivial, and its
+own docstring named the upgrade: "Upgrade target: a richer task source (e.g.
 reasoning_gym)." Pointing `make_task` at a reasoning_gym family gives a multi-turn
 env at a difficulty the poly campaign already showed how to dial.
 
-What it buys for RQ2: repl exposes one tool (`execute`), but the panel does not
-collapse the way reasoning_gym's does, because the model prints `FINAL(answer)`
+What it would buy for RQ2: repl exposes one tool (`execute`), but the panel does
+not collapse the way reasoning_gym's does, because the model prints `FINAL(answer)`
 from inside an execute call. Verification depth becomes the number of execute
 calls before the final one, and an episode that prints `FINAL` on its first
 execute is a genuine unsupported claim. That is two real off-target axes from one

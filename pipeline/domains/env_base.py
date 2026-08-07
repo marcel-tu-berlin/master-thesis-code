@@ -19,7 +19,7 @@ class EnvDomain:
     tool-calling chat template, so there is no reasoning-tag template here.
     """
 
-    # Single-step by default; multi-turn domains (e.g. textarena) set True so the
+    # Single-step by default; multi-turn domains (browsergym) set True so the
     # eval loop runs the turn loop instead of a single tool call.
     multi_turn = False
 
@@ -47,14 +47,15 @@ class EnvDomain:
 
         Default none: reasoning_gym takes dataset/seed via request kwargs, so it
         needs no server-side env. Domains whose server is configured by env vars
-        (textarena: TEXTARENA_ENV_ID, ...) override this.
+        (browsergym: BROWSERGYM_BENCHMARK, ...) override this.
         """
         return {}
 
     def eval_tools(self, env):
         """The bound tool method(s) to expose to the model during eval.
 
-        Concrete domains override (reasoning_gym -> [env.answer]; textarena ->
-        [env.move]). The eval loop passes these to apply_chat_template(tools=...).
+        Concrete domains override (reasoning_gym -> [env.answer]; browsergym ->
+        [env.click, env.noop]). The eval loop passes these to
+        apply_chat_template(tools=...).
         """
         raise NotImplementedError

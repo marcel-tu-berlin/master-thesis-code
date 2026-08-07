@@ -46,11 +46,12 @@ def _agentic_base():
     }
 
 
-def test_accepts_textarena_env_config_keys():
+def test_accepts_browsergym_env_config_keys():
     cfg = _agentic_base()
-    cfg["training"]["env"] = "textarena"
-    cfg["training"]["env_config"] = {"env_id": "Wordle-v0", "num_players": 1,
-                                     "max_turns": 6, "size": 8}
+    cfg["training"]["env"] = "browsergym"
+    cfg["training"]["env_config"] = {"tasks": ["click-option"], "benchmark": "miniwob",
+                                     "miniwob_url": "http://localhost:8080/miniwob/",
+                                     "max_turns": 6}
     validate_config(cfg)  # must not raise
 
 

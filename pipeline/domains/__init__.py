@@ -13,15 +13,9 @@ def build_domain(config: dict):
     if env == "reasoning_gym":
         from domains.reasoning_gym import ReasoningGymDomain
         return ReasoningGymDomain()
-    if env == "textarena":
-        from domains.textarena import TextArenaDomain
-        return TextArenaDomain()
-    if env == "repl":
-        from domains.repl import REPLDomain
-        return REPLDomain()
     if env == "browsergym":
         from domains.browsergym import BrowserGymDomain
         return BrowserGymDomain()
     raise NotImplementedError(
-        f"Env: {env!r} (known: reasoning_gym, textarena, repl, browsergym)"
+        f"Env: {env!r} (known: reasoning_gym, browsergym)"
     )

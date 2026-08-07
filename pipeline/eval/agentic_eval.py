@@ -169,8 +169,8 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
     feedback, so ending the episode here would score a recoverable
     hallucination as no_tool_call. The episode ends when the model emits no
     call at all, the env reports done, or the budget runs out. This one loop
-    drives every multi-turn domain - textarena (move), repl (execute),
-    browsergym (the action tools) - via the parsed tool name. n_tokens is the
+    drives every multi-turn domain - browsergym (click, noop) today - via the
+    parsed tool name rather than a hardcoded one. n_tokens is the
     trajectory total (model-only, exact); n_steps is the count of calls that
     reached the env, so a turn issuing several calls counts several steps.
 

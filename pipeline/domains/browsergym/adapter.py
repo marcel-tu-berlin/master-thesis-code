@@ -73,7 +73,7 @@ class BrowserGymEnvAdapter:
     def _connect(base_url):
         # Lazy: the browsergym client lives in the cloned OpenEnv repo's envs/
         # package (not on PyPI). .sync() wraps it for TRL, which rejects async
-        # tools, matching the reasoning_gym/textarena pattern.
+        # tools, matching the reasoning_gym pattern.
         from browsergym_env import BrowserGymEnv
 
         return BrowserGymEnv(base_url).sync()

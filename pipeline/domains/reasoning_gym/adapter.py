@@ -74,9 +74,8 @@ class ReasoningGymEnvAdapter:
         Args:
             answer: The final answer to submit for the current question.
         """
-        # Re-entry guard, matching every sibling adapter (textarena.move,
-        # repl.execute, browsergym._act). Without it a
-        # second call re-stepped the env and overwrote self.reward, so a rollout
+        # Re-entry guard, matching the sibling adapter (browsergym._act). Without
+        # it a second call re-stepped the env and overwrote self.reward, so a rollout
         # that answered correctly and then answered again trained as WRONG while
         # eval - which reads the first call - scored it correct. Training and
         # eval disagreeing about the same trajectory is the worst kind of bug

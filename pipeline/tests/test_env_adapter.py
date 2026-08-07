@@ -119,8 +119,8 @@ def test_answer_tool_schema_is_generatable():
 # Without it a second `answer` call re-stepped the env and overwrote self.reward,
 # so a rollout that answered correctly and then answered again trained as WRONG
 # while eval - which reads the first call - scored it correct. Two plausible
-# numbers, disagreeing about the same trajectory. Every sibling adapter
-# (textarena.move, repl.execute, browsergym._act) guards.
+# numbers, disagreeing about the same trajectory. The sibling adapter
+# (browsergym._act) guards too.
 
 class _ScoringClient(_FakeClient):
     """Scores each submitted answer against a map, so order is observable."""
