@@ -33,6 +33,20 @@ current is a hard requirement for every run, not a courtesy:
 
 A run missing from `RUNNING.md` is a run nobody can find after a context reset.
 
+**Nothing else goes in this file.** It is a table of live runs, not a notebook. It
+once grew to 950 lines of rules, traps and run history, which buried the one thing it
+exists to answer. Findings go to `pipeline/runs/*_findings.md`; everything else -
+operational rules, launch checklists, traps, standing design decisions, run history -
+goes to `LAB_NOTES.md`.
+
+## Lab notes (`LAB_NOTES.md`)
+
+`LAB_NOTES.md` at the repo root holds what was learned rather than what is running:
+box operations, the browsergym launch checklist, traps that have already cost time,
+standing decisions such as the `batch_size 4` rule, and the narrative history behind
+them. Read the operations sections before launching anything on the box, and add to
+it whenever something costs time twice.
+
 ## Task tracking (taskwarrior)
 
 Pipeline work is tracked in taskwarrior under the `thesis` context (`project:thesis`).
