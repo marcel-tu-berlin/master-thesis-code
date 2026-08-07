@@ -14,10 +14,30 @@ browsergym.
 
 What outlived the code: the e26 numbers in
 `pipeline/runs/e26_finqa_qualification_findings.md`, which set the criterion every
-candidate env is now judged against; the reusable server contract in
-`LAB_NOTES.md`; and BACKLOG item 5, which records how to bring repl back if
-browsergym ever fails. `git show ace8954` restores finqa and repl,
-`git show 2b26343` restores textarena.
+candidate env is now judged against, and the reusable server contract in
+`LAB_NOTES.md`.
+
+**If browsergym ever fails and no off-the-shelf env clears both bars, repl is the
+fallback.** It was the recorded one before browsergym qualified, and the reasoning
+survives the deletion. `domains/repl/tasks.py` minted its own tasks, so repl's
+difficulty is ours to set; its arithmetic family was deliberately trivial and its
+docstring named the upgrade, "a richer task source (e.g. reasoning_gym)". Pointing
+`make_task` at a reasoning_gym family gives a multi-turn env at a difficulty the
+poly campaign already showed how to dial. It buys two real off-target axes from a
+single tool, because the model prints `FINAL(answer)` from inside an `execute`
+call: verification depth is the number of execute calls before the final one, and
+printing `FINAL` on the first execute is a genuine unsupported claim. It does not
+buy an action-instability axis, and a one-tool panel stays thinner than a 3-4 tool
+env's - so prefer an off-the-shelf env that clears both bars.
+
+To revive: `git show ace8954 -- pipeline/domains/repl` for the code, plus the box
+deps `setup.sh` never installed
+(`uv pip install --python .venv/bin/python smolagents gradio pypdf`). Then swap
+`make_task` to a reasoning_gym family keeping it a pure function of the seed,
+probe base-model difficulty into the 40-80% band, and confirm the server-side
+exact-match rubric still arms against the reasoning_gym answer format.
+
+`git show ace8954` restores finqa and repl, `git show 2b26343` restores textarena.
 
 Everything below is the record of why they were integrated in the first place.
 Read it as history, not as current state.

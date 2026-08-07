@@ -51,6 +51,12 @@ training:
   # the worst trajectory in the mix lands near 4124 and the median near 2686.
   # It fits, with nothing to spare at the tail - watch clip ratio at step 5.
   max_prompt_length: 4096
+  # Stated, not left to the default, so the frozen config records it. The E1/E2/E3
+  # arms are only comparable if all three ran the same geometry, and the check for
+  # that is the diff of the frozen runs/<exp>/config.yaml files - which cannot see
+  # a key no config writes. 4 is also what grpo_runner defaults to, so this changes
+  # nothing about what runs.
+  batch_size: 4
   n_rollouts: 8
   micro_batch_size: 1
   max_steps: 300

@@ -71,7 +71,7 @@ drops you onto any branch other than `master`, stop and move the work back onto
 | `RUNNING.md` | What is executing on the box right now. Nothing else. |
 | `LAB_NOTES.md` | What was learned: box operations, launch checklists, traps, standing decisions, run history. |
 | `pipeline/runs/*_findings.md` | Per-run and per-pair numbers, with the statistics and the caveats attached. |
-| `BACKLOG.md` | Work considered and deferred, each item carrying the reason it is deferred or dropped. |
+| `BACKLOG.md` | Work that is still open and not started. Finished and abandoned items get deleted, not annotated. |
 | `DECISIONS.md` | Why each OpenEnv environment was integrated or rejected. |
 | `pipeline/CODE_REVIEW.md`, `pipeline/FIX_PLAN.md` | The 2026-08-03 review and how each finding was closed. |
 | taskwarrior (`project:thesis`) | Open work and what comes next. |
@@ -109,6 +109,22 @@ box operations, the browsergym launch checklist, traps that have already cost ti
 standing decisions such as the `batch_size 4` rule, and the narrative history behind
 them. Read the operations sections before launching anything on the box, and add to
 it whenever something costs time twice.
+
+### Backlog (`BACKLOG.md`)
+
+Open work only. `BACKLOG.md` answers one question - what could someone pick up
+next - and an item that is finished or abandoned answers nothing while still
+costing a read.
+
+**Delete an item the moment it is done or decided against. Do not mark it DONE or
+DROPPED and leave it in place.** A file where most entries are closed trains the
+next reader to skim, which is how the one live item gets missed. This is the same
+failure `RUNNING.md` had at 950 lines.
+
+If the reasoning behind a dropped item is worth keeping, move it to the file that
+owns that fact before deleting - `DECISIONS.md` for environment choices,
+`LAB_NOTES.md` for traps and standing decisions, `pipeline/runs/*_findings.md` for
+numbers. Git holds whatever nobody moved, so a deletion loses nothing.
 
 ### Task tracking (taskwarrior)
 
@@ -227,6 +243,18 @@ ablation. Two configs being compared should differ in exactly one `rewards:` key
 and the diff of their frozen `runs/<exp>/config.yaml` files is what proves it -
 check that diff, not the config you intended to write. The reasoning behind the
 value 4, and why it is not a memory knob, is in `LAB_NOTES.md`.
+
+`max_steps` has to match across the arms of one comparison, not across campaigns.
+The browsergym arms run 300 and the poly pair ran 150; those are different
+questions on different environments and nobody compares a number across them.
+
+**Write the geometry keys out, do not lean on the defaults.** Freezing copies the
+config verbatim - it does not resolve defaults - so a key no config states is
+absent from every frozen copy, and the diff above then proves nothing about it. It
+reads as "equal" when it is really "unrecorded". That matters most for exactly the
+key it already went wrong on: `batch_size` silently resolving to 1 is what voided
+every run before `a19b1ff`, and `grpo_runner` now defaulting it to 4 fixes the
+value without making it visible.
 
 ### Batch runner
 

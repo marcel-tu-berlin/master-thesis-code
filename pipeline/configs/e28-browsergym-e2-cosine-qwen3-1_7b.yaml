@@ -25,6 +25,9 @@ training:
   # max_completion_length per trajectory, not per turn). e27 clipped at
   # 0.008-0.058 across 300 steps with no drift, so this is sized right.
   max_prompt_length: 4096
+  # Geometry stated explicitly so the frozen config records it - see e27. This arm
+  # must differ from e27 in exactly the rewards.token_length block and nothing else.
+  batch_size: 4
   n_rollouts: 8
   micro_batch_size: 1
   max_steps: 300

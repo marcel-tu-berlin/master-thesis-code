@@ -1,8 +1,14 @@
 # Backlog
 
-Deferred work. `RUNNING.md` is live state, this is what is not started yet.
-Drop an item once it is done or decided against (record the decision in
-`DECISIONS.md` if it is worth keeping).
+Deferred work, and only work that is still open. `RUNNING.md` is live state, this
+is what has not started yet.
+
+Delete an item the moment it is done or decided against. This file answers "what
+could we pick up next", and a finished item answers nothing while still costing a
+read. If the reasoning behind a dropped item is worth keeping, move it to the file
+that owns it - `DECISIONS.md` for environment choices, `LAB_NOTES.md` for traps
+and standing decisions, `pipeline/runs/*_findings.md` for numbers - and then
+delete it here. Git holds what nobody moved.
 
 ## 1. Liger fused GRPO loss - lift the 4096 completion-token training ceiling
 
@@ -47,75 +53,29 @@ Forcing fp32 logits flips `selective_log_softmax` to its chunked-logsumexp
 branch at 4 bytes for the logits plus 4 for the gradient - the same 8 bytes per
 element. No saving.
 
-## 2. Re-evaluate e24/e25 at 16k - DROPPED, the comparison it would sharpen is void
+## 2. Decide whether to re-run any poly cosine arm - needs a call
 
-**Do not do this.** The cosine reward in e25 was reading 8% of the completion
-length (`runs/cosine_token_count_bug_findings.md`), so e25 is not a cosine arm -
-it is a second env-only run that differs from e24 by noise. Re-evaluating both
-at 16k would sharpen a comparison between two copies of the same condition.
+The cosine reward now counts the whole completion. Whether to spend GPU
+re-running the e24bs4/e25bs4 pair on the fixed counter is a scope question, not a
+correctness one: polynomial_equations is saturated and the study has moved to
+browsergym, where e28 is the E2 arm.
 
-The truncation point it rested on is still true and still worth having: eval is
-inference-only with no memory ceiling, `agentic_eval` inherited the 4096 training
-cap for no reason, and 7-8% of those episodes are truncations counted as wrong.
-That argument now belongs to whichever cosine arm is actually run, not to these
-checkpoints.
+- Cheap: re-run nothing, and stop citing the poly null entirely. The thesis then
+  says the length reward was tested on browsergym, and nothing about poly.
+- Thorough: one re-run of the pair, about 17h per seed, which converts "we never
+  tested it there" into an actual result.
 
-## 3. Regenerate the poly plots - DROPPED with item 2
+Blocking either way: the pair's configs were never tracked. `e24bs4` and
+`e25bs4` exist only as frozen `runs/<exp>/config.yaml` files, so there is nothing
+in `configs/` to launch - including for the seed 43/44 replication. Recreating
+them from the frozen copies is the first step of the thorough option, and worth
+doing regardless so the only clean comparison in the project is reproducible.
 
-`runs/plots_poly_wsweep/` would plot the voided w-sweep. Regenerate only if the
-campaign is re-run on the fixed counter. (If it ever is: the box runs its own
-copy of `eval/plots.py`, so rsync the module you execute there.)
+## 3. Recreate the e24bs4 / e25bs4 configs in `configs/`
 
-## 4. File the e24/e25 note in the thesis wiki - DROPPED, would file a void result
-
-`pipeline/runs/e24_e25_4k_pair_findings.md` reports a directional compression
-that the reward could not have produced. Filing it into the vault is worse than
-leaving the vault incomplete. If the poly campaign is re-run, file that instead;
-otherwise the entry to make is the bug write-up, not the result.
-
-## 4b. Decide whether to re-run any poly cosine arm - OPEN, needs a call
-
-The cosine reward now works. Whether to spend GPU re-running e17 or the e24/e25
-pair on the fixed counter is a scope question, not a correctness one: the poly
-environment is saturated and the study has moved to browsergym, where e28 is the
-E2 arm. The cheap option is to re-run nothing and simply stop citing the poly
-null. The thorough option is one re-run of the e24/e25 pair, which would convert
-"we never tested it there" into an actual result at about 17h per seed.
-
-## 5. Retarget the repl env at a reasoning_gym task source - DORMANT, the code is deleted
-
-The premise resolved: browsergym cleared both e26 bars (click-option 0.50 base
-success inside the 40-80% band, two tools, and an off-target axis that moves
-independently of task success), and e27 is a real E1 baseline on it. So the
-fallback was never needed, and the repl domain was deleted along with textarena
-rather than carried as an unused branch.
-
-This item stays because the reasoning survives the code. If browsergym ever fails
-and no off-the-shelf env clears both bars, restore the domain with
-`git show ace8954 -- pipeline/domains/repl` and start from step 1 below. Restoring
-also needs the box deps repl required and `setup.sh` never installed
-(`uv pip install --python .venv/bin/python smolagents gradio pypdf`).
-
-`domains/repl/tasks.py` minted its own tasks, so repl's difficulty is ours to set.
-Its family (sum / maximum / minimum of a list) was deliberately trivial, and its
-own docstring named the upgrade: "Upgrade target: a richer task source (e.g.
-reasoning_gym)." Pointing `make_task` at a reasoning_gym family gives a multi-turn
-env at a difficulty the poly campaign already showed how to dial.
-
-What it would buy for RQ2: repl exposes one tool (`execute`), but the panel does
-not collapse the way reasoning_gym's does, because the model prints `FINAL(answer)`
-from inside an execute call. Verification depth becomes the number of execute
-calls before the final one, and an episode that prints `FINAL` on its first
-execute is a genuine unsupported claim. That is two real off-target axes from one
-tool.
-
-What it does not buy: no action-instability axis, and a single-tool panel is
-thinner than a 3-4 tool env's. Prefer an off-the-shelf env that clears both bars.
-
-Steps:
-
-1. Swap `make_task` to draw from a reasoning_gym family, keeping it a pure
-   function of the seed (training and eval both call `reset(seed=N)`).
-2. Base-model difficulty probe to land inside the 40-80% band.
-3. Confirm the server-side exact-match rubric still arms correctly against the
-   reasoning_gym answer format.
+Split out of item 2 because it stands alone. The only comparison free of both
+void causes cannot currently be re-run: `git log -- 'pipeline/configs/*bs4*'` is
+empty, and the two frozen configs under `runs/` are the sole record. Copy them
+back into `configs/`, confirm the diff between them is still exactly the
+`rewards.token_length` block, and commit. Cheap, and it unblocks the seed 43/44
+replication whichever way item 2 goes.
