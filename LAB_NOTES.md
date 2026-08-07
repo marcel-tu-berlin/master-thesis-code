@@ -211,6 +211,47 @@ Remaining campaign at bs=4, from the 674 s/it measured at bs=8 on browsergym
 (~340 s/it at bs=4): e27/e28/e29 are about 14h/arm at 150 steps, 43h for the
 three, against 84h had they run at bs=8.
 
+## Standing rule: truncation is a reported outcome, not a confound to remove
+
+The 4096-token completion cap is the L4's hardware ceiling, not a design choice
+(the memory arithmetic is in `e24bs4`'s config description; Liger is the only
+route past it and is unverified, BACKLOG item 1). So some episodes will always end
+by filling the budget rather than by finishing, and the decision as of 2026-08-07
+is to measure that rather than engineer around it: every accuracy is reported
+with its `stop_reason` breakdown beside it, and truncation becomes a signal of
+the experiment rather than noise inside the accuracy number.
+
+**Whether the cap corrupts accuracy is a per-environment fact, so check it per
+environment.** Measured from the reports on disk, wrong episodes by `stop_reason`:
+
+```
+poly       e24bs4 agentic   env_done 86 | cap 14                        wrong: 14 cap,  0 terminated
+           e25bs4 agentic   env_done 91 | cap  9                        wrong:  9 cap,  0 terminated
+browsergym e27    held_out  env_done 85 | cap 4  turns 3  no_tool 8     wrong: 20 terminated, 15 other
+           e27    shifted   env_done 82 | cap 0  turns 1  no_tool 17    wrong:  0 cap,  18 other
+           e0     held_out  env_done 86 | cap 0            no_tool 14   wrong: 11 terminated, 14 no_tool
+           e0     shifted   env_done 90 | cap 0            no_tool 10   wrong:  3 terminated, 10 no_tool
+```
+
+On polynomial_equations the two are the same measurement: every wrong episode is a
+truncation and every terminated one is correct, so `accuracy == 1 - truncation
+rate` to the episode. A length reward that shortens completions mechanically
+lifts that accuracy, which is why the pair's accuracy gain is not independent
+evidence about task success. `runs/e24bs4_e25bs4_pair_findings.md` says so at
+length; do not quote a poly accuracy without it.
+
+On browsergym they are not. Wrong-and-terminated is a populated cell (20, 11, 3),
+truncation runs 0-4%, and the dominant off-target mode is `no_tool_call` at 8-17
+per hundred. The live campaign's accuracy therefore carries information the cap
+does not supply, and the interesting signal there is the whole breakdown, not
+truncation on its own.
+
+Already on disk in every report: `stop_reasons` as a raw per-split counter, and
+`non_termination_rate` with a Wilson interval (`_offtarget_panel`,
+`eval/metrics.py`). What does not exist yet is a per-reason rate with its own
+interval. That is the open design step, not something the current numbers are
+missing.
+
 ## Before the E2 / E3 arms - two knobs checked against e27's real numbers
 
 **E3 is live.** `NonTerminationPenalty` reads `env.done`, and
@@ -804,15 +845,23 @@ tokens.
 
 All 16 review fixes are applied and verified (`pipeline/FIX_PLAN.md`), and the
 paired probe above clears them. Both the eval loop and the training path changed,
-so nothing measured before today is comparable to anything measured after. Two
+so nothing measured before today is comparable to anything measured after. Three
 GPU jobs, in order:
 
-1. **Running now:** retrain e27 + eval (~14h). Required because the seed-block fix
-   changes which questions seed 42 trains on, and e28/e29 must share e27's scheme.
-2. Re-eval e0 on the new seed scheme (~3.3h), command above. Blocks the
-   e0-vs-e27 pairing and the "+247 median tokens" re-derivation, both of which
-   `e27_e1_baseline_findings.md` currently rests on.
-3. Launch e28/e29 (~20h).
+1. **Done 2026-08-05 00:31.** Retrain e27 + eval. Required because the seed-block
+   fix changes which questions seed 42 trains on, and e28/e29 must share e27's
+   scheme. `runs/e27-browsergym-e1-baseline-qwen3-1_7b/` now carries
+   `checkpoint-100/-200/-300/-final`, `train_log.json` and a 2-split
+   `eval_report.json` (held_out 0.65, shifted 0.82).
+2. **Still open.** Re-eval e0 on the new seed scheme (~3.3h), command above.
+   Blocks the e0-vs-e27 pairing and the "+247 median tokens" re-derivation, both
+   of which `e27_e1_baseline_findings.md` currently rests on. The only two
+   browsergym e0 reports on the box are `e0-browsergym-base` (Aug 3, pre-fix,
+   0.75 / 0.87 - the one the findings quote) and `e0-oldseeds` (Aug 5, 0.72 /
+   0.80), which reproduces the *pre*-fix seed bases as e27paired-oldseeds' partner.
+   Neither is the new-seed e0.
+3. **Still open.** Launch e28/e29 (~20h). No `e29-*` run directory exists at all,
+   and `e28-*` holds the step-83 partial: no checkpoint, no report.
 
 `runs/e27-.../eval_report_pre_fix.json` is the pre-fix reference (100 episodes
 per split, held_out 0.780, shifted 0.790). Do not delete it until step 1's diff

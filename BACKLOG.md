@@ -65,17 +65,6 @@ browsergym, where e28 is the E2 arm.
 - Thorough: one re-run of the pair, about 17h per seed, which converts "we never
   tested it there" into an actual result.
 
-Blocking either way: the pair's configs were never tracked. `e24bs4` and
-`e25bs4` exist only as frozen `runs/<exp>/config.yaml` files, so there is nothing
-in `configs/` to launch - including for the seed 43/44 replication. Recreating
-them from the frozen copies is the first step of the thorough option, and worth
-doing regardless so the only clean comparison in the project is reproducible.
-
-## 3. Recreate the e24bs4 / e25bs4 configs in `configs/`
-
-Split out of item 2 because it stands alone. The only comparison free of both
-void causes cannot currently be re-run: `git log -- 'pipeline/configs/*bs4*'` is
-empty, and the two frozen configs under `runs/` are the sole record. Copy them
-back into `configs/`, confirm the diff between them is still exactly the
-`rewards.token_length` block, and commit. Cheap, and it unblocks the seed 43/44
-replication whichever way item 2 goes.
+Not blocked any more: both configs are in `configs/` as of `9853a94`, recovered
+from the frozen copies that were their only record. The thorough option is a
+launch away.

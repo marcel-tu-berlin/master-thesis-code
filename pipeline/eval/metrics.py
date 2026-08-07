@@ -56,14 +56,14 @@ class EvalMetrics:
     mean_token_count_correct_ci_high: float | None = None
     # Fraction of correct completions whose token count is at or below the
     # per-split P10 (configurable). Captures "correct with too little
-    # reasoning — likely pattern-match luck". None when there are no
+    # reasoning - likely pattern-match luck". None when there are no
     # correct samples or too few total samples for a stable percentile.
     underthinking_rate: float | None = None
     underthinking_rate_ci_low: float | None = None
     underthinking_rate_ci_high: float | None = None
     underthinking_threshold: float | None = None  # absolute token threshold (P10 of all samples)
     # Fraction of correct completions whose token count exceeds the per-split
-    # P75 (configurable). Captures "correct answer with wasted reasoning" —
+    # P75 (configurable). Captures "correct answer with wasted reasoning" -
     # the inverse failure mode to underthinking. None when there are no
     # correct samples or too few total samples for a stable percentile.
     overthinking_rate: float | None = None
@@ -249,13 +249,13 @@ def compute_metrics(
     underthinking_rate: fraction of CORRECT completions whose token count is
     at or below the per-split percentile (default P10) of ALL completions.
     Flags correct answers produced with unusually little reasoning relative
-    to the split — likely lucky pattern-matching rather than genuine
-    derivation. The threshold adapts to dataset verbosity so the metric
-    behaves consistently across GSM-8K (short) and MATH (long).
+    to the split - likely lucky pattern-matching rather than genuine
+    derivation. The threshold adapts to each split's own verbosity, so a harder
+    split is not read as overthinking end to end just for being longer.
 
     overthinking_rate: fraction of CORRECT completions whose token count exceeds
     the per-split percentile (default P75) of ALL completions' token counts.
-    Captures wasted reasoning — the inverse failure mode to underthinking.
+    Captures wasted reasoning - the inverse failure mode to underthinking.
     Both thresholds are computed over all samples (correct + incorrect) so the
     threshold reflects the population's overall verbosity, not just the
     correct-subset distribution. Requires at least 4 samples for the
@@ -303,14 +303,14 @@ def compute_metrics(
     # Both under- and overthinking use a per-split percentile of all token
     # counts as the threshold (unless overridden), then count correct samples
     # on the matching side. Thresholds are computed once on the observed sample
-    # and held fixed during the bootstrap — the reported CI is on the rate
+    # and held fixed during the bootstrap - the reported CI is on the rate
     # conditional on the observed threshold.
     corrects_mask = np.array([r.correct for r in results], dtype=bool)
 
     # Over/under-thinking rates. The threshold (per-split percentile of all token
     # counts, or a fixed reference override) is itself estimated, so T2.3
     # recomputes it inside each bootstrap replicate to fold its variance into the
-    # CI — unless an absolute override fixes it, where a Wilson interval on the
+    # CI - unless an absolute override fixes it, where a Wilson interval on the
     # clean proportion is exact. The n>=4 guard keeps the percentile stable; an
     # override bypasses it (the threshold no longer depends on this sample size).
     underthinking_rate = underthinking_threshold = None
@@ -330,7 +330,7 @@ def compute_metrics(
         )
 
     # Accuracy CI: Wilson, not a percentile bootstrap on the binary vector (which
-    # collapses to [1, 1] at acc=1.0 — the capability_floor 6/6 case).
+    # collapses to [1, 1] at acc=1.0 - the capability_floor 6/6 case).
     ci_low, ci_high = _wilson_ci(n_correct, n)
 
     pearson_val = None
@@ -384,10 +384,12 @@ def load_reference_thresholds(
 
     Reads `report_path` (a run's eval_report.json) and, for each split that
     carries a `samples` series, returns the P`under_pct`/P`over_pct` of its token
-    counts. Thresholds are kept PER SPLIT on purpose: GSM-8K (id_split) and MATH
-    (near_ood) have legitimately different verbosity, so a single global
-    threshold would mislabel one of them. Feed the e0 accuracy-only baseline here
-    so every run's thinking rates are measured against the same yardstick.
+    counts. Thresholds are kept PER SPLIT on purpose: the splits named by
+    `eval.agentic.splits` differ in difficulty and so in legitimate verbosity, and
+    one global threshold would mislabel the harder one as overthinking throughout.
+    Feed the E0 base-model report here so every arm's thinking rates are measured
+    against the same yardstick - two arms scored on their own percentiles are
+    measured with different rulers and their rates do not compare.
 
     Returns `{split: {"underthinking_threshold": float, "overthinking_threshold": float}}`,
     skipping splits with fewer than `min_samples` samples.

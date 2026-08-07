@@ -223,7 +223,10 @@ a registry entry and the key in `config_schema._KNOWN_REWARD_KEYS`.
 - `compose.py` - `AdvantageWeightedComposer` (z-scores each component per
   prompt-group before the weighted sum) and `NaiveSumComposer` (plain weighted
   sum, the ablation baseline). `build_composer(components, method)` is the factory.
-- `utils.py` - `extract_content(completion)`, safe access to completion text.
+- `utils.py` - `model_token_count(completion, tokenizer)`, the one ruler every
+  length claim is measured with: assistant `content` plus `reasoning_content`
+  plus serialized tool-call arguments, skipping TRL's interleaved tool messages.
+  Changing it changes the experiment.
 
 ### `eval/`
 

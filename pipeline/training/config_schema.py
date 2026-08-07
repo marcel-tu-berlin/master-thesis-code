@@ -27,7 +27,7 @@ def resolve_max_turns(env_config) -> int:
 
 _REQUIRED_KEYS = {
     "experiment_id": "experiment_id (str)",
-    "model.slug": "model.slug (str) — must match a key in training/registry.py",
+    "model.slug": "model.slug (str) - must match a key in training/registry.py",
     # training.env (OpenEnv environment id) is required; see validate_config.
 }
 
