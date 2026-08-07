@@ -54,7 +54,16 @@ form lives here so no argument gets rebuilt on them.
   at all. Every treatment-versus-baseline pair from that era is confounded by how
   much live gradient each arm happened to receive.
 
-The 4096-cap pair (`e24bs4` / `e25bs4`) is the first comparison free of both.
+The 4096-cap pair (`e24bs4` / `e25bs4`) is the first comparison free of both. Its
+configs were never tracked and existed only as frozen run copies; they are now in
+`configs/` so the pair can be re-run and seed-replicated.
+
+**Re-running a void-era config does not reproduce its void run.** 26 configs in
+`configs/` predate `a19b1ff` and state no `batch_size`, so they trained at 1 but
+would resolve to 4 today - a different experiment under the same
+`experiment_id`. The overwrite refusal catches the collision, not the semantic
+change. `e24` and `e25` carry a header pointing at their `bs4` successors because
+the names invite the mistake; treat every other pre-`a19b1ff` config the same way.
 
 ## Git workflow
 

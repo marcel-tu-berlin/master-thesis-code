@@ -1,0 +1,45 @@
+experiment_id: e25bs4-poly-4k-cosine-w16-qwen3-1_7b
+description: "E25bs4: the cosine length reward's fair test, paired with the e24bs4 control. Recovered into configs/ from the frozen runs/e25bs4-poly-4k-cosine-w16-qwen3-1_7b/config.yaml, which was the only copy - see e24bs4. Differs from e24bs4 in exactly the rewards.token_length block and nothing else. Relative to e17 (same task, same weight 16, 2048 budget, null) the completion budget doubles to 4096, the hardware ceiling, which takes the share of truncated-and-mislabelled rollouts from about 20 percent to about 10 percent: the e22 probe measured correct-episode lengths of median 702, p90 3093, max 9877, and 18 of 20 fit under 4096. max_len is 4096 as well, which here is the right call rather than the earlier design error - that error was setting max_len far above where completions actually live, because the cosine is flat near both endpoints and the whole distribution would then sit in the dead zone. At a 4096 cap the covered distribution spans 213 to 3093, i.e. 5 to 75 percent of the curve, so the reward has real slope across it. With the task near-saturated at this budget most groups are all-correct, so the env component has zero within-group variance and contributes nothing under advantage_weighted, and the cosine correct-branch drives the entire gradient - the best case the countdown pair was meant to supply before the graded-scorer artifact killed its premise. Watch accuracy: compression bought with correctness is the Wu/Yeo overshoot. Read the pair's frac_reward_zero_std against e24bs4's before reading the result - 99.5 percent of groups are live here against 40.7 percent in the control, so the contrast is reward plus more gradient, not the reward alone."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 5120
+  gpu_memory_utilization: 0.23
+
+training:
+  mode: agentic
+  env: reasoning_gym
+  env_config:
+    dataset: polynomial_equations
+    size: 500
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8077
+  max_prompt_length: 1024
+  # Geometry stated, never defaulted, and identical to e24bs4 key for key - see the
+  # note there. The only intended difference between the two configs is the
+  # rewards.token_length block below.
+  batch_size: 4
+  n_rollouts: 8
+  micro_batch_size: 1
+  max_steps: 150
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    enabled: true
+    weight: 16.0
+    max_len: 4096
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 100

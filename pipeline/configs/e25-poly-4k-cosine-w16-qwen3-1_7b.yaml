@@ -1,3 +1,8 @@
+# SUPERSEDED by e25bs4-poly-4k-cosine-w16-qwen3-1_7b.yaml. Do not run this one.
+# It trained on 2026-07-29, before a19b1ff made batch_size default to 4, so
+# runs/e25-poly-4k-cosine-w16-qwen3-1_7b/ was produced at batch_size 1 and its
+# numbers are void. Running this file TODAY resolves batch_size to 4 and would
+# silently produce a different experiment under the same name.
 experiment_id: e25-poly-4k-cosine-w16-qwen3-1_7b
 description: "E25: the cosine length reward's fair test, paired with the e24 control. Relative to e17 (same task, same weight 16, 2048 budget, null) the completion budget doubles to 4096, which is the hardware ceiling - see e24. That takes the share of truncated-and-mislabelled rollouts from about 20 percent to about 10 percent: the e22 probe measured correct-episode lengths of median 702, p90 3093, max 9877, and 18 of 20 fit under 4096. max_len is set to 4096 as well, which here is the right call rather than the earlier design error - the error was setting max_len to a cap far above where completions actually live, because the cosine is flat near both endpoints and the whole distribution would sit in the dead zone. At a 4096 cap the covered distribution spans 213 to 3093, i.e. 5 to 75 percent of the curve, so the reward has real slope across it. With the task near-saturated at this budget most groups are all-correct, so the env component has zero within-group variance and contributes nothing under advantage_weighted, and the cosine correct-branch drives the entire gradient - the best case the countdown pair was meant to supply before the graded-scorer artifact killed its premise. Watch accuracy: compression bought with correctness is the Wu/Yeo overshoot."
 seed: 42

@@ -1,0 +1,45 @@
+experiment_id: e24bs4-poly-4k-env-only-qwen3-1_7b
+description: "E24bs4: control arm for the raised-cap cosine test, cosine reward off. Pairs with e25bs4, and the two together are the first comparison in this project free of both void causes - the completion cap is 4096 rather than 2048, and batch_size is 4 rather than the old silent default of 1. Recovered into configs/ from the frozen runs/e24bs4-poly-4k-env-only-qwen3-1_7b/config.yaml, which was the only copy: the pair was launched ad hoc on the box and its configs were never tracked, so the one clean comparison could not be re-run or seed-replicated. Byte-identical to what produced runs/e24bs4-*. Why the cap is 4096 and not higher: the e22 probe showed the 2048 cap was the confound behind the e9-e18 null, since every episode that hit it terminates when given room (16/16 across poly and countdown, zero loops), and on polynomial_equations all four rescued episodes are CORRECT, taking the e12 checkpoint from 0.80 to 1.00 on the same seeds. The sweep was therefore scored on rollouts cut mid-reasoning, mislabelled wrong, then handed to the cosine wrong-branch that pays for length. 4096 (max_seq 5120 - prompt 1024) is the hardware ceiling on a 24 GB L4: accelerate upcasts the completion logits to fp32 for the policy backward, so peak grows by 10 bytes per token per vocab entry (bf16 logits + fp32 copy + fp32 grad, vocab 151936) on top of a 14.4 GiB resident base. Measured OOMs at 16384, 7168 and 6144; 4096 leaves about 1.4 GiB of margin. It covers 18 of the 20 correct-episode lengths the probe measured - the same 18 that 6144 or 7168 would cover, because nothing in the measured distribution falls between 3093 and 9516."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 5120
+  gpu_memory_utilization: 0.23
+
+training:
+  mode: agentic
+  env: reasoning_gym
+  env_config:
+    dataset: polynomial_equations
+    size: 500
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8077
+  max_prompt_length: 1024
+  # Geometry stated, never defaulted: freezing copies the config verbatim, so a key
+  # no config writes is absent from the frozen copy and the e24bs4-vs-e25bs4 diff
+  # cannot prove the arms matched. max_steps is 150 rather than e24's 300 because a
+  # step at batch_size 4 costs four times as much wall clock; both arms of THIS pair
+  # run 150, which is what the comparison requires.
+  batch_size: 4
+  n_rollouts: 8
+  micro_batch_size: 1
+  max_steps: 150
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  compose_method: advantage_weighted
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    enabled: false
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  agentic:
+    n_episodes: 100
