@@ -2,11 +2,59 @@
 
 This file guides Claude Code (claude.ai/code) when working in this repository.
 
-The project studies token-efficiency reward shaping in GRPO (cosine length
-reward, token entropy) in an agentic, multi-environment setting. Training runs
-against live OpenEnv environments through TRL's `environment_factory`; the policy
-is a tool-calling model (Qwen3-1.7B) rewarded by the environment, not by grading
-an answer string. The pipeline is agentic-only.
+The project studies token-efficiency reward shaping in GRPO (a cosine length
+reward, a non-termination penalty) in an agentic, multi-environment setting.
+Training runs against live OpenEnv environments through TRL's
+`environment_factory`; the policy is a tool-calling model (Qwen3-1.7B) rewarded by
+the environment, not by grading an answer string. The pipeline is agentic-only.
+
+## This is scientific work, so a regression is the worst outcome
+
+Every number under `pipeline/runs/` cost GPU hours and will be cited in a thesis.
+A silent behaviour change does not merely break a feature: it invalidates results
+that were already collected, and it does so quietly, usually weeks before anyone
+notices. Two campaigns have already been thrown away this way (see "Void results"
+below). That is the failure mode to design against, ahead of speed and ahead of
+elegance.
+
+What it requires on every change:
+
+- **Verify the assumption before writing code against it.** Read the function,
+  the config key, the installed version. "It probably works like X" is how the
+  cosine reward ended up shaping 8% of the tokens it claimed to shape.
+- **Know what the change touches.** Grep every caller before editing a shared
+  function. A fix that is right at one call site and wrong at its sibling is worse
+  than no fix, because plausible numbers still come out the other end.
+- **Run the tests.** `pipeline/tests/` is CPU-only and finishes in seconds. A
+  change to training or eval semantics also needs a test that fails without it.
+- **Never change a measurement silently.** Token counting, the correctness
+  threshold, the seed mapping, budget accounting, metric definitions: changing any
+  of these makes new runs incomparable with old ones. If the change is right
+  anyway, say so explicitly, name the results it invalidates, and record it in
+  `LAB_NOTES.md`.
+- **A smoke test is not a validation.** It proves the code runs, not that it
+  measures the intended quantity. The e9-e21 sweep smoke-tested clean for months
+  while measuring the wrong thing.
+
+When in doubt, stop and confirm rather than ship and let the next eval catch it.
+The next eval is nine hours of GPU time.
+
+## Void results, do not cite
+
+Two errors invalidated whole campaigns. Both are written up in full in
+`LAB_NOTES.md` and `pipeline/runs/cosine_token_count_bug_findings.md`; the short
+form lives here so no argument gets rebuilt on them.
+
+- **e9-e21 (the poly and countdown cosine sweeps).** The cosine reward counted
+  only the visible answer text and not the `reasoning_content` that made up most
+  of the completion. Separately, every wrong episode sat exactly at the token cap,
+  so "wrong" and "truncated" were one label.
+- **Everything trained before `a19b1ff`.** `batch_size` defaulted to 1, so an
+  optimizer step saw a single prompt-group and 40-60% of steps carried no gradient
+  at all. Every treatment-versus-baseline pair from that era is confounded by how
+  much live gradient each arm happened to receive.
+
+The 4096-cap pair (`e24bs4` / `e25bs4`) is the first comparison free of both.
 
 ## Git workflow
 
@@ -16,7 +64,23 @@ no feature branches, no `.claude/worktrees/` copies. Make changes directly on
 drops you onto any branch other than `master`, stop and move the work back onto
 `master` before continuing.
 
-## Run state (`RUNNING.md`)
+## Where things are written down
+
+| File | Holds |
+|---|---|
+| `RUNNING.md` | What is executing on the box right now. Nothing else. |
+| `LAB_NOTES.md` | What was learned: box operations, launch checklists, traps, standing decisions, run history. |
+| `pipeline/runs/*_findings.md` | Per-run and per-pair numbers, with the statistics and the caveats attached. |
+| `BACKLOG.md` | Work considered and deferred, each item carrying the reason it is deferred or dropped. |
+| `DECISIONS.md` | Why each OpenEnv environment was integrated or rejected. |
+| `pipeline/CODE_REVIEW.md`, `pipeline/FIX_PLAN.md` | The 2026-08-03 review and how each finding was closed. |
+| taskwarrior (`project:thesis`) | Open work and what comes next. |
+
+Each fact belongs in exactly one of these. The failure mode is not hypothetical:
+`RUNNING.md` once grew to 950 lines of rules and history, which buried the single
+question it exists to answer.
+
+### Run state (`RUNNING.md`)
 
 `RUNNING.md` at the repo root records what is executing on the GPU box. Keeping it
 current is a hard requirement for every run, not a courtesy:
@@ -33,13 +97,12 @@ current is a hard requirement for every run, not a courtesy:
 
 A run missing from `RUNNING.md` is a run nobody can find after a context reset.
 
-**Nothing else goes in this file.** It is a table of live runs, not a notebook. It
-once grew to 950 lines of rules, traps and run history, which buried the one thing it
-exists to answer. Findings go to `pipeline/runs/*_findings.md`; everything else -
-operational rules, launch checklists, traps, standing design decisions, run history -
-goes to `LAB_NOTES.md`.
+**Nothing else goes in this file.** It is a table of live runs, not a notebook.
+Findings go to `pipeline/runs/*_findings.md`; everything else - operational rules,
+launch checklists, traps, standing design decisions, run history - goes to
+`LAB_NOTES.md`.
 
-## Lab notes (`LAB_NOTES.md`)
+### Lab notes (`LAB_NOTES.md`)
 
 `LAB_NOTES.md` at the repo root holds what was learned rather than what is running:
 box operations, the browsergym launch checklist, traps that have already cost time,
@@ -47,7 +110,7 @@ standing decisions such as the `batch_size 4` rule, and the narrative history be
 them. Read the operations sections before launching anything on the box, and add to
 it whenever something costs time twice.
 
-## Task tracking (taskwarrior)
+### Task tracking (taskwarrior)
 
 Pipeline work is tracked in taskwarrior under the `thesis` context (`project:thesis`).
 `RUNNING.md` says what the GPU is doing right now; taskwarrior says what work is
@@ -84,6 +147,33 @@ Read the open list before proposing next steps, and reconcile it when a run is
 harvested. A stale task list misdirects the next session exactly like a stale
 `RUNNING.md` does.
 
+## Where code runs
+
+Edit and run tests on the Mac. Training and eval run on the GPU box
+(`ssh gpu-l4`, an L4 with 24 GB), which keeps its own checkout at
+`/workspace/master-thesis-code`.
+
+```bash
+# tests: CPU-only, a few seconds, no GPU stack required
+cd pipeline && ../.venv-test/bin/python -m pytest tests/ -q
+
+# push code to the box before any launch - the whole package, never one module
+rsync -a --delete --exclude 'runs/' --exclude '__pycache__/' --exclude '.pytest_cache/' \
+  pipeline/ gpu-l4:/workspace/master-thesis-code/pipeline/
+
+# harvest results back; checkpoints stay on the box
+rsync -a --exclude 'checkpoint*' \
+  gpu-l4:/workspace/master-thesis-code/pipeline/runs/<experiment_id> pipeline/runs/
+```
+
+Sync the whole `pipeline/` tree. A single-module sync has produced a mixed-version
+pipeline that ran to completion against stale code, which is the expensive version
+of this mistake; an import error is the cheap version. The box copy is assumed
+stale until a sync says otherwise.
+
+Box operations, the browsergym launch checklist and the ssh-failure diagnosis are
+in `LAB_NOTES.md`. Read them before launching.
+
 ## Environment Setup
 
 ```bash
@@ -116,13 +206,27 @@ python -m training.batch configs/e5-*.yaml --train --eval --seeds 42 43 44
 
 Add `--smoke` to any command for a fast sanity check (3 steps, 10 eval episodes).
 
-`training.train` refuses to clobber an existing `runs/<experiment_id>/` directory.
-Pass `--overwrite` to replace, or change `experiment_id`. The frozen `config.yaml`
-and `checkpoint-final/` are the trigger artifacts.
+Results on disk are protected by three refusals, all of them there because the
+overwrite already happened once: `training.train` refuses to clobber an existing
+`runs/<experiment_id>/` (pass `--overwrite`, or change `experiment_id`; the frozen
+`config.yaml` and `checkpoint-final/` are the trigger artifacts), a `--smoke` eval
+refuses to write over a real `eval_report.json`, and `--base-model` refuses to
+write into a directory holding a trained checkpoint. Give a throwaway run its own
+`experiment_id` rather than working around any of them.
 
 Outputs land in `runs/<experiment_id>/`: frozen config, LoRA checkpoint, and the
 agentic eval report (`eval_report.json` / `eval_report.md`, keyed under the
 `agentic` split).
+
+### Experiment geometry: one knob differs, never two
+
+Every arm of a comparison runs `batch_size: 4`, `n_rollouts: 8` and the same
+`max_steps`. Fixing only one of the three rebuilds the confound: an arm that saw
+more prompts, or more optimizer updates, than its baseline is not a reward
+ablation. Two configs being compared should differ in exactly one `rewards:` key,
+and the diff of their frozen `runs/<exp>/config.yaml` files is what proves it -
+check that diff, not the config you intended to write. The reasoning behind the
+value 4, and why it is not a memory knob, is in `LAB_NOTES.md`.
 
 ### Batch runner
 
@@ -155,14 +259,23 @@ one distinct question per seed), `episode_messages` (the eval prompt for a
 question), `episode_reward` / `is_correct` (read the env score), and
 `server_module` (the `python -m ...` server entry point the runner launches).
 
-`ReasoningGymDomain` (`domains/reasoning_gym/domain.py`) is the reference
-environment (reasoning_gym task families, e.g. `chain_sum`).
+`build_domain(config)` (`domains/__init__.py`) maps `training.env` to a domain and
+imports it lazily, so one environment's dependencies never block another. The
+five: `reasoning_gym` (the reference domain, reasoning_gym task families such as
+`polynomial_equations`), `textarena`, `finqa`, `repl`, `browsergym`.
+
+Each config seed owns a disjoint block of the seed-to-question mapping (question
+seed = `config_seed * SEED_BLOCK + offset`, `SEED_BLOCK = 1_000_000` in
+`training/config_schema.py`). Before that block existed, `--seeds 42 43` shared
+roughly 99% of their questions, so a seed sweep measured nothing. Validation
+rejects an eval `seed_offset` large enough to cross into the next seed's block.
 
 ### Agentic training loop
 
-`training.mode: agentic` with `training.env: reasoning_gym` trains against a live
-OpenEnv server. The model is driven through its native tool-calling template and
-rewarded by the environment.
+`training.mode: agentic` (the only supported mode) with `training.env: <domain>`
+trains against a live OpenEnv server. The model is driven through its native
+tool-calling template and rewarded by the environment. The walkthrough below uses
+`reasoning_gym`; the other domains differ only in their adapter and server module.
 
 - **Server lifecycle (runner-owned).** `EnvServerProcess` (`training/env_server.py`)
   launches the OpenEnv env as a local HTTP server subprocess (no Docker:
@@ -194,12 +307,19 @@ model calls the tool, env reward flows into the composer, and the LoRA saves.
 
 Rewards are wired via `REWARD_REGISTRY` in `pipeline/training/rewards/__init__.py`.
 Each entry maps a config key (under `rewards:`) to `(default_enabled,
-default_weight, builder)`: `env_reward` (task success), `token_length` (cosine
-length), `token_entropy`, `non_termination`. All default off; configs enable what
-they study. Adding a reward requires both a builder + registry entry and the
-matching key in `_KNOWN_REWARD_KEYS` (`pipeline/training/config_schema.py`), or
-validation rejects it. `train.build_reward_components` iterates the registry, so
-there are no per-reward branches in `train.py`.
+default_weight, builder)`. Three exist: `env_reward` (task success), `token_length`
+(cosine length), `non_termination`. All default off; configs enable what they
+study. Adding a reward requires both a builder + registry entry and the matching
+key in `_KNOWN_REWARD_KEYS` (`pipeline/training/config_schema.py`), or validation
+rejects it. `train.build_reward_components` iterates the registry, so there are no
+per-reward branches in `train.py`.
+
+A token-entropy reward existed and was deleted. It rendered the prompt without
+`tools=`, so it measured the entropy of a completion given a context the policy
+never saw, and it is not among the expose's conditions (E0, E1, E2 length, E3
+non-termination, optional E4 combined). Nothing in the code, the configs or the
+schema refers to it any more, and a config naming `token_entropy` now fails
+validation. Do not re-add it without fixing the conditioning first.
 
 `NonTerminationPenalty` is the E3 signal: -1 for an episode whose env never
 reported `done`, 0 otherwise, so a config's `weight` is the penalty coefficient
@@ -212,8 +332,18 @@ under `naive_sum`; `warn_inert_scalars` warns otherwise.
 completions are rewarded more when shorter, wrong completions penalized less when
 longer, making wrong-and-short the most-penalized cell. The reward is non-linear
 in length and gated by correctness, so it survives per-group z-scoring with real
-structure. `TokenEntropyReward.fork_mask_top_frac` averages entropy over the top
-fraction of tokens by entropy.
+structure.
+
+Length is measured by `model_token_count` (`training/rewards/utils.py`) over every
+assistant message, summing `content`, `reasoning_content` and serialized tool-call
+arguments, and skipping the tool messages TRL interleaves. Both halves of that are
+load-bearing and both were once wrong. Dropping `reasoning_content` measured 18
+tokens of a 1024-token completion, because transformers puts the think block there
+on any assistant message carrying a tool call. Preferring `len(completion_ids)`
+branched on whether a tool message had been interleaved, which happens exactly when
+the model called a tool, so the ruler itself became a proxy for correctness.
+`tests/test_cosine_length_ids.py` and `tests/test_model_token_count.py` hold both
+closed. Any change to how a completion is counted is a change to the experiment.
 
 ### Reward Composition
 
@@ -228,24 +358,57 @@ Components are combined via a composer selected by `rewards.compose_method`:
   ablation baseline that isolates the advantage-weighting effect.
 
 **Scale-invariance.** Because `advantage_weighted` z-scores each component per
-prompt-group, it is invariant to any global positive scalar in a component's raw
-reward (a negative scalar flips the sign; zero silences it). Under the default
-composer, `token_entropy.reward_scale` therefore does nothing. The live levers are
-the component `weight`, the per-completion signal shape, and switching to
-`naive_sum`. `build_reward_components` warns when a knob is inert as configured.
+prompt-group, it is invariant to any global positive scalar inside a component's
+raw reward: a knob that multiplies every rollout in the group does nothing (a
+negative scalar flips the sign, zero silences it). The live levers are the
+component `weight`, the per-completion signal shape, and switching to `naive_sum`.
+`build_reward_components` calls `warn_inert_scalars` and warns when a knob is inert
+as configured; treat that warning as a sweep that will produce a flat line.
+
+**Adding any component changes how much gradient the arm gets.** Under
+`advantage_weighted` a prompt-group with zero within-group reward variance yields
+zero advantage, so it trains on nothing. On a near-saturated task the env reward is
+constant across a group most of the time, while a length reward varies whenever the
+rollouts differ in length. Measured on the e24bs4 / e25bs4 pair: 40.7% of groups
+live in the control arm against 99.5% in the cosine arm. The contrast that produces
+is "reward plus more gradient", not the reward alone. Check
+`frac_reward_zero_std` in both arms' training logs before reading any pair, and say
+so in the write-up when they differ.
 
 ### Agentic Evaluation
 
 `eval.runner` dispatches to `run_agentic_eval` (`pipeline/eval/agentic_eval.py`):
 it loads the trained LoRA, launches the env server, runs N held-out episodes
-(seeds disjoint from training via a +100000 offset), generates a greedy tool call
-per episode, parses the `answer`, scores it via the env, and writes
+(inside the run's own seed block, offset by `_EVAL_SEED_OFFSET = 100_000`, so they
+are disjoint from that seed's training questions), generates greedily unless
+`eval.do_sample`, parses the tool call, scores it via the env, and writes
 `eval_report.json` / `.md` keyed by split name (`agentic` unless
-`eval.agentic.splits` names others). The generation budget defaults to the
-training budget (`max_seq - max_prompt_length`); a smaller eval cap silently
-truncates long completions before the tool call and tanks the success rate.
-Metrics come from `eval/metrics.py`: accuracy with Wilson 95% interval, mean token
-count with bootstrap CI, underthinking / overthinking rates, and mean steps.
+`eval.agentic.splits` names others).
+
+The generation budget is a **whole-trajectory** budget, matching what TRL applies
+in training, and interleaved tool responses are charged against it too. Applying it
+per turn let an episode generate `max_turns` times the training budget. It defaults
+to the training budget (`max_seq - max_prompt_length`); a smaller eval cap silently
+truncates completions before the tool call and tanks the success rate.
+
+Metrics come from `eval/metrics.py`: accuracy with a Wilson 95% interval,
+`mean_token_count_correct` (correct episodes only, with a bootstrap CI),
+underthinking / overthinking rates, mean steps, and the off-target panel below.
+
+Three things to hold onto when reading a report:
+
+- **`mean_token_count_correct` is the efficiency number, not `mean_token_count`.**
+  The pooled mean is dominated by failures, which run to the cap, so a change in
+  failure rate is indistinguishable there from a change in length. That confound is
+  part of what voided e9-e21.
+- **Under/overthinking thresholds are per-run percentiles unless pinned.**
+  Two arms scored on their own P10/P75 are measured against different rulers and
+  their rates are not comparable. `load_reference_thresholds` pins them to a
+  reference report; use it for any cross-arm claim.
+- **A comparison is only paired if both arms answered the same questions.** Compare
+  on the intersection and report the paired statistic. Unpaired means shift when
+  the treatment arm solves questions the control missed, which are usually the long
+  ones, and the mean then moves the wrong way while the paired median falls.
 
 **Protocol splits.** `eval.agentic.splits` is a list of `{name, n_episodes,
 env_config, seed_offset}`; `env_config` merges over the training one and each

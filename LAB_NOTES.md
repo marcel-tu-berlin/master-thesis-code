@@ -145,10 +145,14 @@ chronological order.
   controls and the client VPN address every minute. Pair them: no gap inside
   while outside reads `30236 refused` localises the fault to the ingress path,
   and a VPN address change at the boundary localises it to the client.
-- **`eval.runner --base-model` writes into `runs/<experiment_id>/`** regardless of
-  whether an adapter was loaded (`runner.py:36,51`), so pointing it at a trained
-  run's config overwrites that run's `eval_report.json` and episode files. A
-  base-model eval needs its own config with its own `experiment_id`.
+- **`eval.runner --base-model` used to write into `runs/<experiment_id>/`**
+  regardless of whether an adapter was loaded, so pointing it at a trained run's
+  config overwrote that run's `eval_report.json` and episode files. Now guarded:
+  `base_model_conflict` refuses when the directory holds a `checkpoint-final/`, and
+  `smoke_conflict` refuses a `--smoke` eval over a real report. A base-model eval
+  still needs its own config with its own `experiment_id` (the `e0` / `e0b`
+  pattern) - the guard makes that loud instead of silent.
+
 ## Standing rule: batch_size 4 everywhere
 
 Every arm of every comparison runs `batch_size: 4`, `n_rollouts: 8`, and the same
