@@ -1,3 +1,11 @@
+# SUPERSEDED by e27bs4-browsergym-e1-baseline-qwen3-1_7b.yaml. Do not run this one.
+# It trained on 2026-08-05, before a19b1ff made batch_size default to 4, so
+# runs/e27-browsergym-e1-baseline-qwen3-1_7b/ was produced at batch_size 1 - its
+# frozen config records no batch_size at all, and train_log's epoch 0.6 at step
+# 300 over 500 questions confirms one prompt-group per step. The `batch_size: 4`
+# below was added later (86f9ce6) to state the geometry keys, so running this
+# file TODAY produces a different experiment under the same name. It is also the
+# reason the E2/E3 arms could not be paired against this run.
 experiment_id: e27-browsergym-e1-baseline-qwen3-1_7b
 description: "E27: task-success-only GRPO on BrowserGym/MiniWoB (E1), the specialized baseline every later condition is shaped on top of. Environment chosen after e26 disqualified finqa; task mix chosen by four probes, because the first three sets of difficulty numbers did not survive contact with the conditions they were used under. The mix is click-menu-2 (0.60 success against 0.70 termination, 2.6 steps) and click-dialog-2 (0.80 against 1.00, 1.0 steps), giving roughly 0.70 success against 0.85 termination. Both bars are required and both are load-bearing: headroom alone is not enough, because on a set where every terminated episode is correct, reducing non-termination IS increasing task success, and a non-termination penalty would be indistinguishable from a task reward with nothing left for RQ2 to measure. naive_sum, not the advantage_weighted default: the E3 lambda sweep runs under naive_sum (a binary termination flag has zero within-group variance once rollouts terminate reliably, and advantage_weighted contributes exactly 0 there), so the lambda=0 control must run the same composer or it is not this sweep's baseline."
 seed: 42

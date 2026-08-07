@@ -156,6 +156,15 @@ chronological order.
   still needs its own config with its own `experiment_id` (the `e0` / `e0b`
   pattern) - the guard makes that loud instead of silent.
 
+- **A config that states a geometry key does not mean the run used it.** Configs
+  in `configs/` get edited after their run; frozen configs in `runs/<exp>/` do not.
+  `configs/e27-*.yaml` carries `batch_size: 4` (added by 86f9ce6) while
+  `runs/e27-*/config.yaml` carries no `batch_size` at all, because the run predates
+  a19b1ff and trained at 1. Reading the tracked config would have paired two bs=4
+  treatment arms against a bs=1 baseline. Check the frozen config, and cross-check
+  it against `train_log.json`: `epoch` at the final step over the dataset size gives
+  the prompts per step directly (0.6 at step 300 over 500 questions is bs=1).
+
 ## Contract a new OpenEnv env must meet
 
 Two requirements, both learned by finqa failing them. finqa is gone but the
@@ -356,6 +365,44 @@ with mean reward 0.931 - saturated, no gradient, and success and termination had
 collapsed onto one axis. Cause was difficulty measured under the first probe's
 five tools and prompt rather than the adapter's two. Nothing to harvest. The
 relaunched run on corrected numbers is the harvested e27 above.
+
+## The E1/E2/E3 campaign relaunched as e27bs4/e28bs4/e29bs4
+
+Launched 2026-08-07 19:30 UTC, batch pid 2309661, log
+`/workspace/e27bs4_e28bs4_e29bs4_batch.log`. Three arms in order, train and eval
+each, roughly 53h.
+
+**The baseline had to be retrained, which is why e27bs4 exists.** The e27 run on
+disk trained at `batch_size 1`: its frozen config records no `batch_size`, it ran
+2026-08-05, and a19b1ff did not land until 2026-08-06. `train_log.json` settles it
+without reference to any commit - `epoch 0.6` at step 300 over a 500-question set
+is one prompt-group per optimizer step, and 47% of those steps had zero
+within-group reward variance. Pairing a bs=4 E2 or E3 arm against it would have
+mixed the reward's effect with four times the prompts and roughly twice the live
+updates: the a19b1ff confound rebuilt after it was fixed. The trap is that
+`configs/e27-*.yaml` says `batch_size: 4` - the config was edited after the run.
+
+**150 steps, not 300.** At bs=4 this env costs ~365 s/it, interpolated from two
+measurements that agree to 3% per completion: 94 s/it at bs=1 (e27, 28178s/300)
+and 712 s/it at bs=8 (e27bs8probe, 28471s/40). 150 steps is 600 prompts and 150
+optimizer updates per arm, against e27's 300 prompts and ~160 live updates - the
+same count of real gradient steps on twice the data - and lands the campaign in
+2.2 days instead of 4.1 on a box that has already been handed to a colleague
+mid-run once.
+
+**e28 and e29 configs were deleted rather than kept.** Neither ever produced a
+number (e28's directory holds a step-83 partial with no checkpoint and no report),
+so there is no void run for a header to warn about, and their descriptions carry
+over verbatim into the bs4 files. `configs/e27-*.yaml` does keep a superseded
+header, in the e24/e25 style, because its run is cited.
+
+**Smoke first, and it was worth it.** Neither 86eb392's `MAX_CONCURRENT_ENVS`
+sizing nor bc7c7dd's eval dispatch had ever run against browsergym. A throwaway
+`e28bs4smoke` at `/workspace/e28bs4smoke.yaml` cleared the whole path in about
+12 minutes: bs=4 training, env server, tool dispatch (`click` -> `env_done`,
+reward 1.0), seed blocks (42100000 / 42200000), episode records, report write.
+Its `hit_generation_cap` episodes are `--smoke`'s own 256-token eval cap, not a
+finding. Deleted afterwards, along with its run directory.
 
 ## The poly cosine pair, re-run unconfounded
 

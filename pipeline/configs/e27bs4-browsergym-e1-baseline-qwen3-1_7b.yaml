@@ -1,0 +1,74 @@
+experiment_id: e27bs4-browsergym-e1-baseline-qwen3-1_7b
+description: "E1 re-trained at batch_size 4: task-success-only GRPO on BrowserGym/MiniWoB, the lambda=0 control for E2 (e28bs4) and E3 (e29bs4). This exists because the e27 run on disk is not usable as their baseline. Its frozen config records no batch_size key, it ran 2026-08-05, and the default was 1 until a19b1ff (2026-08-06) - train_log confirms it directly, epoch 0.6 at step 300 over a 500-question set is one prompt-group per optimizer step, and 47% of those steps had zero within-group reward variance and therefore no gradient. Comparing a bs=4 treatment arm against it would mix the reward's effect with 4x the prompts and roughly twice the live updates, which is the confound that voided every treatment-versus-baseline pair before a19b1ff. Geometry: 150 steps at batch_size 4 is 600 prompts and 150 optimizer updates against e27's 300 prompts and ~160 live updates - the same number of real gradient steps on twice the data, at ~365 s/it (interpolated from 94 s/it at bs=1 and 712 s/it at bs=8 on this env, both measured, both ~11.4 s per completion). 300 steps would double that to ~30h of training per arm and 4 days for the three; the box is shared and a run has already been handed away mid-campaign once. Everything else is e27 unchanged: same task mix, seed, budget, learning rate, composer and eval splits. naive_sum matches the E3 sweep so lambda=0 is the same code path. The task mix (click-menu-2, click-dialog-2) was chosen from fifteen probed families as the only two both unsaturated and trainable, and both bars matter: on a set where every terminated episode is correct, removing non-termination IS increasing task success and E3 would have nothing of its own to measure. Rationale for every other key is in the e27 config this replaces."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  # Initial prompt is small (lead-in, goal, first page: about 700 tokens), and
+  # the whole trajectory is capped at 4096 below, so 8192 leaves slack.
+  max_seq_length: 8192
+  lora_r: 16
+  gpu_memory_utilization: 0.30
+
+training:
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    # The seed cycles this list (`tasks[seed % len]`), so the mix is exactly
+    # balanced across the training set and reproducible per seed.
+    tasks: [click-menu-2, click-dialog-2]
+    # MiniWoB HTML is not shipped with browsergym-miniwob. This must point at a
+    # served clone of miniwob-plusplus or the env raises "core is not defined"
+    # at the first reset, and it does not survive a box restart. Start it first:
+    #   cd /workspace/miniwob-plusplus/miniwob/html && python3 -m http.server 8080
+    miniwob_url: http://localhost:8080/miniwob/
+    # The one turn cap. The mix needs 1.0 and 2.6 steps, so 8 is headroom.
+    max_turns: 8
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  # Sets TRL's max_completion_length to 8192 - 4096 = 4096, the budget for the
+  # WHOLE trajectory. e27 clipped at 0.008-0.058 over 300 steps with no drift.
+  max_prompt_length: 4096
+  # Geometry stated explicitly so the frozen config records it. All three arms
+  # must carry these three keys identically or their frozen-config diff cannot
+  # prove they ran the same experiment.
+  batch_size: 4
+  n_rollouts: 8
+  micro_batch_size: 1
+  max_steps: 150
+  learning_rate: 5e-6
+  kl_beta: 0.001
+
+rewards:
+  # Matches the E3 arm's composer so lambda=0 is the same code path.
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  # Pinned, not derived. Budget for the WHOLE trajectory, matching TRL's
+  # max_completion_length in training. All three arms must state the same value
+  # or the comparison is measured under two different budgets.
+  max_new_tokens: 4096
+  # Thinking rates are measured against the E0 base model's token distribution,
+  # not this run's own percentile, so all three arms are scored on one ruler.
+  # This report predates the seed-block and eval fixes; it is shared by all
+  # three arms, so cross-arm rates hold, and the E0 pairing waits on its re-eval.
+  reference_report: runs/e0-browsergym-base-qwen3-1_7b/eval_report.json
+  agentic:
+    splits:
+      # Held-out: same task mix as training, seeds disjoint via the offset.
+      - name: held_out
+        n_episodes: 100
+      # Shifted: two families never trained on, both at or near ceiling, so this
+      # split detects degradation (RQ2's substitution) but not improvement.
+      - name: shifted
+        n_episodes: 100
+        env_config:
+          tasks: [navigate-tree, click-checkboxes-transfer]
+        seed_offset: 200000
