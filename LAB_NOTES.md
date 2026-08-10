@@ -344,11 +344,23 @@ until the paired analysis runs. Reports and episode files under
 `pipeline/runs/e2{7,8,9}bs4-browsergym-*`; batch summary at
 `pipeline/runs/batch_summary_20260810_000818.md`.
 
-**Still owed before any of this is quoted:** the paired statistic on the
-intersection (all three arms answered identical question sets - seed 42, offsets
-100000 and 200000, 100 episodes each, so pairing is exact), and
-`frac_reward_zero_std` per arm, since a component that adds within-group variance
-buys its arm more live gradient than the control got.
+**Paired analysis done 2026-08-10**, in
+`pipeline/runs/e27bs4_e28bs4_e29bs4_findings.md`. Both provisional readings above
+survived, and the two that matter sharpened:
+
+- E2's compression is paired-significant on the 55 both-correct held-out
+  questions - median of per-question differences -60 tokens, CI [-160, -7], sign
+  test p = 0.030. It is not gradient-matched though: `frac_reward_zero_std` is
+  exactly 0.0 at all 150 steps against the control's 0.477, so E2 trained on 100%
+  live prompt-groups against 52.3%. Same mechanism as e25bs4.
+- E3's stop-reason transition table has exactly one off-diagonal cell in 100
+  questions: 5 `hit_generation_cap` becoming `env_done`. `no_tool_call` stayed at
+  9 and at the *same* 9 questions. The training indicator cannot tell truncation
+  from silent stopping, and the policy took the cheaper one. E3 *is* gradient
+  matched (58.0% vs 52.3%), so that finding is clean.
+- Every `shifted` statistic is null. Correct episodes there run 470-510 tokens
+  against 780-930 held-out, so the split cannot separate "does not transfer" from
+  "no room to transfer into".
 
 **e27paired-oldseeds** - done, 200 episodes, harvested into the section above.
 Diagnostic, not an arm: config at `/workspace/e27paired-oldseeds.yaml`, kept
@@ -366,9 +378,16 @@ fresh draw of 100 MiniWoB instances - which is exactly how the multi-call bug
 nearly got dismissed as sample noise. `eval_report_pre_fix.json` is the pre-fix
 reference (held_out 0.780, shifted 0.790); keep it.
 
-**e0 browsergym base model** - done, 200 eval episodes, no adapter. held_out
-0.750 / 0.860 termination, shifted 0.870 / 0.900. Paired against e27 in
-`pipeline/runs/e27_e1_baseline_findings.md`.
+**e0 browsergym base model** - the 2026-08-03 run (held_out 0.750 / 0.860
+termination, shifted 0.870 / 0.900, paired against e27 in
+`pipeline/runs/e27_e1_baseline_findings.md`) is **superseded**. It scored the
+pre-fix seed bases 100042.. and 200042.. and its report predates
+`mean_token_count_correct`, so it pairs with nothing in the bs4 campaign. Its
+directory is archived on the box at
+`runs/_archive-e0-browsergym-base-oldseeds-20260803/`; a re-eval on the current
+seed scheme launched 2026-08-10 10:58 UTC. Nothing from the old numbers,
+including the +247 median-token claim in `e27_e1_baseline_findings.md`, should be
+quoted until the re-eval lands.
 
 **e27 browsergym E1 baseline** - done, 300 steps + 200 eval episodes. held_out
 0.780 success / 0.900 termination, shifted 0.790 / 0.850, one generation-cap hit
