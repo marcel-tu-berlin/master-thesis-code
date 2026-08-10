@@ -320,6 +320,36 @@ E2 and E3 results have to be read against the click-menu-2 half. Detail in
 
 ## Harvested
 
+**e27bs4 / e28bs4 / e29bs4, the E1/E2/E3 campaign at batch_size 4** - done
+2026-08-10 00:08 UTC, 52h39m for all six phases, 150 steps and 200 eval episodes
+per arm. Held-out numbers, one seed, unpaired as stated:
+
+```
+arm                acc    non-term  tok(correct)   env_done  cap  no_tool  max_turns
+e27bs4  E1 base    0.670    0.140       930.8         86      5      9        -
+e28bs4  E2 cosine  0.650    0.220       776.3         78     18      3        1
+e29bs4  E3 non-tm  0.640    0.090       845.4         91      0      9        -
+
+shifted            0.800 / 0.820 / 0.790, tok(correct) 478.3 / 510.5 / 472.6
+```
+
+Accuracy is flat across all three and every Wilson interval overlaps, so nothing
+is claimed there. The `stop_reason` column is where the arms differ, and it
+differs in opposite directions: E2 moved its off-target mass from `no_tool_call`
+(9 -> 3) into truncation (5 -> 18) while shortening correct episodes 17%, and E3
+removed truncation entirely (5 -> 0) while leaving `no_tool_call` at 9 - so E3's
+non-termination drop is a truncation drop, not a premature-stopping drop, which
+is not the mechanism the penalty was written for. Both readings are provisional
+until the paired analysis runs. Reports and episode files under
+`pipeline/runs/e2{7,8,9}bs4-browsergym-*`; batch summary at
+`pipeline/runs/batch_summary_20260810_000818.md`.
+
+**Still owed before any of this is quoted:** the paired statistic on the
+intersection (all three arms answered identical question sets - seed 42, offsets
+100000 and 200000, 100 episodes each, so pairing is exact), and
+`frac_reward_zero_std` per arm, since a component that adds within-group variance
+buys its arm more live gradient than the control got.
+
 **e27paired-oldseeds** - done, 200 episodes, harvested into the section above.
 Diagnostic, not an arm: config at `/workspace/e27paired-oldseeds.yaml`, kept
 outside the repo on purpose. `seed_block(0) == 0`, so `seed: 0` with
