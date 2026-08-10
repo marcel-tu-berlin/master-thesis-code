@@ -36,6 +36,82 @@ success is claimed from this campaign.
 The arms separate on the last four rows, and they move in opposite directions. That
 is the result.
 
+## E0: training bought no accuracy on this task
+
+`e0-browsergym-base-qwen3-1_7b` re-ran on 2026-08-10 against the identical seeds
+(42100000-42100099 and 42200000-42200099, `--base-model`, no adapter, same 4096-token
+whole-trajectory budget), so it pairs question for question with all three arms. The
+2026-08-03 e0 run does not - it scored the pre-fix seed bases 100042.. and 200042.. -
+and is archived on the box rather than quoted here.
+
+| held_out | e0 | e27bs4 (E1) | e28bs4 (E2) | e29bs4 (E3) |
+|---|---|---|---|---|
+| accuracy | 0.680 [0.583, 0.763] | 0.670 | 0.650 | 0.640 |
+| non-termination rate | 0.150 | 0.140 | 0.220 | 0.090 |
+| correct-episode mean tokens | 1035.6 | 930.8 | 776.3 | 845.4 |
+
+Paired McNemar against e0 on held_out: E1 8 vs 7 discordant (p = 1.00), E2 15 vs 12
+(p = 0.70), E3 14 vs 10 (p = 0.54). Not one trained arm beats the untrained model, and
+E0's point estimate is nominally the highest of the four. On `shifted` the same holds
+(E0 0.810 against 0.800 / 0.820 / 0.790, every McNemar p >= 0.62).
+
+So 150 GRPO steps of env-reward training did not make this policy better at MiniWoB.
+Everything below is a comparison between behaviours at equal task competence. That is
+still the right question for RQ1/RQ2 - the reward conditions are about *how* the agent
+spends tokens and turns, not about whether it wins more - but no sentence in the thesis
+should imply the E1 recipe taught the model the task.
+
+The discordant counts are large relative to the differences (15 and 12 flips between
+E0 and E2 for a net of -3), so per-question outcomes are noisy while the aggregate is
+stable. That is the signature of a policy whose competence did not move and whose
+tie-breaking did.
+
+## Training did change length, and it changed it most on the hard family
+
+The pooled accuracy above hides two family-level moves in opposite directions.
+`held_out` alternates by seed parity (`tasks[seed % len(tasks)]`), 50 episodes each.
+
+| click-menu-2 (n=50) | e0 | e27bs4 | e28bs4 | e29bs4 |
+|---|---|---|---|---|
+| accuracy | 0.58 | 0.48 | 0.42 | 0.44 |
+| correct-episode median tokens | 1963.0 | 1876.0 | 1622.0 | 1463.0 |
+| stop: env_done / cap / no_tool | 36 / 3 / 11 | 36 / 5 / 9 | 28 / 18 / 3 | 41 / 0 / 9 |
+
+| click-dialog-2 (n=50) | e0 | e27bs4 | e28bs4 | e29bs4 |
+|---|---|---|---|---|
+| accuracy | 0.78 | 0.86 | 0.88 | 0.84 |
+| correct-episode median tokens | 275.0 | 301.0 | 271.0 | 261.5 |
+| stop: env_done | 49 | 50 | 50 | 50 |
+
+(e28bs4's `click-menu-2` column also carries the single `max_turns` episode.)
+
+Two things fall out.
+
+**`click-dialog-2` is fully solved-and-terminating in every trained arm** - 50 of 50
+`env_done`, no truncation, no silent stopping, against 49 of 50 for the untrained
+model. So the entire non-termination and
+truncation story of this campaign is a `click-menu-2` story, and any RQ2 statement
+should say so rather than quoting a pooled rate over a set that is half degenerate.
+
+**Training trades the hard family for the easy one.** Accuracy falls 0.58 to 0.42-0.48
+on `click-menu-2` and rises 0.78 to 0.84-0.88 on `click-dialog-2`. Pooled, those cancel
+to the flat number in the headline. Whether that is the reward or 150 steps of GRPO
+sharpening whatever was already easier is not separable here, but it is a real
+behavioural change hiding inside a null.
+
+The strongest single length effect in the campaign is E1 against E0 on `click-menu-2`:
+on the 24 questions both answered correctly, median difference **-286 tokens**, 23
+shorter against 1 longer, sign test p < 0.0001. The env reward alone compresses the
+long family hard. E2 and E3 against E0 on the same family are -341 (n=16, p = 0.077)
+and -172 (n=17, p = 0.14) - the same direction, smaller n, no added effect that this
+seed can resolve.
+
+This **reverses** the corresponding claim in `e27_e1_baseline_findings.md`, which
+reported the E1 recipe *inflating* `click-menu-2` length by +247 tokens against E0.
+That comparison was between two batch_size 1 runs on the pre-fix seed scheme; under the
+bs4 geometry and the current seeds the sign flips. The old number should not be carried
+forward.
+
 ## E2 compresses correct episodes, and the compression is paired-significant
 
 55 questions both E1 and E2 answered correctly:
@@ -58,9 +134,22 @@ Quartiles over the same 55 questions:
 Two of the three intervals exclude zero and the sign test clears 0.05, on a
 correctness-matched set. The compression again grows with length, which is the shape a
 correctness-gated cosine is supposed to produce. The difference-of-medians interval is
-wide because the correct-episode distribution is bimodal (the two task families sit at
-roughly 250 and 1400 tokens), so which family the bootstrap happens to straddle moves
-the median a long way; the per-question differences do not have that problem.
+wide because the correct-episode distribution is two clusters, not one: `click-menu-2`
+correct episodes run about 1900 tokens and `click-dialog-2` about 300, so which family
+the bootstrap happens to straddle moves the median a long way. The per-question
+differences do not have that problem.
+
+Split by family, neither half carries the result alone at these sample sizes:
+
+| | n both-correct | median diff | CI | shorter/longer | sign test |
+|---|---|---|---|---|---|
+| click-menu-2 | 16 | -254.0 | [-305.0, +16.0] | 12 / 4 | p = 0.077 |
+| click-dialog-2 | 39 | -33.0 | [-73.0, +6.0] | 24 / 15 | p = 0.200 |
+
+Pooling gets to p = 0.030 because both families lean the same way, which is a
+legitimate combination of consistent evidence, not a subgroup fished out after the
+fact. But it is worth stating plainly that the significance is a pooled effect and the
+per-family n is 16 on the family where the tokens actually are.
 
 This is the second arm in a row, on a different environment, where the paired
 statistics point the same way as e25bs4 did on `polynomial_equations`. It is still one
@@ -259,8 +348,17 @@ both arms - correctness churn inside the already-terminating set, and null by Mc
 - **Under/overthinking rates in the three reports are not comparable.** Each derives
   its thresholds from its own token distribution. Use `load_reference_thresholds`
   against a fixed reference before quoting them.
-- **No E0 comparison yet.** The base-model arm on disk predates the current seed scheme,
-  so none of these numbers has an untrained reference point. The re-eval is queued.
+- **E0 is paired but also single-seed**, and it is the arm that reframes the campaign:
+  no trained arm beats it. Read every result here as a behavioural contrast at equal
+  competence, never as an improvement over no training.
+- **E3's non-termination result reads differently against E0 than against E1.** Against
+  its own control the penalty removed 5 truncations and touched no `no_tool_call`
+  episode. Against E0 it removed 6 `no_tool_call` episodes (paired non-termination
+  McNemar 6 vs 0, p = 0.031) and 3 of E0's truncations turned *into* `no_tool_call`.
+  Which of the two comparisons is the honest one depends on whether E1 or E0 is the
+  reference for RQ2; the E1 control is the pre-registered one and is the one the
+  headline uses, but the disagreement is seed-level churn of the size the accuracy
+  flips already showed, and it should not be resolved by picking the flattering arm.
 - **The unsupported-claim and verification-depth panel is weak here.** The rate is
   `len(tool_calls) == 1` among terminated episodes, and browsergym exposes only `click`
   and `noop` with no distinguished terminal call, so it fires on every one-click
@@ -269,6 +367,8 @@ both arms - correctness churn inside the already-terminating set, and null by Mc
 ## Provenance
 
 Wall time 52h39m: e27bs4 train 14h56m + eval 2h30m, e28bs4 14h57m + 2h43m, e29bs4
-15h09m + 2h22m. Batch summary `batch_summary_20260810_000818.md`. Run directories are in
-this folder minus checkpoints; the paired statistics read `episodes_held_out.jsonl` and
-`episodes_shifted.jsonl` from each, bootstrap RNG seeded at 0.
+15h09m + 2h22m. Batch summary `batch_summary_20260810_000818.md`. E0 re-eval 2026-08-10
+10:58-12:29 UTC, 1h31m, 200 episodes, no adapter, clean exit with no errors in the log.
+Run directories are in this folder minus checkpoints; the paired statistics read
+`episodes_held_out.jsonl` and `episodes_shifted.jsonl` from each, bootstrap RNG seeded
+at 0.

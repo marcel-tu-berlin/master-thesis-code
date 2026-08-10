@@ -1,5 +1,17 @@
 # e27: the E1 task-success baseline on BrowserGym/MiniWoB
 
+> **Superseded as a baseline by `e27bs4`. Do not carry its numbers forward.**
+> This run trained at an implicit `batch_size: 1` (it predates `a19b1ff`) and was
+> paired against an e0 run on the pre-fix seed scheme. The bs4 campaign re-ran
+> both arms on the current geometry and seeds; see
+> `e27bs4_e28bs4_e29bs4_findings.md`. One conclusion below reverses outright: the
+> "+247 tokens of training-induced inflation on click-menu-2" is **-286 tokens of
+> compression** under the bs4 geometry (24 both-correct questions, 23 shorter
+> against 1 longer, sign test p < 0.0001), so E2 has no inflation to undo. The
+> qualitative findings about *what* is measured here - the off-target panel, the
+> per-family reporting rule, why pooled medians are meaningless on a two-cluster
+> split - all still hold and are why this file is kept.
+
 Task-success-only GRPO (`env_reward` alone, `naive_sum`), 300 steps, Qwen3-1.7B
 + LoRA on an L4. The specialized baseline that E2 (cosine length) and E3
 (non-termination penalty) are shaped on top of, and the first run in this

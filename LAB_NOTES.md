@@ -378,16 +378,34 @@ fresh draw of 100 MiniWoB instances - which is exactly how the multi-call bug
 nearly got dismissed as sample noise. `eval_report_pre_fix.json` is the pre-fix
 reference (held_out 0.780, shifted 0.790); keep it.
 
-**e0 browsergym base model** - the 2026-08-03 run (held_out 0.750 / 0.860
-termination, shifted 0.870 / 0.900, paired against e27 in
-`pipeline/runs/e27_e1_baseline_findings.md`) is **superseded**. It scored the
-pre-fix seed bases 100042.. and 200042.. and its report predates
-`mean_token_count_correct`, so it pairs with nothing in the bs4 campaign. Its
-directory is archived on the box at
-`runs/_archive-e0-browsergym-base-oldseeds-20260803/`; a re-eval on the current
-seed scheme launched 2026-08-10 10:58 UTC. Nothing from the old numbers,
-including the +247 median-token claim in `e27_e1_baseline_findings.md`, should be
-quoted until the re-eval lands.
+**e0 browsergym base model** - re-evaluated 2026-08-10, 1h31m, 200 episodes, no
+adapter, on the current seed scheme (42100000.. / 42200000..). held_out 0.680,
+shifted 0.810, correct-episode tokens 1035.6 / 490.5. Harvested to
+`pipeline/runs/e0-browsergym-base-qwen3-1_7b/`.
+
+**No trained arm beats it.** Paired McNemar on held_out: E1 8-vs-7 (p = 1.00), E2
+15-vs-12 (p = 0.70), E3 14-vs-10 (p = 0.54), and E0's point estimate is nominally
+the highest of the four. 150 GRPO steps of env-reward training did not make this
+policy better at MiniWoB, so the whole bs4 campaign is a behavioural contrast at
+equal competence. Say that wherever the arms are quoted.
+
+Two structural facts the E0 pairing exposed, both per-family
+(`held_out` alternates by seed parity, `tasks[seed % len(tasks)]`):
+
+- **`click-dialog-2` is degenerate for RQ2** - 50 of 50 `env_done` in every
+  trained arm. Every non-termination and truncation number in this campaign is a
+  `click-menu-2` number, and a pooled rate over the split is half padding.
+- **Training trades the hard family for the easy one**: `click-menu-2` accuracy
+  0.58 -> 0.42-0.48, `click-dialog-2` 0.78 -> 0.84-0.88. Those cancel into the
+  flat pooled number.
+
+The 2026-08-03 e0 run (held_out 0.750, shifted 0.870) scored the pre-fix seed
+bases 100042.. / 200042.. and pairs with nothing in the bs4 campaign; it is
+archived on the box at `runs/_archive-e0-browsergym-base-oldseeds-20260803/`. Its
+"+247 tokens of training-induced inflation on click-menu-2" **reverses** under the
+bs4 geometry: E1 against E0 on that family is -286 tokens, 23 shorter against 1
+longer, p < 0.0001. `e27_e1_baseline_findings.md` now carries a superseded header
+saying so.
 
 **e27 browsergym E1 baseline** - done, 300 steps + 200 eval episodes. held_out
 0.780 success / 0.900 termination, shifted 0.790 / 0.850, one generation-cap hit
