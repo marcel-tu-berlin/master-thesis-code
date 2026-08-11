@@ -70,6 +70,24 @@ chronological order.
 
 ## Traps that have each cost real time
 
+- **TRL 1.6's vLLM logprob correction silently discards most of the gradient
+  (found 2026-08-11).** The trainer recomputes the sampled tokens' logprobs with
+  its own forward; the two implementations disagree by ~0.018 abs per token, and
+  the default `vllm_importance_sampling_mode="sequence_mask"` turns that into a
+  per-EPISODE loss weight `exp(signed drift summed over every assistant token)`,
+  zeroed outright above 3.0 (`grpo_trainer.py:2613` multiplies it into the
+  loss). At browsergym completion lengths the summed drift is far from 0 for
+  almost every episode: the instrumented probe measured 21/32 completions below
+  weight 0.1 in one optimizer step, the run-mean ISR was 0.28 (browsergym) and
+  0.49 (poly e24bs4), and the one prompt-group with real learning signal
+  delivered its gradient through a single lucky trajectory while the six wrong
+  rollouts' push-down was crushed to weights 0.003-0.64. Consequence: e27bs4/
+  e28bs4/e29bs4 trained their EnvReward flat for 150 steps and no arm beat e0.
+  Every config now states `training.vllm_importance_sampling_mode` explicitly
+  (`token_truncate`: per-token clamp, bounded correction, every episode keeps
+  gradient); the schema rejects unknown values, and an absent key keeps TRL's
+  default so pre-fix frozen configs still describe what they ran. Full audit:
+  `docs/plans/no-arm-beats-e0-audit.md`.
 - **A leftover env server on the shared port silently serves the next run.** Every
   env's `server/app.py` binds one fixed port, so the new server dies on bind while
   the readiness probe passes against the old one. The first e27 smoke trained to

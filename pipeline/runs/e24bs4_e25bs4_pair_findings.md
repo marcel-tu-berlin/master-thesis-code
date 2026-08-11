@@ -1,5 +1,16 @@
 # e24bs4 / e25bs4: the cosine pair re-run at batch_size 4
 
+> **Caveat 2026-08-11: both arms trained under TRL's sequence_mask gradient
+> filter** (run-mean importance-sampling weight 0.49 - about half of every
+> step's gradient mass discarded, preferentially on longer completions; see the
+> LAB_NOTES trap entry 2026-08-11 and `docs/plans/no-arm-beats-e0-audit.md`).
+> The one-knob contrast between the arms still holds - both share the filter -
+> but the filter suppresses exactly the long-completion gradient the cosine
+> reward acts through, so the treatment effect here is the cosine *as throttled
+> by the filter*, not the cosine at design strength. The paired numbers stand as
+> measured; do not generalize them to the fixed trainer, and run the seeds
+> 43/44 replication on the fixed trainer only.
+
 Harvested 2026-08-07. `polynomial_equations`, Qwen3-1.7B + LoRA, seed 42, 150 GRPO
 steps at `batch_size: 4`, `n_rollouts: 8`, 100 held-out eval episodes. The frozen
 configs differ in exactly one key, `rewards.token_length` (off in e24bs4;

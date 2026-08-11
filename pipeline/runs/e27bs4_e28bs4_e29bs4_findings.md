@@ -1,5 +1,22 @@
 # e27bs4 / e28bs4 / e29bs4: the browsergym E1/E2/E3 arms
 
+> **Addendum 2026-08-11: all three arms trained under a gradient filter.**
+> TRL 1.6's default `vllm_importance_sampling_mode = "sequence_mask"` weights
+> each episode's loss by `exp(summed sampler-vs-trainer logp drift)` and zeroes
+> weights above 3.0; at these completion lengths that crushed most episodes
+> (run-mean ISR 0.28 in all three arms; an instrumented probe measured 21/32
+> completions below weight 0.1 in one step, with the wrong-rollout push-down of
+> the only live menu-2 group at weights 0.003-0.64). Training EnvReward was flat
+> for all 150 steps in every arm. What this changes: the arms' training was NOT
+> the GRPO the configs describe, and the reward-mechanism attributions below
+> (which reward caused which behaviour shift) are confounded by a filter that
+> interacts with length itself. What survives: every eval number (greedy HF
+> generate, no vLLM), the paired comparisons as *behavioural descriptions of
+> these three artifacts*, and the off-target measurement machinery. Do not carry
+> the mechanism claims into the thesis; the campaign re-runs on the fixed
+> trainer. Audit and fix: `docs/plans/no-arm-beats-e0-audit.md`, LAB_NOTES trap
+> entry 2026-08-11.
+
 Harvested 2026-08-10. MiniWoB via browsergym (`click-menu-2`, `click-dialog-2`),
 Qwen3-1.7B + LoRA, seed 42, 150 GRPO steps at `batch_size: 4`, `n_rollouts: 8`,
 `compose_method: naive_sum`, 100 held-out + 100 shifted eval episodes per arm.
