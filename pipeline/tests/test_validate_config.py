@@ -111,8 +111,29 @@ def test_accepts_every_training_key_the_code_reads():
         n_rollouts=8, batch_size=1, micro_batch_size=2,
         learning_rate=5e-6, kl_beta=0.001, temperature=1.0,
         weight_decay=0.1, warmup_ratio=0.1,
+        vllm_importance_sampling_mode="token_truncate",
     )
     validate_config(cfg)  # must not raise
+
+
+def test_accepts_every_vllm_importance_sampling_mode():
+    # The four TRL 1.6 modes plus "off" (correction disabled). Absent is also
+    # legal and means TRL's default, so pre-fix frozen configs keep their
+    # recorded semantics.
+    for mode in ("token_truncate", "token_mask", "sequence_truncate",
+                 "sequence_mask", "off"):
+        cfg = _agentic_base()
+        cfg["training"]["vllm_importance_sampling_mode"] = mode
+        validate_config(cfg)  # must not raise
+
+
+def test_rejects_unknown_vllm_importance_sampling_mode():
+    # A typo here would silently fall back to TRL's sequence_mask default,
+    # which is the exact filter the key exists to turn off.
+    cfg = _agentic_base()
+    cfg["training"]["vllm_importance_sampling_mode"] = "token_trunacte"
+    with pytest.raises(ValueError, match="vllm_importance_sampling_mode"):
+        validate_config(cfg)
 
 
 def test_rejects_unknown_env_server_key():

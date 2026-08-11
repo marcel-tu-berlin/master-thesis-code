@@ -68,6 +68,18 @@ _KNOWN_TRAINING_KEYS = {
     "max_prompt_length", "max_steps", "save_steps",
     "n_rollouts", "batch_size", "micro_batch_size",
     "learning_rate", "kl_beta", "temperature", "weight_decay", "warmup_ratio",
+    "vllm_importance_sampling_mode",
+}
+
+# How TRL corrects for the vLLM-sampler-vs-trainer logprob mismatch. TRL 1.6
+# defaults to sequence_mask, which zeroes the gradient of any episode whose
+# summed per-token drift leaves [0, 3.0]; the sum grows with completion length,
+# so long episodes lose their gradient preferentially (measured ISR mean 0.28
+# on browsergym, 0.49 on poly - docs/plans/no-arm-beats-e0-audit.md). The four
+# TRL modes pass through; "off" disables the correction. Absent key = TRL's
+# default, so frozen pre-fix configs keep their recorded semantics.
+_KNOWN_VLLM_IS_MODES = {
+    "token_truncate", "token_mask", "sequence_truncate", "sequence_mask", "off",
 }
 
 _KNOWN_ENV_SERVER_KEYS = {"repo_path", "port"}
@@ -378,6 +390,12 @@ def validate_config(config: dict) -> None:
                     f"Unknown training.env_server keys: {sorted(unknown_es)}. "
                     f"Known: {sorted(_KNOWN_ENV_SERVER_KEYS)}"
                 )
+        is_mode = training.get("vllm_importance_sampling_mode")
+        if is_mode is not None and is_mode not in _KNOWN_VLLM_IS_MODES:
+            errors.append(
+                f"Unknown training.vllm_importance_sampling_mode: {is_mode!r}. "
+                f"Known: {sorted(_KNOWN_VLLM_IS_MODES)}"
+            )
 
     env_config = (config.get("training") or {}).get("env_config")
     if isinstance(env_config, dict):

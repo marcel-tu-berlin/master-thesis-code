@@ -153,6 +153,23 @@ class GRPORunner:
             # Cap vLLM's context to the training seq length. Qwen3's native 40k
             # context would demand a ~4 GiB KV cache and OOM the colocated engine.
             kwargs["vllm_max_model_length"] = self._max_seq
+            # TRL 1.6's default correction for the vLLM-vs-trainer logprob
+            # mismatch is sequence_mask: the per-EPISODE weight exp(sum of
+            # per-token drift) multiplies the loss, and a weight outside
+            # [0, 3.0] is zeroed. The summed drift grows with completion
+            # length, so long episodes lose their gradient preferentially
+            # (ISR mean 0.28 on browsergym, 0.49 on poly - see
+            # docs/plans/no-arm-beats-e0-audit.md). Configs name the mode
+            # explicitly; "off" disables the correction, the four TRL mode
+            # names pass through, absent keeps TRL's default so pre-fix
+            # frozen configs retain their recorded semantics.
+            is_mode = t.get("vllm_importance_sampling_mode")
+            if is_mode == "off":
+                kwargs["vllm_importance_sampling_correction"] = False
+            elif is_mode is not None:
+                kwargs["vllm_importance_sampling_mode"] = str(is_mode)
+            print(f"vLLM importance sampling mode: "
+                  f"{is_mode if is_mode is not None else 'sequence_mask (TRL default)'}")
         return GRPOConfig(**kwargs)
 
     def train(self, dataset, reward_fn, output_dir: str, callbacks=None,
