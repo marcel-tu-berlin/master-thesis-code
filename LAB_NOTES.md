@@ -99,6 +99,21 @@ chronological order.
   regardless of ISR handling. Removing the filter is necessary, not
   sufficient; the plan's Phase 2 knob probes (lr, temperature, task mix) are
   the live path.
+- **Training at `temperature != 1.0` breaks the vLLM logprob pairing (found
+  2026-08-12, never yet triggered).** TRL scales its own logits by
+  `1/temperature` before taking logprobs (`grpo_trainer.py:1123`) but never
+  sets vLLM's `logprobs_mode`, which defaults to `raw_logprobs` - the
+  *unscaled* distribution. At temperature 1.0 the two coincide and the ~0.018
+  per-token drift is pure numerics; at any other temperature they disagree
+  systematically per token, the disagreement sums with completion length, and
+  the IS correction (any mode) turns it into a length-dependent gradient
+  distortion again. Every run on disk trained at the 1.0 default, so nothing
+  is invalidated. Any non-1.0 run must set vLLM
+  `logprobs_mode="processed_logprobs"` (vLLM >= 0.10.2; TRL 1.6 has no
+  passthrough, so probes monkeypatch `vllm.LLM.__init__` and a campaign needs
+  a real engine-kwarg passthrough first) or disable the correction. Watchdog:
+  ISR mean drifting off ~1.0 under `token_truncate` means the pairing is
+  wrong.
 - **A leftover env server on the shared port silently serves the next run.** Every
   env's `server/app.py` binds one fixed port, so the new server dies on bind while
   the readiness probe passes against the old one. The first e27 smoke trained to

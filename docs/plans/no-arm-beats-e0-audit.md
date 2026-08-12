@@ -29,6 +29,14 @@ gradient, preferentially by completion length.**
 4. The summed drift grows with completion length, so long episodes land far
    from ratio 1.0 and lose their gradient; short episodes survive. A
    length-dependent gradient filter, inside a study about length.
+5. The filter is also direction-biased, not a symmetric attenuation
+   (2026-08-12): `clip_min` defaults to None, so only ratios above 3.0 are
+   masked to zero - episodes the trainer assigns *higher* probability than
+   vLLM did. Episodes in (1.0, 3.0] are up-weighted as much as 3x, episodes
+   below 1.0 fade smoothly toward zero. In our probe data the dominant loss
+   was the smooth side (systematic per-token drift -0.00205 summed over
+   length: 61/96 episodes below weight 0.1, only 4/96 hit the >3.0 cliff),
+   but the surviving gradient is a directionally selected sample either way.
 
 Measured run means of `sampling/importance_sampling_ratio/mean`: e27bs4 0.283,
 e28bs4 0.291, e29bs4 0.282, e24bs4 (poly) 0.486. Min is 0.0000 at nearly every
@@ -72,21 +80,64 @@ Also settled on 2026-08-10:
   the fix, one temp-1.0 eval documents the gap for the record.
 - A4 vLLM weight staleness. Refuted (bad at step 1, no decay pattern).
 - A5 Eval-side bugs (adapter load, budget, template). Refuted 2026-08-10.
+- A6 **Temperature-scaled vs raw logprob mismatch** (found 2026-08-12,
+  external review). TRL scales the trainer-side logits by `1/temperature`
+  (`grpo_trainer.py:1123`) but never sets vLLM's `logprobs_mode`, and vLLM
+  defaults to `raw_logprobs` - logprobs *before* temperature scaling
+  (`vllm/config/model.py:216`). At any `temperature != 1.0` the two sides
+  therefore disagree systematically, per token, growing with length: the
+  original confound reborn regardless of IS mode. **Does not affect any run
+  on disk** - every config left `temperature` at the 1.0 default, where raw
+  and processed distributions coincide (`top_p` 1.0, `top_k` 0), so the
+  measured 0.018/token drift stays pure numerics and the token_truncate fix
+  stays a full fix at T=1. But it binds B2 and any future non-1.0
+  temperature: those runs must set vLLM `logprobs_mode="processed_logprobs"`
+  (supported since vLLM 0.10.2; TRL 1.6 has no config passthrough, so the
+  probe monkeypatches `vllm.LLM.__init__`) or run with the correction off.
+
+Refuted 2026-08-12 (external review pass, checked against config/source):
+
+- `max_grad_norm` throttling: never set by us, so the transformers default
+  1.0 applies; measured grad_norm 0.05-0.12 never reaches it. Clipping is
+  inert.
+- LoRA target coverage: the registry targets all seven projections
+  (q/k/v/o/gate/up/down), not q/v-only. Capacity, if binding, is rank (r16),
+  not module coverage.
+- `mask_truncated_completions`: TRL defaults it False and no config sets it.
+  No second length-correlated filter is active.
+- Group-degenerate advantages as the zero-slope cause: measured on the
+  50-step verification dump (200 groups), 51.5% of groups have within-group
+  reward variance (menu 51.9%, dialog 51.1%), mean |advantage| 0.77 inside
+  live groups, mean reward 0.70. The gradient exists; this is ordinary
+  binary-reward saturation, not the all-rollouts-identical degenerate case.
 
 ### B. Optimization knobs (live even after A1 is fixed)
 
 - B1 **Learning rate / adapter capacity too small.** lr 5e-6 with LoRA r16
   gives grad_norm ~0.05 and KL ~0.003 after 150 steps - the policy barely
   moves in distribution space. Test: short probe at lr 2e-5 on the fixed
-  trainer; watch the EnvReward slope and clip/KL health.
+  trainer; watch the EnvReward slope and clip/KL health. If 2e-5 moves KL
+  but the slope stays marginal, a 5e-5 rung follows before concluding: the
+  LoRA-without-regret line of work puts LoRA's optimal lr at roughly 10x the
+  full-finetune value, and 2e-5 is only 4x the 5e-6 baseline.
 - B2 **Exploration too weak.** Entropy ~0.165 and about half of all
   prompt-groups have zero reward variance, so many groups carry no learning
   signal. Test: rollout temperature 1.2 probe; watch `frac_reward_zero_std`
-  and the reward slope.
+  and the reward slope. **Design constraint from A6:** at temperature 1.2
+  the probe must set vLLM `logprobs_mode="processed_logprobs"` (monkeypatch
+  in the probe script) or run the IS correction off - otherwise the
+  trainer-vs-vLLM logprob comparison is systematically wrong and the run
+  reintroduces the length-dependent filter it is supposed to be free of.
 - B3 **Mixed families dilute the batch.** click-dialog-2 groups are
   near-saturated (mostly dead under group-relative advantages) while
   click-menu-2 carried the live signal that the filter then discarded. Test:
   click-menu-2-only probe as the clean learnability measurement.
+- B4 **KL penalty pinning the policy.** Demoted, kept for completeness: our
+  `kl_beta` is an explicit 0.001 (not TRL's old 0.04), so the KL term at the
+  observed KL ~0.002 contributes ~2e-6 to the loss - too small to pin
+  against any live reward gradient. Decisive read comes free with B1: if lr
+  2e-5 moves KL well above 0.002 at unchanged beta, beta was never the
+  brake. A beta=0 probe runs only if B1-B3 all come back flat.
 
 ### C. Environment alignment
 
@@ -142,9 +193,14 @@ Phase gates matter: later phases are only interpretable on a fixed trainer.
 **Phase 2 - optimization knobs (B), one at a time, short probes:**
 
 4. B1 lr probe: 2e-5 vs the 5e-6 baseline, ~30-50 steps, same seed. Read:
-   reward slope, clip ratio, KL.
-5. B2 exploration probe: rollout temperature 1.2, same length. Read:
-   `frac_reward_zero_std`, reward slope.
+   reward slope, clip ratio, KL. (Launched 2026-08-12; KL doubles as the B4
+   read.)
+4b. B1 follow-up rung at 5e-5 if 2e-5 moves KL but leaves the slope
+   marginal (the ~10x-LoRA-lr heuristic; see B1).
+5. B2 exploration probe: rollout temperature 1.2, same length, **with vLLM
+   `logprobs_mode="processed_logprobs"` monkeypatched in** (A6). Read:
+   `frac_reward_zero_std`, reward slope, and the ISR mean staying ~1.0 -
+   if it drifts from 1.0 the logprob pairing is wrong and the run is void.
 6. B3 family isolation: click-menu-2-only probe. Read: does the family learn
    at all when it owns the whole batch.
 7. Gate: if the Phase-1 verification run already shows a healthy slope at
@@ -170,6 +226,10 @@ Phase gates matter: later phases are only interpretable on a fixed trainer.
 13. Re-run E1 with the fixed trainer and chosen knobs/task set. E1 must beat
     e0 (training-reward slope plus paired eval) before E2/E3 are trained on
     top. Power plan (eval n, number of seeds) fixed before launch, per E.
+    If the chosen knobs include a non-1.0 temperature, the pipeline needs
+    the A6 handling first (an engine-kwarg passthrough for
+    `logprobs_mode="processed_logprobs"`, or correction off) - a probe
+    monkeypatch is not acceptable for a campaign run.
 
 ## Bookkeeping owed alongside
 
