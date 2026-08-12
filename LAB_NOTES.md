@@ -99,7 +99,20 @@ chronological order.
   regardless of ISR handling. Removing the filter is necessary, not
   sufficient; the plan's Phase 2 knob probes (lr, temperature, task mix) are
   the live path.
-- **Training at `temperature != 1.0` breaks the vLLM logprob pairing (found
+  B1 lr probe (2026-08-12, `probe-b1-lr2e5-tokentruncate`, 50 steps, lr 2e-5,
+  token_truncate, same seed): first positive knob result. Paired against the
+  lr 5e-6 verification run on identical prompts: +0.046 mean / +0.063 median,
+  30 pos / 11 neg / 9 tie, 3.6 SE - and the advantage grows over training
+  (per-bucket diff +0.009 / +0.062 / +0.028 / +0.053 / +0.075). KL rose
+  0.0016 -> 0.0077 (max 0.0134) at unchanged beta 0.001 while the 5e-6 run
+  sat at 0.002, which settles B4: the KL penalty never pinned anything, the
+  lr did. Composition caveat: the aggregate lift is mostly click-dialog-2
+  polishing toward ceiling (0.877 -> 0.971 across halves); click-menu-2 is
+  above the 5e-6 run in both halves (+0.03) but still declines within-run
+  (0.691 -> 0.526) - indistinguishable from seed-ordering difficulty
+  structure at this design, so the B3 menu-only probe and a held-out eval
+  carry that question. Clip ratio 0.0000 in both runs (on-policy, single
+  iteration - expected). Next rung: 5e-5 (plan item 4b).
   2026-08-12, never yet triggered).** TRL scales its own logits by
   `1/temperature` before taking logprobs (`grpo_trainer.py:1123`) but never
   sets vLLM's `logprobs_mode`, which defaults to `raw_logprobs` - the
