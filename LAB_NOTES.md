@@ -113,6 +113,24 @@ chronological order.
   structure at this design, so the B3 menu-only probe and a held-out eval
   carry that question. Clip ratio 0.0000 in both runs (on-policy, single
   iteration - expected). Next rung: 5e-5 (plan item 4b).
+  4b rung (2026-08-12, `probe-b1b-lr5e5-tokentruncate`, lr 5e-5, same seed):
+  the dose-response is monotone and the ladder stops here. Three-way paired
+  means 0.784 / 0.749 / 0.703 (5e-5 / 2e-5 / 5e-6); 5e-5 vs 5e-6 +0.081 mean,
+  +0.094 median, 36 pos / 5 neg / 9 tie, 6.8 SE; 5e-5 vs 2e-5 +0.036, 3.4 SE.
+  Divergence is largest in the last bucket (0.803 / 0.722 / 0.647), so the
+  gap is still opening at 50 steps. No instability: grad_norm flat at 0.125
+  (max 0.249), ISR 0.9999, KL ends at ~0.051 - real distribution movement,
+  which at beta 0.001 will keep growing in a 150-300-step run and needs
+  watching there. menu-2 last-25 mean climbs with lr (0.498 / 0.526 / 0.604
+  - +0.106 over baseline on the same questions), so the higher lr helps most
+  exactly where the headroom is. Notable side observation: at 5e-5 the mean
+  completion length falls (1415 -> 1226) while reward rises, where the 5e-6
+  run lengthens (1474 -> 1636) - task-success training alone already
+  compresses at a working lr, a baseline behaviour E2 comparisons need to
+  account for. 5e-5 is 10x the full-FT baseline, exactly the
+  LoRA-without-regret heuristic; a 1e-4 rung would double KL movement for a
+  probe question the ladder has already answered, so it is not run. Campaign
+  lr: 5e-5 unless the B3/B2 probes contradict it.
   2026-08-12, never yet triggered).** TRL scales its own logits by
   `1/temperature` before taking logprobs (`grpo_trainer.py:1123`) but never
   sets vLLM's `logprobs_mode`, which defaults to `raw_logprobs` - the

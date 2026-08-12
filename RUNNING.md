@@ -4,18 +4,18 @@ What is executing on the GPU box (`ssh gpu-l4`), and nothing else. Rows leave th
 table once the results are harvested. Update rules are in CLAUDE.md; everything that
 is not a live run belongs in `LAB_NOTES.md`.
 
-Updated: 2026-08-12 18:16 UTC (box time)
+Updated: 2026-08-12 22:46 UTC (box time)
 
 | run | phase | pid | started (UTC) | ETA | log |
 |---|---|---|---|---|---|
-| probe-b1b-lr5e5-tokentruncate (50-step 4b lr rung, plan Phase 2 item 4b) | train | 1014057 | 2026-08-12 18:15 | ~23:30 | /workspace/probe_tis/b1b.log |
+| probe-b3-menuonly-lr5e5 (50-step B3 family-isolation probe, plan Phase 2 item 6) | train | 1259160 | 2026-08-12 22:46 | ~03:45 | /workspace/probe_tis/b3.log |
 
-4b rung of the lr ladder in `docs/plans/no-arm-beats-e0-audit.md`: e27bs4 recipe
-at `learning_rate: 5e-5` (10x baseline, the LoRA-lr heuristic) under
-`token_truncate`, same seed/dataset order as B1 and the verification run so
-per-step rewards pair three ways. Dump at /workspace/probe_tis/b1b_dump.jsonl.
-Read: paired reward diff vs B1, KL health (B1 hit max 0.013 - watch for
-instability at 5e-5), menu-2 family trajectory. B1 (lr 2e-5, pid 769822)
-finished 2026-08-12 18:09 and is harvested: GO signal, paired +0.046 mean /
-+0.063 median over lr 5e-6 on identical prompts (30/11/9, 3.6 SE), diff growing
-over training; verdict in LAB_NOTES.
+B3 probe from `docs/plans/no-arm-beats-e0-audit.md`: click-menu-2 only
+(`tasks: [click-menu-2]`), lr 5e-5, token_truncate, same seed - even-seed
+episodes are the same questions as b1b's menu episodes, so those pair; odd
+seeds add new menu questions. Dump at /workspace/probe_tis/b3_dump.jsonl.
+Read: does menu-2 climb when it owns the whole batch at the best-known lr.
+B1b (lr 5e-5, pid 1014057) finished 2026-08-12 23:30-ish and is harvested:
+monotone lr dose-response confirmed - 5e-5 vs 5e-6 paired +0.081 mean (36/5/9,
+6.8 SE), 5e-5 vs 2e-5 +0.036 (3.4 SE), KL healthy at 0.05, menu-2 decline
+halves at 5e-5. Verdict in LAB_NOTES.
