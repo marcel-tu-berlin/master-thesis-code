@@ -88,6 +88,17 @@ chronological order.
   gradient); the schema rejects unknown values, and an absent key keeps TRL's
   default so pre-fix frozen configs still describe what they ran. Full audit:
   `docs/plans/no-arm-beats-e0-audit.md`.
+  Verification (2026-08-11, `probe-tis-tokentruncate-50`, 50 steps of the
+  e27bs4 recipe under `token_truncate`): the fix works mechanically - ISR mean
+  1.0000 (was 0.28), per-token ratios inside the clamp, grad_norm doubled to
+  ~0.12 - but the reward slope is still flat. Same seed means the same prompts
+  at the same steps as e27bs4, and the paired per-step diff is +0.009 mean,
+  median 0.000, 21 positive / 23 negative: the per-bucket dips (steps 31-40
+  in both runs) are question-difficulty structure, not learning. KL after 50
+  steps is ~0.002 in both, i.e. the policy barely moved at lr 5e-6 + LoRA r16
+  regardless of ISR handling. Removing the filter is necessary, not
+  sufficient; the plan's Phase 2 knob probes (lr, temperature, task mix) are
+  the live path.
 - **A leftover env server on the shared port silently serves the next run.** Every
   env's `server/app.py` binds one fixed port, so the new server dies on bind while
   the readiness probe passes against the old one. The first e27 smoke trained to
