@@ -150,6 +150,20 @@ chronological order.
   Implication for C4: click-dialog-2 contributes near-dead groups and
   dilutes the signal the campaign needs; the task-set decision (menu-only
   vs menu + a mid-band replacement) is now the open Phase-3 item.
+  B2 exploration probe (2026-08-13, `probe-b2-temp12-lr5e5`, temp 1.2 on the
+  b1b recipe, A6 processed_logprobs patch active, ISR 1.0000 all run - the
+  probe is valid): **temperature 1.2 refuted**. Paired vs b1b on identical
+  prompts: -0.021 mean / -0.016 median, 11 pos / 25 neg / 14 tie, 2.2 SE
+  below zero. The mechanism fired as hypothesized - live-group fraction
+  0.480 vs 0.410, entropy 0.207 vs ~0.165 - but the extra exploration does
+  not pay: hotter rollouts fail more than the added signal density gains,
+  and menu-2 ends identically (0.599 vs 0.604). Hotter sampling also
+  lengthens completions (1405 -> 1627 while b1b compressed). **Phase 2 is
+  closed.** The campaign recipe from the B-ladder: `token_truncate`,
+  `learning_rate: 5e-5`, temperature 1.0 (default), task set per the C4
+  decision. All four probes pair on seed 42's prompt order; dumps and
+  train logs are harvested to the session scratchpad and the run dirs
+  stay on the box.
   2026-08-12, never yet triggered).** TRL scales its own logits by
   `1/temperature` before taking logprobs (`grpo_trainer.py:1123`) but never
   sets vLLM's `logprobs_mode`, which defaults to `raw_logprobs` - the
