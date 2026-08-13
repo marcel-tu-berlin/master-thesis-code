@@ -131,6 +131,25 @@ chronological order.
   LoRA-without-regret heuristic; a 1e-4 rung would double KL movement for a
   probe question the ladder has already answered, so it is not run. Campaign
   lr: 5e-5 unless the B3/B2 probes contradict it.
+  B3 family isolation (2026-08-13, `probe-b3-menuonly-lr5e5`, tasks
+  [click-menu-2] only, lr 5e-5, same seed): **click-menu-2 climbs when it
+  owns the batch** - 0.588 -> 0.619 -> 0.653 -> 0.641 -> 0.756 across
+  10-step buckets, OLS +0.0038/step, the first positive within-run reward
+  slope of the audit. The Phase-1 go/no-go ("does EnvReward climb, on menu-2
+  specifically") is finally answered yes; the recipe is token_truncate +
+  lr 5e-5 + an undiluted batch. Paired on the even-seed questions shared
+  with b1b: +0.034 mean, growing (first half +0.023, second +0.043), 1.69 SE
+  at 50 steps - direction consistent, significance needs the campaign
+  length. B3 starts below b1b's menu trajectory (its odd seeds add
+  never-seen menu questions), crosses over at step ~30 and finishes ahead
+  (+0.074/+0.131 in the last two buckets). Health: KL 0.061 (all-menu
+  gradient moves more than mixed), grad_norm 0.108 flat, ISR 1.0000,
+  completion length 2290 -> 1998 - compression while improving, again.
+  Confound to carry: owning the batch and doubled menu question diversity
+  arrive together; the paired even-seed read is the controlled slice.
+  Implication for C4: click-dialog-2 contributes near-dead groups and
+  dilutes the signal the campaign needs; the task-set decision (menu-only
+  vs menu + a mid-band replacement) is now the open Phase-3 item.
   2026-08-12, never yet triggered).** TRL scales its own logits by
   `1/temperature` before taking logprobs (`grpo_trainer.py:1123`) but never
   sets vLLM's `logprobs_mode`, which defaults to `raw_logprobs` - the
