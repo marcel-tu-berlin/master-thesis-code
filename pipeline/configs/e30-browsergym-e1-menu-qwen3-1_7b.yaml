@@ -1,0 +1,85 @@
+experiment_id: e30-browsergym-e1-menu-qwen3-1_7b
+description: "E1 on the fixed trainer: task-success-only GRPO on click-menu-2 alone, the gate run of the Phase 5 campaign re-run (docs/plans/no-arm-beats-e0-audit.md). Three settled decisions meet here. (1) Trainer: e27bs4/e28bs4/e29bs4 trained under TRL's default sequence_mask importance-sampling filter, which suppressed exactly the long-completion gradient menu-2 emits (run-mean ISR 0.28); this run sets vllm_importance_sampling_mode: token_truncate, the fix verified by the 50-step probe ladder. (2) Learning rate: 5e-5, the top of a monotone same-seed dose-response (0.703 / 0.749 / 0.784 paired mean reward for 5e-6 / 2e-5 / 5e-5, no instability: grad_norm flat, KL 0.051 at 50 steps under kl_beta 0.001), and the ~10x-full-FT heuristic for LoRA. Temperature stays at the 1.0 default: 1.2 was probed and came out 2.2 SE below 1.0. (3) Task set (the C4 decision, 2026-08-13): click-dialog-2 leaves the training mix because it sits at or above the 40-80 band under sampling (~0.875 per rollout), contributes near-dead prompt groups, and diluted menu-2's gradient - the menu-only probe b3 was the first run of the audit whose within-run reward slope is positive (0.588 to 0.756 over 50 steps). No replacement family joins: of the fifteen probed under the real adapter, the only mid-band one (click-checkboxes-large, 0.60 at a 4096 budget) has a 6066-token median trajectory that would train truncated in 16 of 20 episodes on this box, and every other family is saturated or dead-by-looping (browsergym_difficulty_correction.md). Geometry: batch_size 4 / n_rollouts 8 / 150 steps, identical to the e27bs4 campaign; menu-only runs ~430 s/it measured on the b3 probe, so ~18h of training. Gate protocol: this run must beat the paired base model (e0m-browsergym-base-menu, identical splits and seeds, no adapter) on training-reward slope plus paired held-out eval before the E2/E3 arms are trained on top of the recipe. Power (plan item E, fixed before launch): held_out n=200 for the paired McNemar read (~10-15pt detectable at the observed discordance), shifted n=150 across three untrained families - click-dialog-2 now among them, so the shifted split reads substitution in both directions, not degradation only. The training log (4800 episodes) remains the stronger continuous readout for the slope half of the gate."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  # Initial prompt is small (lead-in, goal, first page: about 700 tokens), and
+  # the whole trajectory is capped at 4096 below, so 8192 leaves slack.
+  max_seq_length: 8192
+  lora_r: 16
+  gpu_memory_utilization: 0.30
+
+training:
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    # Menu-only (C4): every seed maps to click-menu-2, so the whole batch is
+    # the one family with headroom. Even seeds produce the same questions the
+    # mixed e27bs4 campaign drew for menu, odd seeds are new menu questions.
+    tasks: [click-menu-2]
+    # MiniWoB HTML is not shipped with browsergym-miniwob. This must point at a
+    # served clone of miniwob-plusplus or the env raises "core is not defined"
+    # at the first reset, and it does not survive a box restart. Start it first:
+    #   cd /workspace/miniwob-plusplus/miniwob/html && python3 -m http.server 8080
+    miniwob_url: http://localhost:8080/miniwob/
+    # The one turn cap. Menu-2 needs 2.6 steps, so 8 is headroom.
+    max_turns: 8
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  # Sets TRL's max_completion_length to 8192 - 4096 = 4096, the budget for the
+  # WHOLE trajectory. Menu-2's worst case lands near 4124 tokens (45-token
+  # pages measured through the adapter), so truncation stays rare.
+  max_prompt_length: 4096
+  # Geometry stated explicitly so the frozen config records it. Every arm built
+  # on this recipe must carry these three keys identically or the frozen-config
+  # diff cannot prove a single-knob comparison.
+  batch_size: 4
+  n_rollouts: 8
+  micro_batch_size: 1
+  max_steps: 150
+  # 10x the e27bs4 campaign's 5e-6: top of the probe ladder's monotone
+  # dose-response, stable at 50 steps. Watch KL growth past that horizon.
+  learning_rate: 5e-5
+  kl_beta: 0.001
+  # The trainer fix (commit a975c40). The TRL 1.6 default, sequence_mask,
+  # zeroes or collapses the per-sequence weight of long completions and starved
+  # menu-2 of gradient in every earlier browsergym run.
+  vllm_importance_sampling_mode: token_truncate
+
+rewards:
+  # Matches the future E3 arm's composer so lambda=0 is the same code path.
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  # Pinned, not derived. Budget for the WHOLE trajectory, matching TRL's
+  # max_completion_length in training. Every arm of the campaign must state the
+  # same value or the comparison is measured under two different budgets.
+  max_new_tokens: 4096
+  # Thinking rates are measured against the paired base model's token
+  # distribution, not this run's own percentiles, so every arm of the campaign
+  # is scored on one ruler. e0m must therefore be evaluated first.
+  reference_report: runs/e0m-browsergym-base-menu-qwen3-1_7b/eval_report.json
+  agentic:
+    splits:
+      # Held-out: menu-2 questions from this seed's block, disjoint from the
+      # training seeds via the offset. n=200 per the power plan in the
+      # description.
+      - name: held_out
+        n_episodes: 200
+      # Shifted: three families never trained on. click-dialog-2 (base 0.80)
+      # detects substitution in both directions; navigate-tree and
+      # click-checkboxes-transfer (at ceiling) detect degradation. 50 episodes
+      # per family via seed % 3.
+      - name: shifted
+        n_episodes: 150
+        env_config:
+          tasks: [click-dialog-2, navigate-tree, click-checkboxes-transfer]
+        seed_offset: 200000

@@ -214,6 +214,11 @@ Phase gates matter: later phases are only interpretable on a fixed trainer.
 10. C3 episode transcript inspection.
 11. C4 task-set decision on the fixed trainer's evidence: keep the pair, or
     swap click-dialog-2 for a mid-band family before the campaign re-run.
+    Decided 2026-08-13: menu-only. No probed family both sits in the 40-80
+    band and fits the 4096 budget (click-checkboxes-large is mid-band but
+    trains truncated in 16/20 episodes); dialog-2 moves to the shifted eval
+    split. Rationale in LAB_NOTES ("Standing decision: the campaign trains
+    click-menu-2 only") and the e30 config description.
 
 **Phase 4 - model scale (D), only if menu-2 stays flat on the fixed trainer:**
 

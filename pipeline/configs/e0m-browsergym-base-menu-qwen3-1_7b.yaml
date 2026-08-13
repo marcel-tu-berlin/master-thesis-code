@@ -1,0 +1,49 @@
+experiment_id: e0m-browsergym-base-menu-qwen3-1_7b
+description: "E0 for the menu-only campaign: the untrained reference every e30-recipe arm is read against. Same model, same two eval splits, same seeds and the same whole-trajectory budget as e30, with no LoRA adapter. It exists as its own config for the same reason e0-browsergym-base does: eval.runner --base-model writes into runs/<experiment_id>/ regardless of adapter, and pointing it at e30's config would collide with the trained run's report. It cannot reuse the e0-browsergym-base report either, because the C4 decision changed the seed-to-question mapping (menu-only maps every seed to click-menu-2 where the mixed set alternated menu/dialog) and the split geometry (held_out 200, shifted 150 over three families including click-dialog-2) - a paired claim needs the identical draw. Run this BEFORE e30's eval: e30 pins its thinking-rate thresholds to this report. Run with: python -m eval.runner --config <this> --base-model."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  max_seq_length: 8192
+  gpu_memory_utilization: 0.30
+
+training:
+  # Present for the env geometry only; nothing trains here. Every value below
+  # is copied from e30 so the two evals differ in exactly one thing, the
+  # adapter.
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    tasks: [click-menu-2]
+    # Must be up before launch and does not survive a box restart:
+    #   cd /workspace/miniwob-plusplus/miniwob/html && python3 -m http.server 8080
+    miniwob_url: http://localhost:8080/miniwob/
+    max_turns: 8
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  max_prompt_length: 4096
+
+rewards:
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  # Pinned to e30's value so a later change to the training geometry cannot
+  # silently move the baseline out from under the comparison.
+  max_new_tokens: 4096
+  agentic:
+    splits:
+      - name: held_out
+        n_episodes: 200
+      - name: shifted
+        n_episodes: 150
+        env_config:
+          tasks: [click-dialog-2, navigate-tree, click-checkboxes-transfer]
+        seed_offset: 200000
