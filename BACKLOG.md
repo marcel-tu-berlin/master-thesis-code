@@ -68,3 +68,38 @@ browsergym, where e28 is the E2 arm.
 Not blocked any more: both configs are in `configs/` as of `9853a94`, recovered
 from the frozen copies that were their only record. The thorough option is a
 launch away.
+
+## 3. Model scale x quantization sweep - larger Qwen3, 4-bit where needed
+
+Supersedes the audit plan's D1, which was gated on "menu-2 stays flat" and
+deleted when B3 refuted that premise. This is the ungated version: parameter
+count and quantization are exploration axes in their own right - try the next
+larger Qwen3 rung(s), quantized where bf16 does not fit the 24 GB L4.
+
+Registry state today: the `qwen3-4b` slug points at `Qwen/Qwen3-4B-Base`,
+which is the wrong lineage counterpart - the pipeline's 1.7B is the
+post-trained `Qwen/Qwen3-1.7B` with the tool-calling chat template. A 4B rung
+needs a `Qwen/Qwen3-4B` entry; an 8B rung needs a new entry with
+`load_in_4bit: true` (bf16 8B is ~16 GB of weights before the vLLM colocate
+copy and the logits path). Eval-only probes (HF greedy generate, no vLLM) fit
+4B in bf16 easily; 4B training likely needs 4-bit or tightened budgets.
+
+Method constraints, so the sweep produces comparable numbers:
+
+- The difficulty band is model-relative. menu-2 at ~0.59 sampled for 1.7B may
+  saturate for 4B, and families dead-by-looping for 1.7B (checkboxes-large,
+  tab-2) may become trainable - the C4 elimination does not transfer, so the
+  candidate pool reopens per model. Re-run the band check sampled at the
+  training temperature before training any new scale.
+- Quantization is a treatment, not free memory. Hold it fixed within any
+  compared pair; a 4-bit arm against a bf16 arm confounds scale with precision.
+- Each scale gets its own e0 base eval on identical splits before its E1.
+- QLoRA + vLLM colocate has an open correctness question: if vLLM serves a
+  bf16 copy while the trainer computes on nf4 weights, sampler and trainer
+  diverge systematically per token - the same length-correlated drift the TIS
+  audit just closed. Before training quantized, check what precision the vLLM
+  copy runs at and confirm ISR stays ~1.0 under `token_truncate`.
+
+Steps: fix the registry entries, D1-style base eval of 4B on the e0m splits
+(cheap, eval-only, answers "does scale alone move menu-2"), then decide
+whether a trained 4B arm is worth the geometry re-run.
