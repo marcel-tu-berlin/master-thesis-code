@@ -1,0 +1,142 @@
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. **Primary Request and Intent:**
+
+   The user is writing a Master's thesis on **reward bias substitution** (Lamparth et al. 2026). RQ1 = effectiveness of efficiency reward shaping; RQ2 = does reducing one inefficiency shift the agent toward another undesirable behavior; RQ3 = an evaluation protocol distinguishing genuine gains from substitution. Reward conditions: E0 base model, E1 task-success baseline, E2 length-aware (cosine/DIET), E3 non-termination-aware, optional E4 combined. Shaped reward: `R_lambda = R_task - lambda * C_target`.
+
+   **User messages this session (3 total):**
+   1. "wait for the probe then relaunch e27 with the right mix"
+   2. "box is back up, relaunch probe4"
+   3. "commit this"
+
+   **Standing constraints from CLAUDE.md / global config that REMAIN IN FORCE:**
+   - **Never include the user's name ("Marcel" / "Marcel Heidebrecht") in any commit message, code comment, docstring, or generated file.** Use conventional commits (`feat:`, `fix:`, `refactor:`, `chore:`) with no personal names.
+   - **ASCII only in all output** — no em dashes, en dashes, curly/smart quotes, ellipsis characters, non-breaking spaces.
+   - **Work on `master` only** — never create branches or git worktrees for this repo.
+   - **Commit only when asked.**
+   - `RUNNING.md` must be stamped with box time (`ssh gpu-l4 date`), never local time; updated at every phase change, kill, and crash; rows deleted once harvested; "Nothing running." when idle.
+   - **End every response with a "Next steps" section.**
+   - Mark any unverified assumption acted on with a greppable `ASSUMPTION:` prefix.
+   - Use Context7 MCP for library/framework/API documentation questions.
+
+2. **Key Technical Concepts:**
+   - GRPO (TRL `GRPOTrainer`) with `environment_factory`, LoRA/PEFT, Qwen3-1.7B, vLLM colocate on NVIDIA L4 (24 GB)
+   - OpenEnv environments as local HTTP subprocesses (no Docker)
+   - `frac_reward_zero_std`: fraction of prompt-groups where all rollouts score identically → zero advantage → no gradient. Two failure modes: all-ONE (saturated, killed first e27 at 0.70) vs all-ZERO (too hard, finqa 0.967)
+   - **TRL `max_completion_length` applies to the WHOLE multi-turn trajectory**, not per turn (`grpo_trainer.py:1605`), and sizes the loss tensor (`:2628`), so memory scales with it directly
+   - fp32 logits upcast ≈ 10 bytes/token/vocab-entry; vocab 151,936 → 4096 completion ≈ 6.2 GB, 8192 ≈ 12.5 GB against ~12 GB free on L4
+   - Off-target panel: `terminated`, `stop_reason` (`env_done` / `no_tool_call` / `max_turns` / `hit_generation_cap`), `tool_calls`, persisted to `episodes_<split>.jsonl`
+   - Selection bars (all required): base success in 0.40-0.80; success strictly below termination (axis separability); trajectory short enough to fit the completion budget
+   - BrowserGym/MiniWoB (125 registered tasks), accessibility trees, element `bid`s
+   - `AdvantageWeightedComposer` vs `NaiveSumComposer`; `CORRECT_REWARD_THRESHOLD = 0.5`
+
+3. **Files and Code Sections:**
+
+   - **`pipeline/training/env_server.py`** (MODIFIED, committed) — root-cause port guard, covers all five domains:
+     ```python
+     # Refuse to start onto an occupied port. Every env's server/app.py binds a
+     # fixed port from its own env var, so a leftover server from another env
+     # keeps the port, the new one exits on bind, and wait_until_ready's socket
+     # probe succeeds against the *wrong* server. Training then runs to
+     # completion against it: a browsergym run whose actions all hit a stale
+     # reasoning_gym server scored 0 with tools/failure_frequency 1.0 and no
+     # traceback anywhere. Loud here beats a plausible-looking null.
+     if self.is_ready():
+         raise RuntimeError(
+             f"port {self.port} is already in use; a stale env server would "
+             f"silently serve this run. Kill it before launching "
+             f"({' '.join(self.command())})"
+         )
+     ```
+
+   - **`pipeline/tests/test_env_server.py`** (MODIFIED, committed) — regression test `test_start_refuses_an_occupied_port()` asserting `RuntimeError` match `"already in use"` and `srv._proc is None`.
+
+   - **`pipeline/domains/browsergym/domain.py`** (MODIFIED, committed) — hint-free `_LEAD_IN` plus a CORRECTED comment (the original wrongly blamed the hint for saturation; probe2 refuted that):
+     ```python
+     # It explains the interface and stops there. An earlier version ended "Most tasks
+     # need a selection followed by clicking Submit", which states the solution to
+     # both original training families outright. Removing it is the fair measurement,
+     # not a fix: on paired seeds it changed nothing (click-option 1.00 -> 1.00,
+     # click-checkboxes 0.95 -> 1.00). What actually inflated base accuracy was the
+     # adapter exposing two tools where the first probe used five. See
+     # runs/browsergym_difficulty_correction.md.
+     _LEAD_IN = (
+         "You are controlling a web page. Read the goal and the accessibility tree, "
+         "then call one tool per turn to act on the page. Element ids are the numbers "
+         "in square brackets.\n\n"
+     )
+     ```
+     Also a comment in `server_env()` noting the server reads `BROWSERGYM_PORT` and ignores the `--port` argv.
+
+   - **`pipeline/configs/e27-browsergym-e1-baseline-qwen3-1_7b.yaml`** (REWRITTEN, committed, CURRENTLY TRAINING) — key values: `max_seq_length: 8192`, `gpu_memory_utilization: 0.30`, `tasks: [click-menu-2, click-dialog-2]`, `max_turns: 8`, `max_prompt_length: 4096` (→ max_completion_length 4096 whole-trajectory), `n_rollouts: 8`, `micro_batch_size: 1`, `max_steps: 300`, `learning_rate: 5e-6`, `kl_beta: 0.001`, `compose_method: naive_sum`, `env_reward` only, `eval.max_new_tokens: 4096` (pinned per-turn), splits `held_out` (n=100) and `shifted` (n=100, `tasks: [navigate-tree, click-checkboxes-transfer]`, `seed_offset: 200000`).
+
+   - **`pipeline/configs/e27probe-*.yaml`, `e27probe2-*.yaml`, `e27probe3-*.yaml`, `e27probe4-*.yaml`** (NEW, all committed) — the four difficulty probes, all run via `python -m eval.runner --config <cfg> --base-model`, all `seed_offset: 300000` for paired seeds.
+
+   - **`pipeline/runs/browsergym_difficulty_correction.md`** (NEW, committed via `git add -f` since `pipeline/runs/.gitignore` is `*`) — full findings: original probe invalidation, hint null, truncation ranking, competence boundary, hardware ceiling, greedy-vs-sampled, train/eval budget mismatch, three ways forward.
+
+   - **`pipeline/runs/browsergym_feasibility_findings.md`** (MODIFIED, committed) — superseded banner pointing at the correction doc.
+
+   - **`RUNNING.md`** (MODIFIED, committed) — current run table, probe3/probe4 result tables, the e27 probation section, and the note that `Connection refused` does not mean a dead box.
+
+   - **`pipeline/training/grpo_runner.py:75-113`** (READ, not modified) — `max_completion_len = self._max_seq - max_prompt_len`; `temperature=float(t.get("temperature", 1.0))` at line 93; only `max_completion_length` is passed to GRPOConfig (no `max_prompt_length` kwarg).
+
+   - **`pipeline/eval/agentic_eval.py:24-36, 294, 327-345`** (READ) — `_completion_budget(config, model_max_seq)` returns `max_seq - max_prompt` unless `eval.max_new_tokens` overrides; used as `max_new_tokens` PER TURN; `apply_chat_template` has no truncation.
+
+4. **Errors and fixes:**
+
+   - **Reported the box as "down" needing manual restart.** WRONG — `uptime` showed 81 days, no reboot; only the devpod ssh proxy dropped (`Connection refused` while ICMP works). All processes survived. Fixed by checking `uptime`/`pgrep` before concluding; recorded the rule in `RUNNING.md`. This also meant probe3's click-tab-2 split was NOT lost (0.05/0.35, disqualified).
+   - **Reported click-menu-2 "scores 0 on every rollout"** from only 4 steps. WRONG — with 6 steps it reads 0.125/0.375/0/0/0 (~0.10 sampled vs 0.60 greedy). Corrected explicitly.
+   - **`_completion_budget` test returned 6144 instead of 4096** — I passed `c.get('eval')` instead of the full config. My test call was wrong, not the code; re-ran correctly.
+   - **`ModuleNotFoundError: No module named 'domains'`** in obs_measure.py — script was in `/tmp`; fixed by writing it into the pipeline dir.
+   - **`ModuleNotFoundError: No module named 'browsergym_env'`** — fixed with `sys.path.insert(0, "/workspace/OpenEnv/envs")`.
+   - **Estimated observation cost at 500 tokens** (from the 2000-char `_MAX_OBS_CHARS` cap) — measured reality is 45 and 101 tokens, 10x lower. This is what made click-menu-2 trainable.
+   - **A comment in domain.py attributed saturation to the prompt hint**, which probe2 refuted — caught during pre-commit diff review and rewritten.
+   - **Multiple local background pollers killed by the harness** — moved waiting box-side (`chain_probe4.sh`, `e27_checkpoint.sh`, `e27_final.sh`).
+   - **`grep -o "frac_reward_zero_std.: [0-9.]*"` matched keys but not values** — TRL logs values as quoted strings; fixed with `grep -o "{[^{]*frac_reward_zero_std[^}]*}"` and python regex `r"frac_reward_zero_std.: .([0-9.]+)."`.
+
+5. **Problem Solving:**
+
+   **Solved:** Identified why e27 saturated (two-tool adapter surface vs the original five-tool probe, NOT the prompt hint — proven by a paired-seed null). Established that half the 2048-budget difficulty ranking was truncation, with per-seed mechanism attribution. Discovered the TRL whole-trajectory vs per-turn budget mismatch. Discovered the L4 completion ceiling makes the best-scoring family untrainable. Found the competence boundary (≤2.6 steps solvable, ≥3.4 steps dead by looping). Measured real observation cost. Selected and launched a defensible mix.
+
+   **Documented but NOT fixed (live caveat on the running experiment):** all four probes decode greedily while training samples at temperature 1.0. GRPO's within-group variance depends on the SAMPLED rate. click-menu-2 probes 0.60, trains ~0.10. Any future selection probe must run `do_sample: true` at the training temperature.
+
+   **Final probe4 table (all 7 splits):** click-checkboxes-transfer 1.00/1.00/687tok/1.9steps; click-dialog-2 0.80/1.00/385/1.0 (all 3 bars); click-menu-2 0.60/0.70/2569/2.6 (acc+gap); grid-coordinate 0.10/0.50/5904/3.4 (dead); click-tab-2-hard 0.10/0.20/6550/5.7 (dead); click-collapsible-2 0.05/0.30/5638/4.8 (dead); click-pie 0.00/0.00/8929/6.3 (dead).
+
+6. **All user messages:**
+   - "wait for the probe then relaunch e27 with the right mix"
+   - "box is back up, relaunch probe4"
+   - "commit this"
+
+   (Several transcript entries are automated background-task events explicitly marked "SYSTEM NOTIFICATION - NOT USER INPUT"; they are not user input and convey no approval.)
+
+7. **Pending Tasks:**
+   - Read `/workspace/e27_final.txt` when e27 training + eval finish (~03:00 UTC) — the box-side watcher writes training quartiles, checkpoint contents, and the eval report.
+   - Harvest `eval_report.json` and `episodes_*.jsonl`; compare held_out vs shifted for the first substitution read.
+   - E0 base-model eval (`--base-model`) as the protocol's no-training reference — still open, needs the GPU after e27.
+   - Longer-term (BACKLOG): Liger fused GRPO loss to lift the 4096 completion ceiling (the only route that rescues click-checkboxes-large); re-evaluate e24/e25 at 16k; regenerate poly plots; file the e24/e25 note in the thesis wiki.
+
+8. **Current Work:**
+
+   Immediately before this summary, the user said "commit this" and I completed the commit.
+
+   - Verified `git status --short` and `git branch --show-current` → on `master` (correct).
+   - Found `pipeline/runs/.gitignore` contains `*`, so `pipeline/runs/browsergym_difficulty_correction.md` needed `git add -f` (matching how `browsergym_feasibility_findings.md` is tracked).
+   - Reviewed all code diffs; caught and fixed the stale domain.py comment blaming the prompt hint.
+   - Ran `python -m pytest tests/ -q` → **186 passed, 3 skipped**.
+   - Staged 11 files, committed, then amended to add the greedy-vs-sampled paragraph to the message.
+   - Final state confirmed: commit **63afbd3** `fix(browsergym): re-measure task difficulty under real training conditions`, working tree clean.
+   - e27 confirmed still training: **pid 343578, step 80/300, 99.23 s/it**.
+
+   e27 status detail: launched 17:25 UTC, mix click-menu-2 + click-dialog-2. Step-30 verdict was continue (reward 0.375→0.734, length 2500→1616 and step time 155→84s while reward ROSE = solving faster not bailing, clipping 0.036). At step 78: quartiles reward [0.438, 0.715, 0.743, 0.646], zero_std [0.500, 0.444, 0.556, 0.556] — plateauing and bimodal (dialog-2 solved at 1.0, menu-2 failing at 0.0), not saturating. Decided to run the full 300 steps rather than stop at checkpoint-100, because E2/E3 must train on the same budget or the comparison confounds reward shaping with training length.
+
+9. **Optional Next Step:**
+
+   Monitor e27 to completion and harvest results — directly continuing the user's "relaunch e27 with the right mix" instruction, which is not complete until the run's results are fetched.
+
+   From my last status report: "**Timeline:** train to step 300 ~01:20 UTC, then 200 eval episodes across held_out and shifted, done ~03:00 UTC." and "Next steps: 1. Read `/workspace/e27_final.txt` when training + eval finish (~03:00 UTC). 2. Harvest `eval_report.json` and the `episodes_*.jsonl` off-target panel; compare held_out vs shifted for the first substitution read."
+
+   The box-side watcher `/workspace/e27_final.sh` is armed and will write `/workspace/e27_final.txt` on process exit, containing training reward/zero_std quartiles, the checkpoint directory listing, and the parsed eval report (accuracy, termination, mean tokens, mean steps per split).
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/mheidebrecht/.claude/projects/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/ab988c24-a88e-415d-8dd2-615cc390ae14.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
