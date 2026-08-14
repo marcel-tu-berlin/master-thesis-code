@@ -1,0 +1,1 @@
+ok so what i think would be important is to run all trainings then with batch size 8 - what do you think? even if cosine length reward also works with bs 1 i think the setup should be identical to really have the same number of prompts over all training steps in the end for each experiment. makes sense? will we do that?
