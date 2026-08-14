@@ -1,0 +1,1 @@
+i started to use taskwarrior. i already created a context for my thesis. i want you to add instructions in @CLAUDE.md to add and update and delete tasks for our pipeline work here using taskwarrior and using the respective context: thesis
