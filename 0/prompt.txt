@@ -1,0 +1,499 @@
+Review this change for security vulnerabilities.
+
+Changed files (you may Read these and any other file in the repo):
+  - pipeline/configs/e19-agentic-poly-entropy-w1-qwen3-1_7b.yaml
+  - pipeline/configs/e20-agentic-countdown-env-only-qwen3-1_7b.yaml
+  - pipeline/configs/e21-agentic-countdown-cosine-w16-qwen3-1_7b.yaml
+  - pipeline/configs/e22-poly-cap-probe-16k.yaml
+  - pipeline/configs/e23-countdown-cap-probe-16k.yaml
+  - pipeline/configs/e24-poly-4k-env-only-qwen3-1_7b.yaml
+  - pipeline/configs/e25-poly-4k-cosine-w16-qwen3-1_7b.yaml
+  - pipeline/domains/env_base.py
+  - pipeline/eval/agentic_eval.py
+  - pipeline/eval/metrics.py
+  - pipeline/tests/test_agentic_episode_eval.py
+  - pipeline/tests/test_cosine_length_ids.py
+  - pipeline/tests/test_env_domain.py
+  - pipeline/training/rewards/cosine_length.py
+
+Unified diff (only + lines are new):
+
+=== DIFF: pipeline/configs/e19-agentic-poly-entropy-w1-qwen3-1_7b.yaml ===
+@@ -0,0 +1,40 @@
++experiment_id: e19-agentic-poly-entropy-w1-qwen3-1_7b
++description: "E19: first entropy arm (E1). Token-entropy reward on top of env reward on polynomial_equations, weight 1, fork-masked to the top 20% of completion tokens by entropy (Wang 2025 forking-token motivation; note the mask restricts the reward mean, not the policy gradient). Pairs with the e12 env-only baseline (seeds 42/43). Question: does rewarding high-entropy decision points protect exploration (accuracy up, wrong/looping episodes recover) or inflate output length (Ghosal 2025)? reward_scale left at default: inert under advantage_weighted z-scoring; weight is the lever. chunk_size 1 because vLLM colocate leaves little VRAM headroom for the entropy forward pass."
++seed: 42
++
++model:
++  slug: qwen3-1.7b
++  lora_r: 16
++  max_seq_length: 3072
++
++training:
++  mode: agentic
++  env: reasoning_gym
++  env_config:
++    dataset: polynomial_equations
++    size: 500
++  env_server:
++    repo_path: /workspace/OpenEnv/envs
++    port: 8077
++  max_prompt_length: 1024
++  n_rollouts: 8
++  max_steps: 300
++  learning_rate: 5e-6
++  kl_beta: 0.001
++
++rewards:
++  compose_method: advantage_weighted
++  env_reward:
++    enabled: true
++    weight: 1.0
++  token_entropy:
++    enabled: true
++    weight: 1.0
++    fork_mask_top_frac: 0.2
++    chunk_size: 1
++
++eval:
++  temperature: 0.0
++  do_sample: false
++  agentic:
++    n_episodes: 100
+
+
+=== DIFF: pipeline/configs/e20-agentic-countdown-env-only-qwen3-1_7b.yaml ===
+@@ -0,0 +1,35 @@
++experiment_id: e20-agentic-countdown-env-only-qwen3-1_7b
++description: "E20: env-only w0 control on countdown. The probe showed countdown saturated at accuracy 1.00 with ~982 mean tokens, so within-group correctness variance is ~zero and the env-reward advantage vanishes: training should be a near no-op. This arm is the trained-baseline control for e21 (cosine w16 on countdown) and doubles as a no-drift check. Hibudget shape matches the polynomial campaign (max_seq 3072, prompt 1024) so token counts are comparable."
++seed: 42
++
++model:
++  slug: qwen3-1.7b
++  lora_r: 16
++  max_seq_length: 3072
++
++training:
++  mode: agentic
++  env: reasoning_gym
++  env_config:
++    dataset: countdown
++    size: 500
++  env_server:
++    repo_path: /workspace/OpenEnv/envs
++    port: 8077
++  max_prompt_length: 1024
++  n_rollouts: 8
++  max_steps: 300
++  learning_rate: 5e-6
++  kl_beta: 0.001
++
++rewards:
++  compose_method: advantage_weighted
++  env_reward:
++    enabled: true
++    weight: 1.0
++
++eval:
++  temperature: 0.0
++  do_sample: false
++  agentic:
++    n_episodes: 100
+
+
+=== DIFF: pipeline/configs/e21-agentic-countdown-cosine-w16-qwen3-1_7b.yaml ===
+@@ -0,0 +1,39 @@
++experiment_id: e21-agentic-countdown-cosine-w16-qwen3-1_7b
++description: "E21: cosine length reward gets its best-case setting. The polynomial null (e9-e18) has a mechanism: correct episodes sit at the reasoning floor and the slack lives in wrong, cap-bound episodes the correctness-coupled cosine penalizes least. Countdown inverts that: the probe shows accuracy 1.00 at ~982 mean tokens, so every group is all-correct, the env component has zero within-group variance (contributes 0 under advantage_weighted), and the cosine correct-branch (shorter is better) drives the entire gradient. Falsifiable both ways: compression here confirms the mechanism story; a third null in the reward's best case indicts the reward itself. Watch accuracy - if compression comes at accuracy cost, that is the Wu/Yeo overshoot. Pairs with the e20 env-only control."
++seed: 42
++
++model:
++  slug: qwen3-1.7b
++  lora_r: 16
++  max_seq_length: 3072
++
++training:
++  mode: agentic
++  env: reasoning_gym
++  env_config:
++    dataset: countdown
++    size: 500
++  env_server:
++    repo_path: /workspace/OpenEnv/envs
++    port: 8077
++  max_prompt_length: 1024
++  n_rollouts: 8
++  max_steps: 300
++  learning_rate: 5e-6
++  kl_beta: 0.001
++
++rewards:
++  compose_method: advantage_weighted
++  env_reward:
++    enabled: true
++    weight: 1.0
++  token_length:
++    enabled: true
++    weight: 16.0
++    max_len: 2048
++
++eval:
++  temperature: 0.0
++  do_sample: false
++  agentic:
++    n_episodes: 100
+
+
+=== DIFF: pipeline/configs/e22-poly-cap-probe-16k.yaml ===
+@@ -0,0 +1,35 @@
++experiment_id: e22-poly-cap-probe-16k
++description: "E22: cap probe, eval only, no training. Every failed episode in e9-e18 sits exactly at the 2048 completion cap (100% of wrong episodes, all arms). Whether those failures are non-terminating loops or long-but-finite reasoning was never tested - they were only ever assumed to be loops. This re-evaluates the e12 (env-only) checkpoint on the first 20 held-out seeds with a 16384 budget: if the failing episodes emit a tool call somewhere above 2048, the cap was binding and the sweep ran on truncated rollouts; if they run to 16384, they are loops and the cosine reward provably cannot shorten them (wrong-and-long is its least-penalized cell). The measured termination distribution sets the training cap and the cosine max_len for the follow-up pair. Sample index i maps to seed 100042+i, so the probe diffs sample-by-sample against the e12 report. Budget comes from --max_new_tokens 16384; run with --checkpoint runs/e12-agentic-poly-env-only-hibudget-qwen3-1_7b/checkpoint-final."
++seed: 42
++
++model:
++  slug: qwen3-1.7b
++  lora_r: 16
++  max_seq_length: 3072
++
++training:
++  mode: agentic
++  env: reasoning_gym
++  env_config:
++    dataset: polynomial_equations
++    size: 500
++  env_server:
++    repo_path: /workspace/OpenEnv/envs
++    port: 8077
++  max_prompt_length: 1024
++  n_rollouts: 8
++  max_steps: 300
++  learning_rate: 5e-6
++  kl_beta: 0.001
++
++rewards:
++  compose_method: advantage_weighted
++  env_reward:
++    enabled: true
++    weight: 1.0
++
++eval:
++  temperature: 0.0
++  do_sample: false
++  agentic:
++    n_episodes: 20
+
+
+=== DIFF: pipeline/configs/e23-countdown-cap-probe-16k.yaml ===
+@@ -0,0 +1,35 @@
++experiment_id: e23-countdown-cap-probe-16k
++description: "E23: cap probe on countdown, eval only, no training. Countdown is far more cap-bound than polynomial: under the strict correctness threshold e20/e21 score 0.36/0.32, and 100% of the 64-68 failed episodes sit exactly at the 2048 cap while the correct tail reaches 2013. Unlike polynomial (where correct episodes stop on their own well below the cap), countdown's correct branch is pressed against it, so the cap constrains the very episodes the cosine reward is supposed to compress. This re-evaluates the e20 (env-only) checkpoint on the first 20 held-out seeds with a 16384 budget to measure where episodes actually terminate when given room, and how many currently-failing episodes become correct. That distribution sets the training cap and the cosine max_len for the follow-up pair. Sample index i maps to seed 100042+i, so it diffs sample-by-sample against the e20 report. Budget comes from --max_new_tokens 16384; run with --checkpoint runs/e20-agentic-countdown-env-only-qwen3-1_7b/checkpoint-final."
++seed: 42
++
++model:
++  slug: qwen3-1.7b
++  lora_r: 16
++  max_seq_length: 3072
++
++training:
++  mode: agentic
++  env: reasoning_gym
++  env_config:
++    dataset: countdown
++    size: 500
++  env_server:
++    repo_path: /workspace/OpenEnv/envs
++    port: 8077
++  max_prompt_length: 1024
++  n_rollouts: 8
++  max_steps: 300
++  learning_rate: 5e-6
++  kl_beta: 0.001
++
++rewards:
++  compose_method: advantage_weighted
++  env_reward:
++    enabled: true
++    weight: 1.0
++
++eval:
++  temperature: 0.0
++  do_sample: false
++  agentic:
++    n_episodes: 20
+
+
+=== DIFF: pipeline/configs/e24-poly-4k-env-only-qwen3-1_7b.yaml ===
+@@ -0,0 +1,39 @@
++experiment_id: e24-poly-4k-env-only-qwen3-1_7b
++description: "E24: control arm for the raised-cap cosine test, cosine reward off. The e22 probe showed the 2048 completion cap was the confound behind the e9-e18 null: every episode that hit the cap terminates when given room (16/16 across poly and countdown, zero loops), and on polynomial_equations all four rescued episodes are CORRECT, taking the e12 checkpoint from 0.80 to 1.00 on the same seeds. The sweep was therefore scored on rollouts cut mid-reasoning, mislabelled wrong, and then handed to the cosine wrong-branch that pays for length. Budget here is 4096 (max_seq 5120 - prompt 1024), twice the old one and the hardware ceiling on a 24 GB L4: accelerate upcasts the completion logits to fp32 for the policy backward, so peak grows by 10 bytes per token per vocab entry (bf16 logits + fp32 copy + fp32 grad, vocab 151936) on top of a 14.4 GiB resident base. Measured OOMs at 16384, 7168 and 6144 fix that model; 4096 leaves about 1.4 GiB of margin. TRL 1.6 has no chunked-logp escape (use_liger_loss does not exist in this version), and the only way past this ceiling is dropping accelerate's mixed precision, which would break numeric comparability with every earlier run. 4096 covers 18 of the 20 correct-episode lengths the probe measured - the same 18 that 6144 or 7168 would cover, because nothing in the measured distribution falls between 3093 and 9516. Pairs with e25."
++seed: 42
++
++model:
++  slug: qwen3-1.7b
++  lora_r: 16
++  max_seq_length: 5120
++  gpu_memory_utilization: 0.23
++
++training:
++  mode: agentic
++  env: reasoning_gym
++  env_config:
++    dataset: polynomial_equations
++    size: 500
++  env_server:
++    repo_path: /workspace/OpenEnv/envs
++    port: 8077
++  max_prompt_length: 1024
++  n_rollouts: 8
++  micro_batch_size: 1
++  max_steps: 300
++  learning_rate: 5e-6
++  kl_beta: 0.001
++
++rewards:
++  compose_method: advantage_weighted
++  env_reward:
++    enabled: true
++    weight: 1.0
++  token_length:
++    enabled: false
++
++eval:
++  temperature: 0.0
++  do_sample: false
++  agentic:
++    n_episodes: 100
+
+
+=== DIFF: pipeline/configs/e25-poly-4k-cosine-w16-qwen3-1_7b.yaml ===
+@@ -0,0 +1,41 @@
++experiment_id: e25-poly-4k-cosine-w16-qwen3-1_7b
++description: "E25: the cosine length reward's fair test, paired with the e24 control. Relative to e17 (same task, same weight 16, 2048 budget, null) the completion budget doubles to 4096, which is the hardware ceiling - see e24. That takes the share of truncated-and-mislabelled rollouts from about 20 percent to about 10 percent: the e22 probe measured correct-episode lengths of median 702, p90 3093, max 9877, and 18 of 20 fit under 4096. max_len is set to 4096 as well, which here is the right call rather than the earlier design error - the error was setting max_len to a cap far above where completions actually live, because the cosine is flat near both endpoints and the whole distribution would sit in the dead zone. At a 4096 cap the covered distribution spans 213 to 3093, i.e. 5 to 75 percent of the curve, so the reward has real slope across it. With the task near-saturated at this budget most groups are all-correct, so the env component has zero within-group variance and contributes nothing under advantage_weighted, and the cosine correct-branch drives the entire gradient - the best case the countdown pair was meant to supply before the graded-scorer artifact killed its premise. Watch accuracy: compression bought with correctness is the Wu/Yeo overshoot."
++seed: 42
++
++model:
++  slug: qwen3-1.7b
++  lora_r: 16
++  max_seq_length: 5120
++  gpu_memory_utilization: 0.23
++
++training:
++  mode: agentic
++  env: reasoning_gym
++  env_config:
++    dataset: polynomial_equations
++    size: 500
++  env_server:
++    repo_path: /workspace/OpenEnv/envs
++    port: 8077
++  max_prompt_length: 1024
++  n_rollouts: 8
++  micro_batch_size: 1
++  max_steps: 300
++  learning_rate: 5e-6
++  kl_beta: 0.001
++
++rewards:
++  compose_method: advantage_weighted
++  env_reward:
++    enabled: true
++    weight: 1.0
++  token_length:
++    enabled: true
++    weight: 16.0
++    max_len: 4096
++
++eval:
++  temperature: 0.0
++  do_sample: false
++  agentic:
++    n_episodes: 100
+
+
+=== DIFF: pipeline/domains/env_base.py ===
+@@ -1,3 +1,12 @@
++# Minimum env reward that counts as a solved episode. reasoning_gym scorers are
++# graded, not binary: countdown hands 0.05 to a near-miss and 0.01 to garbage,
++# polynomial_equations decays exponentially with distance to the root (an
++# off-by-one answer still scores 4.5e-5). A bare `> 0` therefore counts almost
++# any parseable answer as correct. 0.5 admits only near-exact solutions under
++# every scorer in use while staying scorer-agnostic.
++CORRECT_REWARD_THRESHOLD = 0.5
++
++
+ class EnvDomain:
+     """Base for OpenEnv-backed agentic domains.
+ 
+@@ -27,8 +36,8 @@ class EnvDomain:
+         return float(step_result.reward)
+ 
+     def is_correct(self, step_result) -> bool:
+-        """Binary success for evaluation: a positive env reward counts as solved."""
+-        return float(step_result.reward) > 0.0
++        """Binary success for evaluation: near-exact reward counts as solved."""
++        return float(step_result.reward) >= CORRECT_REWARD_THRESHOLD
+ 
+     def difficulty(self, task) -> float | None:
+         return None
+
+
+=== DIFF: pipeline/eval/agentic_eval.py ===
+@@ -9,6 +9,7 @@ import os
+ import re
+ import sys
+ 
++from domains.env_base import CORRECT_REWARD_THRESHOLD
+ from eval.metrics import SampleResult, compute_metrics
+ 
+ # The model answers by emitting a Hermes-style tool call (Qwen3 native format):
+@@ -77,7 +78,9 @@ def _run_episodes(env, n: int, seed_base: int, gen_fn) -> list[SampleResult]:
+         question = env.reset(seed=seed_base + i)
+         answer, n_tokens = gen_fn(question)
+         env.answer(answer if answer is not None else "")
+-        results.append(SampleResult(correct=env.reward > 0, n_tokens=n_tokens, n_steps=1))
++        r = float(env.reward)
++        results.append(SampleResult(correct=r >= CORRECT_REWARD_THRESHOLD,
++                                    n_tokens=n_tokens, n_steps=1, reward=r))
+     return results
+ 
+ 
+@@ -121,7 +124,9 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
+             messages.append({"role": "tool", "content": str(feedback)})
+             if getattr(env, "done", False):
+                 break
+-        results.append(SampleResult(correct=env.reward > 0, n_tokens=total_tokens, n_steps=steps))
++        r = float(env.reward)
++        results.append(SampleResult(correct=r >= CORRECT_REWARD_THRESHOLD,
++                                    n_tokens=total_tokens, n_steps=steps, reward=r))
+     return results
+ 
+ 
+@@ -142,7 +147,8 @@ def _metrics_to_dict(m) -> dict:
+         "n_samples": m.n_samples,
+         "n_correct": m.n_correct,
+         "samples": [
+-            {"correct": r.correct, "n_tokens": r.n_tokens, "n_steps": r.n_steps}
++            {"correct": r.correct, "n_tokens": r.n_tokens, "n_steps": r.n_steps,
++             "reward": r.reward}
+             for r in m.raw
+         ],
+     }
+
+
+=== DIFF: pipeline/eval/metrics.py ===
+@@ -18,6 +18,9 @@ class SampleResult:
+     # Env steps for an agentic episode (1 for single-step reasoning_gym);
+     # None for dataset-mode eval, where the notion of a step does not apply.
+     n_steps: int | None = None
++    # Raw graded env reward for the episode, kept so reports can be
++    # re-thresholded offline; `correct` alone loses that information.
++    reward: float | None = None
+ 
+ 
+ @dataclass
+
+
+=== DIFF: pipeline/tests/test_agentic_episode_eval.py ===
+@@ -91,8 +91,10 @@ def test_run_episodes_handles_none_answer():
+ # --- _metrics_to_dict: serialize EvalMetrics for the report ---
+ 
+ def test_metrics_to_dict_shape():
+-    m = compute_metrics([SampleResult(True, 10, n_steps=1), SampleResult(False, 20, n_steps=1)])
++    m = compute_metrics([SampleResult(True, 10, n_steps=1, reward=1.0),
++                         SampleResult(False, 20, n_steps=1, reward=0.05)])
+     d = _metrics_to_dict(m)
+     assert d["accuracy"] == 0.5 and d["n_samples"] == 2 and d["n_correct"] == 1
+-    assert d["samples"][0] == {"correct": True, "n_tokens": 10, "n_steps": 1}
++    assert d["samples"][0] == {"correct": True, "n_tokens": 10, "n_steps": 1,
++                               "reward": 1.0}
+     assert "mean_token_count" in d and "mean_steps" in d
+
+
+=== DIFF: pipeline/tests/test_cosine_length_ids.py ===
+@@ -28,8 +28,9 @@ def test_falls_back_to_text_without_ids():
+ 
+ 
+ def test_agentic_correctness_from_environments():
+-    # Correctness comes from env.reward > 0. Same length, so the correct env must
+-    # outrank the wrong env purely on the correctness gate.
++    # Correctness comes from the env reward crossing CORRECT_REWARD_THRESHOLD.
++    # Same length, so the correct env must outrank the wrong env purely on the
++    # correctness gate.
+     r = CosineLengthReward(_Tok(), max_len=10)
+     out = r(
+         ["p", "p"], ["a b", "a b"],
+@@ -38,6 +39,17 @@ def test_agentic_correctness_from_environments():
+     assert out[0] > out[1]
+ 
+ 
++def test_partial_credit_gates_as_wrong():
++    # A graded near-miss (countdown 0.05, poly exp-decay) must land in the
++    # wrong branch, identical to a hard 0.0 - not in the correct branch.
++    r = CosineLengthReward(_Tok(), max_len=10)
++    out = r(
++        ["p", "p"], ["a b", "a b"],
++        environments=[_Env(0.05), _Env(0.0)], completion_ids=[[1, 2], [1, 2]],
++    )
++    assert out[0] == out[1]
++
++
+ def test_requires_environments():
+     # No environments kwarg -> must raise (there is no answer-column fallback).
+     r = CosineLengthReward(_Tok(), max_len=10)
+
+
+=== DIFF: pipeline/tests/test_env_domain.py ===
+@@ -36,6 +36,17 @@ def test_is_correct_from_reward_sign():
+     assert d.is_correct(_FakeStep(0.0)) is False
+ 
+ 
++def test_is_correct_rejects_graded_partial_credit():
++    # reasoning_gym scorers are graded: countdown gives 0.05 to a near-miss and
++    # 0.01 to garbage; polynomial_equations decays to tiny-but-positive for
++    # wrong roots. None of these count as solved.
++    d = ReasoningGymDomain()
++    assert d.is_correct(_FakeStep(0.01)) is False
++    assert d.is_correct(_FakeStep(0.05)) is False
++    assert d.is_correct(_FakeStep(4.5e-5)) is False
++    assert d.is_correct(_FakeStep(0.5)) is True
++
++
+ def test_make_env_factory_is_zero_arg_and_builds_adapter():
+     d = ReasoningGymDomain()
+     factory = d.make_env_factory(
+
+
+=== DIFF: pipeline/training/rewards/cosine_length.py ===
+@@ -1,5 +1,6 @@
+ import math
+ 
++from domains.env_base import CORRECT_REWARD_THRESHOLD
+ from training.rewards.utils import model_token_count
+ 
+ 
+@@ -32,7 +33,9 @@ class CosineLengthReward:
+     per-component z-scoring and is the intended Wu/Yeo coupling.
+ 
+     Agentic-only: correctness is read from the live OpenEnv instances TRL passes
+-    as kwargs['environments'] (env.reward > 0). There is no answer column.
++    as kwargs['environments'] (env.reward >= CORRECT_REWARD_THRESHOLD; graded
++    scorers hand partial credit to near-misses, so a bare > 0 gates wrong).
++    There is no answer column.
+     """
+ 
+     def __init__(
+@@ -69,7 +72,10 @@ class CosineLengthReward:
+                 "CosineLengthReward requires kwargs['environments'] (agentic mode). "
+                 "TRL's environment_factory path supplies the live env instances."
+             )
+-        correct_flags = [float(getattr(e, "reward", 0.0)) > 0.0 for e in environments]
++        correct_flags = [
++            float(getattr(e, "reward", 0.0)) >= CORRECT_REWARD_THRESHOLD
++            for e in environments
++        ]
+         # Prefer the exact model-generated token ids TRL/the rollout_func provide
+         # over re-encoding decoded text, so the length signal counts model tokens
+         # only. Falls back to re-encoding the decoded completion.
+
+
+Investigate per the method in your instructions, then return the findings list.
