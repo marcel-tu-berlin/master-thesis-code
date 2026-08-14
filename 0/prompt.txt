@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bb76bubv5</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/e023ab91-4ec9-4799-ba43-493733af57c7/tasks/bb76bubv5.output</output-file>
+<status>killed</status>
+<summary>Background command "Arm gated launcher for 4k pair" was stopped</summary>
+</task-notification>
