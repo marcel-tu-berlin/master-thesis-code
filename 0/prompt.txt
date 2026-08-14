@@ -1,0 +1,6 @@
+<task-notification>
+<task-id>byr12ug45</task-id>
+<summary>Monitor event: "B2 temp-1.2 lr-5e-5 probe on gpu-l4 (pid 1505327)"</summary>
+<event>B2 step ~30/50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
