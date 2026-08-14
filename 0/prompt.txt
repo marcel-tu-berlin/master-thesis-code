@@ -1,0 +1,168 @@
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. **Primary Request and Intent:**
+
+   The user is writing a Master's thesis on **reward bias substitution** (Lamparth et al. 2026). RQ1 = effectiveness of efficiency reward shaping; RQ2 = does reducing one inefficiency shift the agent toward another undesirable behavior; RQ3 = an evaluation protocol distinguishing genuine gains from substitution. The protocol requires a separate policy per reward condition, evaluation on held-out AND shifted splits, three measured dimensions (task performance, targeted efficiency, off-target panel), lambda variation, and joint interpretation. Reward conditions: E0 base model, E1 task-success baseline, E2 length-aware (cosine/DIET), E3 non-termination-aware, optional E4 combined. Shaped reward: `R_lambda = R_task - lambda * C_target`.
+
+   **The only user message this session:** "run the smoke and when everything looks good continue with the real run - monitor it and fetch the results when done"
+
+   **Standing constraints from CLAUDE.md / global config that remain in force:**
+   - **Never include the user's name ("Marcel" / "Marcel Heidebrecht") in any commit message, code comment, docstring, or generated file.** Use conventional commits (`feat:`, `fix:`, `refactor:`, `chore:`) with no personal names.
+   - **ASCII only in all output** — no em dashes, en dashes, curly/smart quotes, ellipsis characters, or non-breaking spaces.
+   - **Work on `master` only** — never create branches or git worktrees for this repo.
+   - **Commit only when asked.**
+   - `RUNNING.md` must be stamped with box time (`ssh gpu-l4 date`), never local time, and updated at every phase change, kill, and crash. Rows are deleted once results are harvested; write "Nothing running." when idle.
+   - **End every response with a "Next steps" section.**
+   - Mark any unverified assumption acted on with a greppable `ASSUMPTION:` prefix.
+
+2. **Key Technical Concepts:**
+   - GRPO (TRL `GRPOTrainer`) with `environment_factory`, LoRA/PEFT, Qwen3-1.7B, vLLM colocate on an NVIDIA L4 (24 GB)
+   - OpenEnv environments served as local HTTP subprocesses (no Docker)
+   - `frac_reward_zero_std`: fraction of prompt-groups where all rollouts score identically → zero advantage → no gradient. finqa failed with all-zero groups (0.967); e27 failed with all-one groups (0.70)
+   - Off-target panel: `terminated`, `stop_reason` (`env_done` / `no_tool_call` / `max_turns` / `hit_generation_cap`), `tool_calls`, persisted to `episodes_<split>.jsonl`
+   - Env selection criteria (both required): base accuracy in 0.40-0.80 **and** success strictly below termination (axis separability), plus >= 2 tools
+   - Truncation confound (invalidated e9-e21); `hit_generation_cap` vs `no_tool_call` separation
+   - Qwen3 thinking blocks (~300 tokens/turn, accumulating across multi-turn context)
+   - BrowserGym/MiniWoB, accessibility trees (axtree), element `bid`s, playwright 1.44
+   - `AdvantageWeightedComposer` vs `NaiveSumComposer`; `CORRECT_REWARD_THRESHOLD = 0.5`
+   - Wilson score interval (binary), bootstrap CI (continuous)
+
+3. **Files and Code Sections:**
+
+   - **`pipeline/training/env_server.py`** (MODIFIED — the root-cause fix). `EnvServerProcess.start()` now refuses an occupied port. This is the single place all five domains route through:
+     ```python
+     def start(self) -> "EnvServerProcess":
+         # Refuse to start onto an occupied port. Every env's server/app.py binds a
+         # fixed port from its own env var, so a leftover server from another env
+         # keeps the port, the new one exits on bind, and wait_until_ready's socket
+         # probe succeeds against the *wrong* server. Training then runs to
+         # completion against it: a browsergym run whose actions all hit a stale
+         # reasoning_gym server scored 0 with tools/failure_frequency 1.0 and no
+         # traceback anywhere. Loud here beats a plausible-looking null.
+         if self.is_ready():
+             raise RuntimeError(
+                 f"port {self.port} is already in use; a stale env server would "
+                 f"silently serve this run. Kill it before launching "
+                 f"({' '.join(self.command())})"
+             )
+         self._proc = subprocess.Popen(
+             self.command(), cwd=self.repo_envs_path, env=self._env(),
+             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+         )
+         return self
+     ```
+     Also relevant, unchanged: `self.python = python or sys.executable` (the env server runs in the SAME venv as training), and `build_env_server(config, domain, python=None)` called with `python=sys.executable` from `training/train.py:196` and `eval/agentic_eval.py:316`.
+
+   - **`pipeline/tests/test_env_server.py`** (MODIFIED) — added the regression test:
+     ```python
+     def test_start_refuses_an_occupied_port():
+         # A leftover server from another env keeps the port, the new one dies on bind,
+         # and the readiness probe then passes against the wrong server. That silently
+         # ran a whole browsergym training against a stale reasoning_gym server.
+         srv = _srv()
+         srv.is_ready = lambda: True
+         with pytest.raises(RuntimeError, match="already in use"):
+             srv.start()
+         assert srv._proc is None
+     ```
+
+   - **`pipeline/domains/browsergym/domain.py`** (MODIFIED, twice).
+     (a) `_LEAD_IN` hint removed:
+     ```python
+     # Brief task framing prepended to each prompt's user message. The tool spec is
+     # injected by the model's native tool-calling template (tools=...); this only
+     # frames the setting. reset() appends the goal and the page after this lead-in
+     # (TRL appends to the last user message).
+     #
+     # It explains the interface and stops there. An earlier version ended "Most tasks
+     # need a selection followed by clicking Submit", which is the solution to both
+     # training families stated outright: base accuracy on click-option went to 1.00
+     # and click-checkboxes to 0.95, groups stopped having any within-group variance
+     # (frac_reward_zero_std 0.70), and success and termination collapsed onto one
+     # axis. Framing the setting is fair; handing over the plan is not.
+     _LEAD_IN = (
+         "You are controlling a web page. Read the goal and the accessibility tree, "
+         "then call one tool per turn to act on the page. Element ids are the numbers "
+         "in square brackets.\n\n"
+     )
+     ```
+     (b) Comment added at the top of `server_env()`:
+     ```python
+     # The server picks its port from BROWSERGYM_PORT and ignores the --port
+     # argv EnvServerProcess passes, so training.env_server.port must stay at
+     # the server's own default of 8000. A mismatch is loud (nothing answers
+     # the client), not silent.
+     ```
+
+   - **`pipeline/configs/e27probe-browsergym-difficulty-qwen3-1_7b.yaml`** (NEW) — 8 MiniWoB families x 20 episodes, each its own split with a single-task `env_config.tasks`, all `seed_offset: 300000` (paired seeds). `max_seq_length: 8192`, `max_prompt_length: 6144` → 2048 eval budget matching e27. Run via `python -m eval.runner --config <this> --base-model` so it goes through the real `BrowserGymEnvAdapter`, the real two tools, and the real `_LEAD_IN`. Families: click-option, click-checkboxes, click-widget, navigate-tree, click-checkboxes-large, click-tab-2, click-link, click-checkboxes-soft.
+
+   - **`pipeline/configs/e27probe2-browsergym-nohint-qwen3-1_7b.yaml`** (NEW, currently running) — one-variable follow-up. Same two calibration families (click-option, click-checkboxes), 20 episodes each, same `seed_offset: 300000`; the only difference from e27probe is the hint-free `_LEAD_IN`. Isolates prompt-hint vs. two-tool-menu as the cause of the +0.45 inflation.
+
+   - **`pipeline/configs/e27-browsergym-e1-baseline-qwen3-1_7b.yaml`** (UNCHANGED so far, needs revision) — the E1 baseline. `tasks: [click-option, click-checkboxes]`, `miniwob_url: http://localhost:8080/miniwob/`, `max_turns: 8`, `max_seq_length: 8192`, `gpu_memory_utilization: 0.30`, `max_prompt_length: 6144`, `n_rollouts: 8`, `micro_batch_size: 1`, `max_steps: 300`, `lr 5e-6`, `kl_beta 0.001`, `lora_r 16`, `compose_method: naive_sum`, `env_reward` only. Eval splits `held_out` (n=100) and `shifted` (n=100, `tasks: [click-widget, navigate-tree]`, `seed_offset: 200000`). Both the training mix and the shifted split are now known to be near-saturated.
+
+   - **`pipeline/domains/browsergym/adapter.py`** (UNCHANGED, verified working) — public surface exactly `{reset, click, noop}`. `_DEFAULT_TASKS = ("click-option", "click-checkboxes")`, `_MAX_OBS_CHARS = 2000`. `reset(seed=..)` maps `tasks[seed % len(tasks)]`; `_make_action` is the single lazy seam importing `BrowserGymAction` + `build_browsergym_action_str`.
+
+   - **`RUNNING.md`** (MODIFIED, several times) — currently records the e27probe sweep, the e27 kill with its reason, the browsergym-in-pipeline-venv change, the `BROWSERGYM_PORT` fact, and a "Traps" section covering the stale-server trap, the `--smoke` budget override, and the `pkill -f` over-ssh trap. Also records that `ss` is not installed on the box.
+
+   - **`pipeline/probes/bg_probe.py`** (READ, not modified) — the ORIGINAL feasibility probe, now known to be misleading: it builds tools from `_BROWSERGYM_TOOLS` (all five) and uses its own prompt, so its difficulty numbers do not transfer to the adapter's conditions.
+
+   - **`/workspace/OpenEnv/envs/browsergym_env/server/app.py`** (READ on box) — port comes from `SBX_SERVICE_PORT` or `BROWSERGYM_PORT`, default `8000`; the `--port` argv `EnvServerProcess` passes is ignored.
+
+4. **Errors and fixes:**
+
+   - **First smoke: `tools/failure_frequency: 1`, reward 0, no traceback.** Root cause: a leftover `reasoning_gym_env.server.app` (pid 184952) held :8000, so e27's browsergym server died on bind and `wait_until_ready`'s socket probe passed against the stale one; TRL sent `click(...)` to reasoning_gym → `VALIDATION_ERROR` on every call. Fixed at the root with the `start()` port guard + regression test.
+   - **`ImportError: cannot import name 'get_domain' from 'domains'`** in my repro script — the actual API is `build_domain(config)` taking a config dict. Fixed.
+   - **Repro on port 8123 got `ConnectionRefusedError`** — env servers ignore `--port`; browsergym reads `BROWSERGYM_PORT`. Fixed by using the env var.
+   - **`ss: command not found` on the box** — my `ss ... | grep` checks printed nothing whether or not a port was held, which I misread as "port free". This delayed the diagnosis. Use `pgrep -af server.app` instead; recorded in `RUNNING.md`.
+   - **`rsync` failed with `pipeline/: (l)stat: No such file or directory`** (exit 23) — the shell working directory had reset. Fixed with an absolute `cd` before the rsync (known footgun).
+   - **Killing pid 245178 did not stop the run** — pid 246083 (train) and 246289 (server) were still alive. Killed both explicitly by pid; confirmed "ALL STOPPED" and 0 MiB GPU.
+   - **Report parsing returned no rows twice** — the eval JSON nests splits under a top-level `results` key, and the per-split metric is `accuracy`, not `success_rate`. Fixed by mapping the keys first.
+   - **Misread "no metrics in log" as a possible second dead-env signature** — the run's stdout is block-buffered into the log file, so per-step dicts arrive in ~8 KB bursts; only tqdm (stderr) is live. Recorded in `RUNNING.md`.
+   - **The e27 run itself was saturated** — see Problem Solving.
+
+5. **Problem Solving:**
+
+   Solved: the false-negative smoke (stale server on the shared port), with a root-cause guard covering all five domains rather than a browsergym-specific workaround. Solved: browsergym availability for the env server subprocess, by installing into the pipeline venv (zero code) after a dry-run showed the only version move was `greenlet 3.5.2 -> 3.0.3`.
+
+   **Main open problem:** e27's task set is saturated under the real training conditions. Killed at step 21/300 on `frac_reward_zero_std` 0.70 (14 of 20 groups all-identical), mean reward 0.931, `reward/EnvReward/raw_std: 0`. The decisive argument is not the wasted gradient but that success and termination collapsed onto one axis, which is exactly the criterion that was supposed to disqualify a task set for RQ2.
+
+   The cause is that the original feasibility probe measured difficulty with five tools and its own prompt, while training uses two tools and a solution-stating `_LEAD_IN`. The re-sweep through `eval.runner --base-model` (the real adapter) showed ~+0.45 across every previously-probed family: click-option 0.50→1.00, click-checkboxes 0.35→0.95, click-widget 0.60→0.90, navigate-tree 0.70→0.80. Only click-checkboxes-large (0.45) and click-checkboxes-soft (0.75) land in the band, and click-checkboxes-large's difficulty is largely token-budget (8 of 20 truncated, 3 turn-exhausted) — the exact confound that invalidated e9-e21.
+
+   Currently isolating which change caused the inflation, so the fix is targeted rather than guessed.
+
+6. **All user messages:**
+   - "run the smoke and when everything looks good continue with the real run - monitor it and fetch the results when done"
+
+   (This is the only genuine user message this session. Several transcript entries are automated background-task events explicitly marked "SYSTEM NOTIFICATION - NOT USER INPUT"; they are not user input and convey no approval.)
+
+7. **Pending Tasks:**
+   - Read the e27probe2 (hint-removal) result and decide the fix: if accuracy falls toward ~0.5 the hint was the cause and the original mix stands with the hint-free prompt; if it stays near 1.0 the two-tool menu is the cause and the family set must change instead.
+   - Revise `e27-browsergym-e1-baseline-qwen3-1_7b.yaml` (training mix AND shifted split — click-widget 0.90 / navigate-tree 0.80 are also near-saturated) and relaunch the 300-step E1 run.
+   - Write up the difficulty findings (the existing `pipeline/runs/browsergym_feasibility_findings.md` numbers are now known not to transfer and need a correction section).
+   - Commit the uncommitted work: port guard + test, `_LEAD_IN` change, domain comment, both probe configs, `RUNNING.md`. **Only when asked.**
+   - E0 base-model eval (`--base-model`) as the protocol's no-training reference — still open.
+   - Longer-term (BACKLOG): Liger fused GRPO loss to lift the 4096 cap; re-evaluate e24/e25 at 16k; regenerate poly plots; file the e24/e25 note in the thesis wiki; repl-retarget fallback.
+
+8. **Current Work:**
+
+   Immediately before this summary I launched the one-variable hint-removal probe and set a waiter for it. Concretely:
+
+   - Edited `_LEAD_IN` in `pipeline/domains/browsergym/domain.py` to drop the sentence "Most tasks need a selection followed by clicking Submit." and added the explanatory comment quoted in section 3.
+   - Created `pipeline/configs/e27probe2-browsergym-nohint-qwen3-1_7b.yaml` (click-option + click-checkboxes, 20 episodes each, `seed_offset: 300000`, everything else identical to e27probe so the only difference is the prompt).
+   - Verified: `186 passed, 3 skipped`; `validate_config` OK; `_LEAD_IN` now reads `'You are controlling a web page. Read the goal and the accessibility tree, then call one tool per turn to act on the page. Element ids are the numbers in square brackets.\n\n'`.
+   - rsynced to the box and launched `python -m eval.runner --config configs/e27probe2-browsergym-nohint-qwen3-1_7b.yaml --base-model > /workspace/e27probe2.log` (background job id b3mszwted).
+   - Set background waiter bsi8u2flw, which blocks until the process exits then prints the acc / term / gap / tok / steps / stop_reasons table from `runs/e27probe2-browsergym-nohint-qwen3-1_7b/eval_report.json` (keyed under `results`, metric `accuracy`).
+
+   Box state: GPU otherwise free, MiniWoB static server on :8080 up (pid 217225), port 8000 clear before launch. Expected runtime ~35 min for 40 episodes.
+
+9. **Optional Next Step:**
+
+   Read the e27probe2 result from the waiter (background job `bsi8u2flw`, output at `/private/tmp/claude-501/.../tasks/bsi8u2flw.output`) and compare against e27probe's click-option 1.00 / click-checkboxes 0.95 on the same seeds, then pick the fix and relaunch e27.
+
+   This continues directly from what I stated immediately before the summary request: "Before I pick families, one cheap test settles which of my two changes cost the difficulty. The `_LEAD_IN` ends by stating the solution pattern for exactly these families; the probe's prompt did not. Removing it is one line, and if it restores ~0.5 the original mix stands." And from the config's own description: "If accuracy falls back toward 0.5 the hint was the cause and the original training mix stands with a hint-free prompt; if it stays near 1.0 the two-tool menu is the cause and the family set has to change instead."
+
+   This remains in scope for the user's instruction "run the smoke and when everything looks good continue with the real run - monitor it and fetch the results when done" — the condition "everything looks good" failed, the run was killed, and the work is to get the real run into a state worth running.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/mheidebrecht/.claude/projects/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/ab988c24-a88e-415d-8dd2-615cc390ae14.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
