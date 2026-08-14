@@ -1,0 +1,422 @@
+Review this change for security vulnerabilities.
+
+Changed files (you may Read these and any other file in the repo):
+  - pipeline/eval/agentic_eval.py
+  - pipeline/tests/test_multiturn_eval.py
+  - pipeline/tests/test_offtarget_metrics.py
+  - pipeline/tests/test_response_parsing.py
+
+Unified diff (only + lines are new):
+
+=== DIFF: pipeline/eval/agentic_eval.py ===
+@@ -47,8 +47,24 @@ def _completion_budget(config, model_max_seq):
+     return max_seq - max_prompt
+ 
+ 
+-def _first_tool_call(msg: dict) -> tuple | None:
+-    """(name, arguments) of the first tool call in a parsed assistant message.
++def _tool_calls(msg: dict) -> list[tuple]:
++    """Every (name, arguments) tool call in a parsed assistant message, in order.
++
++    All of them, not the first: a turn may request several actions at once, and
++    TRL's training loop executes every one of them
++    (`grpo_trainer.py`, "Call the tools, and build the new prompt"). An eval that
++    dispatched only the first put the policy in a state training never produces.
++    Both ways of doing that are wrong and both have run:
++
++    - Appending a stub rebuilt from the one dispatched call kept the transcript
++      self-consistent but not what training generates - the model re-requested
++      the dropped actions over later turns, inflating steps and tokens.
++    - Appending the parsed message while dispatching one call is worse: the
++      transcript then shows N tool calls answered by a single tool response, and
++      the model reads the unanswered ones as having succeeded. On
++      click-checkboxes-transfer, where one turn requests four clicks, it
++      announced the task complete after a single click and stopped. That cost 19
++      of 100 shifted episodes, every one of them a loss and none a gain.
+ 
+     The message comes from `trl.chat_template_utils.parse_response`, the same
+     function TRL uses to turn a rollout's token ids into a message during
+@@ -69,14 +85,15 @@ def _first_tool_call(msg: dict) -> tuple | None:
+     Arguments that are not a dict (a model emitting them pre-serialised, say)
+     read as no arguments rather than raising.
+     """
++    out = []
+     for call in (msg.get("tool_calls") or []):
+         fn = (call or {}).get("function") or {}
+         name = fn.get("name")
+         if name is None:
+             continue
+         args = fn.get("arguments")
+-        return str(name), (args if isinstance(args, dict) else {})
+-    return None
++        out.append((str(name), (args if isinstance(args, dict) else {})))
++    return out
+ 
+ 
+ def _answer_from(msg: dict) -> str | None:
+@@ -138,18 +155,20 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
+                             tool_names, gen_cap=None, on_result=None):
+     """Run n multi-turn episodes greedily, tool-agnostic.
+ 
+-    turn_fn(messages, budget) -> (message, tool_name|None, arguments|None,
++    turn_fn(messages, budget) -> (message, [(tool_name, arguments), ...],
+     n_tokens) produces one greedy model turn given the running message list and
+     the tokens left in the episode's generation budget. Per episode: reset, then
+-    up to max_turns turns; each turn that names one of the domain's tools
+-    dispatches it on the env (the public adapter method of that name) and
+-    appends the model's own message plus the tool feedback; the episode ends when
+-    the model stops calling a known tool, the env reports done, or the budget
+-    runs out. Restricting dispatch to `tool_names` keeps a hallucinated name (or
+-    `reset`) from being invoked. This one loop drives every multi-turn domain -
+-    textarena (move), finqa (the four data tools), repl (execute) - via the
++    up to max_turns turns; each turn dispatches *every* call naming one of the
++    domain's tools, in order, and appends the model's own message followed by one
++    tool response per call; the episode ends when the model stops calling a known
++    tool, the env reports done, or the budget runs out. Dispatching all of them
++    is what TRL does in training, and a turn that requests four clicks is common
++    on browsergym. Restricting dispatch to `tool_names` keeps a hallucinated name
++    (or `reset`) from being invoked. This one loop drives every multi-turn domain
++    - textarena (move), finqa (the four data tools), repl (execute) - via the
+     parsed tool name. n_tokens is the trajectory total (model-only, exact);
+-    n_steps is the count of calls that reached the env.
++    n_steps is the count of calls that reached the env, so a turn issuing several
++    calls counts several steps.
+ 
+     `gen_cap` is the budget for the whole trajectory, matching training's
+     max_completion_length, not a fresh allowance per turn.
+@@ -177,27 +196,13 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
+             if budget is not None and budget <= 0:
+                 stop_reason = "hit_generation_cap"
+                 break
+-            msg, name, args, n_tok = turn_fn(messages, budget)
++            msg, turn_calls, n_tok = turn_fn(messages, budget)
+             total_tokens += int(n_tok)
+             turn_cap, budget = budget, (None if budget is None else budget - int(n_tok))
+-            if name not in tool_names:
++            known = [(name, args) for name, args in turn_calls if name in tool_names]
++            if not known:
+                 stop_reason = _no_call_reason(n_tok, turn_cap)
+                 break
+-            try:
+-                feedback = getattr(env, name)(**(args or {}))
+-            except Exception as e:
+-                # Malformed model arguments (TypeError) become feedback rather
+-                # than crashing the episode. Everything else used to propagate:
+-                # an HTTP error from the env server, a reset connection, a bad
+-                # observation would kill the process on episode 95 of 100 and
+-                # discard all 95 trajectories, since the jsonl was only written
+-                # after the whole split returned.
+-                feedback = f"Tool call error: {type(e).__name__}: {e}"
+-            else:
+-                # Only a call that actually reached the env counts as a step.
+-                # Counting a failed dispatch inflated n_steps and, through it,
+-                # mean_verification_depth in the RQ2 panel.
+-                calls.append(name)
+             # The parsed message, not a stub. Rebuilding the turn as
+             # {"content": ""} threw away the model's own reasoning, so turn N+1
+             # ran on a context training never produced - TRL keeps every prior
+@@ -205,9 +210,32 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
+             # re-renders `reasoning_content` on a prior assistant turn, so
+             # appending the parsed message reproduces that context.
+             messages.append(msg)
+-            messages.append({"role": "tool", "content": str(feedback)})
+-            if getattr(env, "done", False):
+-                stop_reason = "env_done"
++            # One tool response per call, because the message just appended
++            # advertises every one of them. Answering only the first leaves the
++            # rest looking like they succeeded, and the model acts on that.
++            for name, args in known:
++                try:
++                    feedback = getattr(env, name)(**(args or {}))
++                except Exception as e:
++                    # Malformed model arguments (TypeError) become feedback rather
++                    # than crashing the episode. Everything else used to propagate:
++                    # an HTTP error from the env server, a reset connection, a bad
++                    # observation would kill the process on episode 95 of 100 and
++                    # discard all 95 trajectories, since the jsonl was only written
++                    # after the whole split returned.
++                    feedback = f"Tool call error: {type(e).__name__}: {e}"
++                else:
++                    # Only a call that actually reached the env counts as a step.
++                    # Counting a failed dispatch inflated n_steps and, through it,
++                    # mean_verification_depth in the RQ2 panel.
++                    calls.append(name)
++                messages.append({"role": "tool", "content": str(feedback)})
++                if getattr(env, "done", False):
++                    stop_reason = "env_done"
++                    break
++            # A call that ended the episode stops the remaining calls in the same
++            # turn from being dispatched into a finished env.
++            if stop_reason == "env_done":
+                 break
+         r = float(env.reward)
+         results.append(SampleResult(
+@@ -470,11 +498,7 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
+ 
+             def gen_turn(messages, budget):
+                 msg, n_tok = _generate(messages, budget)
+-                parsed = _first_tool_call(msg)
+-                if parsed is None:
+-                    return msg, None, None, n_tok
+-                name, call_args = parsed
+-                return msg, name, call_args, n_tok
++                return msg, _tool_calls(msg), n_tok
+ 
+             print(f"Agentic eval [{split['name']}]: {n} episodes "
+                   f"(seed_base={seed_base}, max_new_tokens={max_new})")
+
+
+=== DIFF: pipeline/tests/test_multiturn_eval.py ===
+@@ -1,53 +1,63 @@
+-from eval.agentic_eval import _first_tool_call, _run_multiturn_episodes
++from eval.agentic_eval import _run_multiturn_episodes, _tool_calls
+ 
+ 
+-# --- _first_tool_call: first call of any name, off a parsed assistant message ---
++# --- _tool_calls: every call, in order, off a parsed assistant message ---
+ # The message shape is what trl.chat_template_utils.parse_response returns - the
+ # same function TRL applies to a rollout during training. Eval used to re-parse
+ # the decoded text with its own regex, which is how the two ended up disagreeing.
+ 
+-def _assistant(name=None, args=None, content="", reasoning=None):
+-    """A parse_response-shaped assistant message."""
++def _assistant(name=None, args=None, content="", reasoning=None, extra=()):
++    """A parse_response-shaped assistant message.
++
++    `extra` appends further (name, args) calls, for the multi-call turns that
++    browsergym produces routinely.
++    """
+     msg = {"role": "assistant", "content": content}
+     if reasoning is not None:
+         msg["reasoning_content"] = reasoning
+     if name is not None:
+         msg["tool_calls"] = [{"type": "function",
+                               "function": {"name": name, "arguments": args or {}}}]
++        msg["tool_calls"] += [{"type": "function",
++                               "function": {"name": n, "arguments": a or {}}}
++                              for n, a in extra]
+     return msg
+ 
+ 
+-def test_first_tool_call_returns_name_and_args():
++def test_tool_calls_returns_name_and_args():
+     msg = _assistant("move", {"message": "crane"})
+-    assert _first_tool_call(msg) == ("move", {"message": "crane"})
++    assert _tool_calls(msg) == [("move", {"message": "crane"})]
+ 
+ 
+-def test_first_tool_call_ignores_reasoning():
++def test_tool_calls_ignores_reasoning():
+     # A JSON object quoted inside the think block is reasoning, not a call.
+     msg = _assistant("move", {"message": "slate"},
+                      reasoning='maybe {"name": "answer", "arguments": {"answer": "0"}}')
+-    assert _first_tool_call(msg) == ("move", {"message": "slate"})
++    assert _tool_calls(msg) == [("move", {"message": "slate"})]
+ 
+ 
+-def test_first_tool_call_none_without_call():
+-    assert _first_tool_call(_assistant(content="no tool call here")) is None
++def test_tool_calls_empty_without_call():
++    assert _tool_calls(_assistant(content="no tool call here")) == []
+ 
+ 
+-def test_first_tool_call_none_on_empty_tool_calls():
+-    assert _first_tool_call({"role": "assistant", "tool_calls": []}) is None
++def test_tool_calls_empty_on_empty_tool_calls():
++    assert _tool_calls({"role": "assistant", "tool_calls": []}) == []
+ 
+ 
+-def test_first_tool_call_non_dict_args_read_as_empty():
++def test_tool_calls_non_dict_args_read_as_empty():
+     msg = {"role": "assistant", "tool_calls": [
+         {"type": "function", "function": {"name": "move", "arguments": "prestringified"}}]}
+-    assert _first_tool_call(msg) == ("move", {})
++    assert _tool_calls(msg) == [("move", {})]
+ 
+ 
+-def test_first_tool_call_takes_the_first_of_several():
+-    msg = _assistant("move", {"message": "a"})
+-    msg["tool_calls"].append(
+-        {"type": "function", "function": {"name": "quit", "arguments": {}}})
+-    assert _first_tool_call(msg) == ("move", {"message": "a"})
++def test_tool_calls_returns_every_call_in_order():
++    # Not just the first. TRL executes all of them during training, and a turn
++    # requesting four clicks is the normal shape on browsergym.
++    msg = _assistant("click", {"bid": "30"},
++                     extra=[("click", {"bid": "24"}), ("click", {"bid": "36"})])
++    assert _tool_calls(msg) == [("click", {"bid": "30"}),
++                                ("click", {"bid": "24"}),
++                                ("click", {"bid": "36"})]
+ 
+ 
+ # --- _run_multiturn_episodes: drive a scripted game with an injected turn fn ---
+@@ -87,8 +97,9 @@ def _msgs(o):
+ 
+ 
+ def _turn(name, args, n_tok, **kw):
+-    """A scripted turn_fn result: (message, tool name, args, tokens)."""
+-    return _assistant(name, args, **kw), name, args, n_tok
++    """A scripted turn_fn result: (message, [(name, args), ...], tokens)."""
++    msg = _assistant(name, args, **kw)
++    return msg, _tool_calls(msg), n_tok
+ 
+ 
+ def _scripted(*turns):
+@@ -159,6 +170,86 @@ def test_multiturn_keeps_the_models_own_reasoning_in_context():
+     assert assistant and assistant[0].get("reasoning_content") == "crane splits vowels"
+ 
+ 
++# --- a turn requesting several calls dispatches all of them ---
++# The failure this guards against, measured on seed 200051 of e27's shifted
++# split: the model emitted four clicks in one turn, the loop dispatched the
++# first and appended the message advertising all four, and the next turn saw
++# four tool calls answered by one tool response. The model read the three
++# unanswered ones as having succeeded, announced the task complete, and stopped.
++# 19 of 100 shifted episodes were lost that way, every one a loss and none a
++# gain. TRL dispatches every call during training (grpo_trainer.py, "Call the
++# tools, and build the new prompt"), so this is also what the policy trained on.
++
++class _ClickEnv:
++    """Done once every required bid has been clicked, in any order."""
++
++    def __init__(self, required):
++        self.required, self.clicked, self.done = set(required), set(), False
++
++    def reset(self, seed=0):
++        self.clicked, self.done = set(), False
++        return "page"
++
++    def click(self, bid):
++        self.clicked.add(bid)
++        self.done = self.required <= self.clicked
++        return f"clicked {bid}"
++
++    @property
++    def reward(self):
++        return 1.0 if self.done else 0.0
++
++
++def test_every_call_in_a_turn_is_dispatched():
++    env = _ClickEnv({"30", "24", "36"})
++    rs = _run_multiturn_episodes(
++        env, 1, 0,
++        _scripted(_turn("click", {"bid": "30"}, 40,
++                        extra=[("click", {"bid": "24"}), ("click", {"bid": "36"})])),
++        max_turns=8, make_messages=_msgs, tool_names={"click"})
++    assert env.clicked == {"30", "24", "36"}
++    assert rs[0].correct is True and rs[0].stop_reason == "env_done"
++    assert rs[0].n_steps == 3          # three calls reached the env, in one turn
++    assert rs[0].tool_calls == ["click", "click", "click"]
++
++
++def test_each_dispatched_call_gets_its_own_tool_response():
++    # N calls advertised, N responses. The transcript the next turn sees must not
++    # leave a call unanswered, or the model treats it as having succeeded.
++    env = _ClickEnv({"30", "24", "99"})   # never completes, so the loop runs on
++    seen = []
++
++    def turn_fn(messages, budget):
++        seen.append(list(messages))
++        return _turn("click", {"bid": "30"}, 10, extra=[("click", {"bid": "24"})])
++
++    _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=2,
++                            make_messages=_msgs, tool_names={"click"})
++    roles = [m["role"] for m in seen[1]]
++    assert roles == ["user", "assistant", "tool", "tool"]
++
++
++def test_calls_after_the_env_is_done_are_not_dispatched():
++    # A turn may request more actions than the episode needs. Once the env is
++    # done the rest must not run into a finished env.
++    env = _ClickEnv({"30"})
++    rs = _run_multiturn_episodes(
++        env, 1, 0,
++        _scripted(_turn("click", {"bid": "30"}, 12, extra=[("click", {"bid": "99"})])),
++        max_turns=8, make_messages=_msgs, tool_names={"click"})
++    assert env.clicked == {"30"}
++    assert rs[0].n_steps == 1 and rs[0].stop_reason == "env_done"
++
++
++def test_unknown_names_are_filtered_but_known_ones_still_run():
++    env = _ClickEnv({"30"})
++    rs = _run_multiturn_episodes(
++        env, 1, 0,
++        _scripted(_turn("reset", {}, 9, extra=[("click", {"bid": "30"})])),
++        max_turns=8, make_messages=_msgs, tool_names={"click"})
++    assert env.clicked == {"30"} and rs[0].n_steps == 1
++
++
+ # --- the generation budget covers the whole trajectory, not each turn ---
+ # Training caps the full completion at max_completion_length. An eval that
+ # renewed the budget every turn let an episode generate max_turns times what the
+
+
+=== DIFF: pipeline/tests/test_offtarget_metrics.py ===
+@@ -94,12 +94,14 @@ def _msgs(o):
+ 
+ 
+ def _turn(name, args, n_tok):
+-    """A turn_fn result: (parsed assistant message, tool name, args, tokens)."""
++    """A turn_fn result: (parsed assistant message, [(name, args), ...], tokens)."""
+     msg = {"role": "assistant", "content": ""}
++    calls = []
+     if name is not None:
+         msg["tool_calls"] = [{"type": "function",
+                               "function": {"name": name, "arguments": args or {}}}]
+-    return msg, name, args, n_tok
++        calls = [(name, args or {})]
++    return msg, calls, n_tok
+ 
+ 
+ def _run(scripted, max_turns=6, gen_cap=1024):
+
+
+=== DIFF: pipeline/tests/test_response_parsing.py ===
+@@ -17,7 +17,7 @@ pytest.importorskip("trl")
+ from transformers import AutoTokenizer                       # noqa: E402
+ from trl.chat_template_utils import add_response_schema, parse_response  # noqa: E402
+ 
+-from eval.agentic_eval import _answer_from, _first_tool_call  # noqa: E402
++from eval.agentic_eval import _answer_from, _tool_calls  # noqa: E402
+ 
+ QWEN = "Qwen/Qwen3-1.7B"
+ LLAMA = "unsloth/Llama-3.2-1B-Instruct"
+@@ -58,18 +58,18 @@ def test_qwen_truncated_call_is_not_a_call(qwen):
+     msg = _parse(qwen, '<think>17+25</think>\n<tool_call>\n'
+                        '{"name": "answer", "arguments": {"answer": "42"}}')
+     assert _answer_from(msg) is None
+-    assert _first_tool_call(msg) is None
++    assert _tool_calls(msg) == []
+ 
+ 
+ def test_qwen_json_quoted_in_think_is_not_a_call(qwen):
+     msg = _parse(qwen, '<think>maybe {"name": "answer", "arguments": '
+                        '{"answer": "0"}} hmm</think>\nI give up.')
+     assert _answer_from(msg) is None
+-    assert _first_tool_call(msg) is None
++    assert _tool_calls(msg) == []
+ 
+ 
+ def test_qwen_prose_only_is_not_a_call(qwen):
+-    assert _first_tool_call(_parse(qwen, "I think the answer is 42.")) is None
++    assert _tool_calls(_parse(qwen, "I think the answer is 42.")) == []
+ 
+ 
+ # --- Llama 3.x: untagged, `parameters` rather than `arguments` ---
+@@ -81,11 +81,11 @@ def test_llama_untagged_call_is_parsed(llama):
+ 
+ def test_llama_multi_tool_call_is_parsed(llama):
+     msg = _parse(llama, '{"name": "click", "parameters": {"bid": "17"}}')
+-    assert _first_tool_call(msg) == ("click", {"bid": "17"})
++    assert _tool_calls(msg) == [("click", {"bid": "17"})]
+ 
+ 
+ def test_llama_prose_only_is_not_a_call(llama):
+-    assert _first_tool_call(_parse(llama, "I think the answer is 42.")) is None
++    assert _tool_calls(_parse(llama, "I think the answer is 42.")) == []
+ 
+ 
+ # --- the context the multi-turn loop rebuilds must keep the reasoning ---
+
+
+Investigate per the method in your instructions, then return the findings list.
