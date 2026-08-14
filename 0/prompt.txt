@@ -1,0 +1,6 @@
+<task-notification>
+<task-id>bq3yv455f</task-id>
+<summary>Monitor event: "Tunnel recovery + verification completion (deduped)"</summary>
+<event>TUNNEL-BACK + VERIFY-DONE: records=1600 (~50 steps) - harvest now</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
