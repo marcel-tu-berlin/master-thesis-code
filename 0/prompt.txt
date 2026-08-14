@@ -1,0 +1,769 @@
+Review this change for security vulnerabilities.
+
+Changed files (you may Read these and any other file in the repo):
+  - patch_openenv.py
+  - pipeline/configs/e14-agentic-finqa-env-only-qwen3-1_7b.yaml
+  - pipeline/configs/e26-finqa-e1-baseline-qwen3-1_7b.yaml
+  - pipeline/domains/__init__.py
+  - pipeline/domains/browsergym/adapter.py
+  - pipeline/domains/finqa/__init__.py
+  - pipeline/domains/finqa/adapter.py
+  - pipeline/domains/finqa/domain.py
+  - pipeline/domains/reasoning_gym/adapter.py
+  - pipeline/domains/repl/adapter.py
+  - pipeline/eval/agentic_eval.py
+  - pipeline/probes/env_check.py
+  - pipeline/tests/test_agentic_schema.py
+  - pipeline/tests/test_env_adapter.py
+  - pipeline/tests/test_env_domain.py
+  - pipeline/tests/test_finqa_adapter.py
+  - pipeline/training/config_schema.py
+  - pipeline/training/env_server.py
+  - pipeline/training/rewards/non_termination.py
+
+Unified diff (only + lines are new):
+
+=== DIFF: patch_openenv.py ===
+@@ -1,99 +0,0 @@
+-#!/usr/bin/env python3
+-"""Apply local patches to a meta-pytorch/OpenEnv clone so its env servers meet
+-the pipeline's contract. Idempotent: re-running is a no-op once applied.
+-
+-Why this exists: the OpenEnv env servers live in a separate clone (not vendored
+-into this repo), so a re-clone or `git pull` there reverts these edits. Keep this
+-script as the canonical, re-appliable record and run it after (re)cloning.
+-
+-Patched envs:
+-- finqa (determinism): make reset(seed) deterministic. As shipped, finqa picks
+-  questions via an unseeded global shuffle, so reset() ignores `seed`. That breaks
+-  both the EnvDomain seed->question contract and GRPO's same-question-per-group
+-  invariant on a shared server (each concurrent rollout would otherwise get a
+-  different question). The patch makes reset(seed=N) select questions[N % len].
+-- finqa (concurrency): pass MAX_CONCURRENT_ENVS into create_app. Shipped finqa
+-  omits max_concurrent_envs, so create_app defaults it to 1 and the server closes
+-  every WebSocket session after the first - fatal for the pipeline's one-server /
+-  many-rollout-slot model (the second client's reset dies with ConnectionClosedOK).
+-  reasoning_gym/textarena already wire the env var through; finqa did not.
+-
+-Usage: python patch_openenv.py [OPENENV_ENVS_PATH]   (default /workspace/OpenEnv/envs)
+-"""
+-import sys
+-from pathlib import Path
+-
+-MARKER = "PATCHED (master-thesis-code)"
+-
+-FINQA_OLD = "        question = self._get_next_question()\n"
+-FINQA_NEW = (
+-    "        # " + MARKER + ": seed-addressable question selection.\n"
+-    "        # Shipped finqa ignores `seed` (unseeded shuffle); GRPO needs\n"
+-    "        # reset(seed=N) to be a deterministic function of N, identical\n"
+-    "        # across rollout slots sharing one server.\n"
+-    "        if seed is not None:\n"
+-    "            question = self.questions[seed % len(self.questions)]\n"
+-    "        else:\n"
+-    "            question = self._get_next_question()\n"
+-)
+-
+-FINQA_APP_OLD = (
+-    "app = create_app(\n"
+-    "    _env_factory, FinQACallToolAction, CallToolObservation, env_name=\"finqa_env\"\n"
+-    ")\n"
+-)
+-FINQA_APP_NEW = (
+-    "# " + MARKER + ": pass MAX_CONCURRENT_ENVS so one server serves all rollout\n"
+-    "# slots. Shipped finqa omits max_concurrent_envs, so create_app defaults it to\n"
+-    "# 1 and the server closes every WS session after the first (the pipeline runs\n"
+-    "# one server for many concurrent rollout-slot clients). reasoning_gym/textarena\n"
+-    "# already wire this env var through.\n"
+-    "app = create_app(\n"
+-    "    _env_factory, FinQACallToolAction, CallToolObservation, env_name=\"finqa_env\",\n"
+-    "    max_concurrent_envs=int(os.getenv(\"MAX_CONCURRENT_ENVS\", \"8\")),\n"
+-    ")\n"
+-)
+-
+-# Mark FinQAEnvironment concurrency-safe. create_app refuses max_concurrent_envs>1
+-# unless the env class sets this flag; finqa is safe because the server builds a
+-# fresh, isolated FinQAEnvironment per session (own mcp_client + state + questions)
+-# - reasoning_gym/textarena set the same flag. Anchored after the class docstring.
+-FINQA_CONC_OLD = '    """\n\n    def __init__(\n'
+-FINQA_CONC_NEW = (
+-    '    """\n\n'
+-    "    SUPPORTS_CONCURRENT_SESSIONS = True  # " + MARKER + ": per-session env isolation\n\n"
+-    "    def __init__(\n"
+-)
+-
+-
+-def patch_file(path: Path, old: str, new: str, sentinel: str) -> str:
+-    # Idempotency is per-patch (via `sentinel`, a phrase unique to this patch's
+-    # new text), not per-file: a file may carry more than one patch (finqa's
+-    # finqa_environment.py gets both the determinism and concurrency-flag edits).
+-    if not path.is_file():
+-        return f"FAIL (missing): {path}"
+-    text = path.read_text()
+-    if sentinel in text:
+-        return f"skip (already patched): {path.name} [{sentinel[:34]}]"
+-    if old not in text:
+-        return f"FAIL (anchor not found): {path.name} [{sentinel[:34]}]"
+-    path.write_text(text.replace(old, new, 1))
+-    return f"patched: {path.name} [{sentinel[:34]}]"
+-
+-
+-def main() -> int:
+-    envs = Path(sys.argv[1] if len(sys.argv) > 1 else "/workspace/OpenEnv/envs")
+-    finqa_env_py = envs / "finqa_env" / "server" / "finqa_environment.py"
+-    results = [
+-        patch_file(finqa_env_py, FINQA_OLD, FINQA_NEW, "seed-addressable question selection"),
+-        patch_file(envs / "finqa_env" / "server" / "app.py", FINQA_APP_OLD, FINQA_APP_NEW,
+-                   "pass MAX_CONCURRENT_ENVS so one server"),
+-        patch_file(finqa_env_py, FINQA_CONC_OLD, FINQA_CONC_NEW, "per-session env isolation"),
+-    ]
+-    for r in results:
+-        print(r)
+-    return 1 if any(r.startswith("FAIL") for r in results) else 0
+-
+-
+-if __name__ == "__main__":
+-    raise SystemExit(main())
+
+
+=== DIFF: pipeline/configs/e14-agentic-finqa-env-only-qwen3-1_7b.yaml ===
+@@ -1,53 +0,0 @@
+-experiment_id: e14-agentic-finqa-env-only-qwen3-1_7b
+-description: "E14: agentic GRPO on FinQA financial QA via OpenEnv (MCP, multi-turn), env reward only (cosine length OFF). First real-task env beyond reasoning_gym: numeric QA over SEC-filing tables, binary env reward (1 correct / 0 wrong) after submit_answer. Establishes the env-only baseline; the cosine-length ablation arm is a later config."
+-seed: 42
+-
+-model:
+-  slug: qwen3-1.7b
+-  lora_r: 16
+-  # Multi-turn MCP episodes accumulate several tool calls plus verbose table/SQL
+-  # results injected between turns, so the rollout stream is longer than
+-  # single-step reasoning_gym. 4096 gives the tool-use loop room; smoke-calibrate
+-  # and raise FINQA_MAX_STEPS / seq together if streams truncate before submit.
+-  max_seq_length: 4096
+-
+-training:
+-  mode: agentic
+-  env: finqa
+-  env_config:
+-    # FinQA dataset downloaded into the OpenEnv clone (snorkelai/finqa-data).
+-    data_path: /workspace/OpenEnv/envs/finqa_env/data
+-    # The one turn cap: TRL's max_tool_calling_iterations, the eval loop, and the
+-    # server's FINQA_MAX_STEPS all read this. 12 covers the workflow
+-    # (get_descriptions -> get_table_info -> a few sql_query -> submit_answer)
+-    # with room for retries, and keeps the episode inside the 4096 context once
+-    # every tool result is injected back. Higher caps do not buy more turns, they
+-    # just move the failure from "ran out of turns" to "ran out of context",
+-    # which is the harder signal to interpret.
+-    max_turns: 12
+-  env_server:
+-    repo_path: /workspace/OpenEnv/envs   # clone of meta-pytorch/OpenEnv
+-    # finqa_env's server.app main() binds 8000 with no --port argparse (like
+-    # textarena, unlike reasoning_gym), so target 8000 for the readiness probe.
+-    port: 8000
+-  max_prompt_length: 1024
+-  n_rollouts: 8
+-  max_steps: 300
+-  learning_rate: 5e-6
+-  kl_beta: 0.001
+-
+-rewards:
+-  compose_method: advantage_weighted
+-  env_reward:
+-    enabled: true
+-    weight: 1.0
+-  token_length:
+-    # Env-only baseline: cosine length reward OFF. A later config enables it to
+-    # measure the cosine reward's effect on this real-task env.
+-    enabled: false
+-
+-eval:
+-  temperature: 0.0
+-  do_sample: false
+-  agentic:
+-    n_episodes: 100
+
+
+=== DIFF: pipeline/configs/e26-finqa-e1-baseline-qwen3-1_7b.yaml ===
+@@ -1,54 +0,0 @@
+-experiment_id: e26-finqa-e1-baseline-qwen3-1_7b
+-description: "E26: task-success-only GRPO on FinQA (E1), the qualification run for the reward-bias-substitution direction. Purpose is not the accuracy number but whether the off-target panel is non-degenerate on this env: if every baseline episode calls submit_answer only after reading tables, there is nothing for a non-termination penalty to substitute INTO and RQ2 cannot be answered here. Gate on the episodes_agentic.jsonl spread of stop_reason, tool_calls length and unsupported-claim rate. finqa is the chosen env because it is the only integrated one with a real off-target panel: 4 tools, so premature stopping (submit with no reads), verification depth (sql_query count before submit) and action instability (repeated calls) are all expressible - reasoning_gym's single tool collapses the panel to one axis. naive_sum, not the advantage_weighted default: the E3 lambda sweep runs under naive_sum (a binary termination flag has zero within-group variance once rollouts terminate reliably, and advantage_weighted contributes exactly 0 there), so the lambda=0 control must run the same composer or it is not this sweep's baseline. Geometry: max_seq 8192 holds a multi-turn episode whose context grows by every injected tool result (finqa caps each at ~1200 chars, ~300 tokens) across up to max_turns=8 turns; max_prompt_length 6144 leaves 2048 per-turn completion, which is HALF e24's 4096 policy-backward peak, so the L4 ceiling is not the binding constraint here - the context is. max_turns is the single cap: TRL's max_tool_calling_iterations (unset means sys.maxsize, i.e. an unbounded training tool loop), the eval loop, and the server's FINQA_MAX_STEPS all read it."
+-seed: 42
+-
+-model:
+-  slug: qwen3-1.7b
+-  lora_r: 16
+-  # Multi-turn context, not completion length, is what has to fit: the prompt
+-  # regrows every turn with the assistant's tool call plus the injected result.
+-  max_seq_length: 8192
+-  # Raised from e24's 0.23: vLLM's KV pool scales with max_model_len, and the
+-  # colocated engine now serves an 8192 context instead of 5120.
+-  gpu_memory_utilization: 0.30
+-
+-training:
+-  mode: agentic
+-  env: finqa
+-  env_config:
+-    data_path: /workspace/OpenEnv/envs/finqa_env/data
+-    # The one turn cap. 8 covers get_descriptions -> get_table_info -> a few
+-    # sql_query -> submit_answer with room for retries, and 8 turns of injected
+-    # results (~300 tokens each) plus reasoning stays inside the 8192 context.
+-    max_turns: 8
+-  env_server:
+-    repo_path: /workspace/OpenEnv/envs
+-    # finqa_env's server.app main() binds 8000 with no --port argparse.
+-    port: 8000
+-  max_prompt_length: 6144
+-  n_rollouts: 8
+-  micro_batch_size: 1
+-  max_steps: 300
+-  learning_rate: 5e-6
+-  kl_beta: 0.001
+-
+-rewards:
+-  # Matches the E3 sweep's composer so lambda=0 is the same code path.
+-  compose_method: naive_sum
+-  env_reward:
+-    enabled: true
+-    weight: 1.0
+-
+-eval:
+-  temperature: 0.0
+-  do_sample: false
+-  agentic:
+-    # 60, not the usual 100: a multi-turn eval runs up to max_turns generate
+-    # calls PER episode, so the same episode count costs several times a
+-    # single-step eval. 60 keeps train+eval inside one night and is enough for
+-    # the gate this run exists to answer (does the off-target panel vary at
+-    # all), which needs a spread, not a tight accuracy CI. Eval is cheap to
+-    # re-run from the checkpoint if more episodes are wanted.
+-    # No max_new_tokens override on purpose: the eval turn budget stays equal to
+-    # the training one (2048), so a capped turn means the same thing in both.
+-    n_episodes: 60
+
+
+=== DIFF: pipeline/domains/__init__.py ===
+@@ -1,9 +1,10 @@
+ """Domain factory: `training.env` -> the EnvDomain instance.
+ 
+ Single source of truth for the dispatch. training.train and eval.runner used to
+-carry a copy each, and the eval copy went stale - it never learned finqa/repl,
+-so `python -m eval.runner` raised NotImplementedError on either. Imports are
+-lazy per branch so importing this package does not pull every env's deps.
++carry a copy each, and the eval copy went stale - it never learned the domains
++added after it, so `python -m eval.runner` raised NotImplementedError on them.
++Imports are lazy per branch so importing this package does not pull every env's
++deps.
+ """
+ 
+ 
+@@ -15,9 +16,6 @@ def build_domain(config: dict):
+     if env == "textarena":
+         from domains.textarena import TextArenaDomain
+         return TextArenaDomain()
+-    if env == "finqa":
+-        from domains.finqa import FinQADomain
+-        return FinQADomain()
+     if env == "repl":
+         from domains.repl import REPLDomain
+         return REPLDomain()
+@@ -25,5 +23,5 @@ def build_domain(config: dict):
+         from domains.browsergym import BrowserGymDomain
+         return BrowserGymDomain()
+     raise NotImplementedError(
+-        f"Env: {env!r} (known: reasoning_gym, textarena, finqa, repl, browsergym)"
++        f"Env: {env!r} (known: reasoning_gym, textarena, repl, browsergym)"
+     )
+
+
+=== DIFF: pipeline/domains/browsergym/adapter.py ===
+@@ -45,10 +45,11 @@ class BrowserGymEnvAdapter:
+     translates a tool call into it, so this adapter does not parse or format
+     actions itself.
+ 
+-    Unlike finqa, no server patch is needed. reset(seed=N) is deterministic
+-    (verified: same seed reproduces goal and accessibility tree, and survives an
+-    intervening reset), and reset(task_name=...) switches family per episode, so
+-    one server serves the whole mixed task set.
++    No server patch is needed, which is the bar the deleted finqa env failed:
++    reset(seed=N) is deterministic (verified - the same seed reproduces goal and
++    accessibility tree, and survives an intervening reset), and
++    reset(task_name=...) switches family per episode, so one server serves the
++    whole mixed task set.
+ 
+     The client is injectable so the unit tests exercise the adapter logic without
+     the OpenEnv install or a running server.
+@@ -72,7 +73,7 @@ class BrowserGymEnvAdapter:
+     def _connect(base_url):
+         # Lazy: the browsergym client lives in the cloned OpenEnv repo's envs/
+         # package (not on PyPI). .sync() wraps it for TRL, which rejects async
+-        # tools, matching the reasoning_gym/textarena/finqa pattern.
++        # tools, matching the reasoning_gym/textarena pattern.
+         from browsergym_env import BrowserGymEnv
+ 
+         return BrowserGymEnv(base_url).sync()
+
+
+=== DIFF: pipeline/domains/finqa/__init__.py ===
+@@ -1,4 +0,0 @@
+-from domains.finqa.adapter import FinQAEnvAdapter
+-from domains.finqa.domain import FinQADomain
+-
+-__all__ = ["FinQADomain", "FinQAEnvAdapter"]
+
+
+=== DIFF: pipeline/domains/finqa/adapter.py ===
+@@ -1,180 +0,0 @@
+-import os
+-
+-# Default matches FinQADomain.server_env / the e14 config: the dataset is
+-# downloaded into the OpenEnv clone. The adapter reads it directly (see reset).
+-_DEFAULT_DATA_PATH = "/workspace/OpenEnv/envs/finqa_env/data"
+-
+-# Module-level cache: the question CSV is loaded once per training process and
+-# shared across every rollout-slot adapter (keyed by csv path).
+-_QUESTION_CACHE: dict = {}
+-
+-# Cap each tool result's length. Table dumps can be large, and in a multi-turn
+-# episode every result is injected back into the context; an unbounded result can
+-# push the next turn's prompt past max_seq and crash generation. ~1200 chars is
+-# enough to read table names / a few rows while keeping episodes inside budget.
+-_MAX_RESULT_CHARS = 1200
+-
+-
+-def _load_questions(data_path):
+-    """Load (user_query, company) rows from finqa.csv, in file order.
+-
+-    The server loads the same CSV the same way (pd.read_csv) and, after our
+-    seed-patch, selects questions[seed % len]. We mirror that read so the
+-    question text we show the model matches the row the server scores against -
+-    both are a deterministic function of the same seed over the same file.
+-    """
+-    csv_path = os.path.join(data_path, "benchmark_questions", "finqa.csv")
+-    cached = _QUESTION_CACHE.get(csv_path)
+-    if cached is None:
+-        import pandas as pd
+-
+-        df = pd.read_csv(csv_path)
+-        cached = [
+-            {"user_query": str(r["user_query"]), "company": str(r["company"])}
+-            for _, r in df.iterrows()
+-        ]
+-        _QUESTION_CACHE[csv_path] = cached
+-    return cached
+-
+-
+-class FinQAEnvAdapter:
+-    """TRL environment_factory adapter for the OpenEnv finqa env (multi-turn, MCP).
+-
+-    TRL's GRPOTrainer creates one instance per rollout slot, calls reset(**row)
+-    (whose return becomes the prompt), exposes every *other* public method as a
+-    tool the model may call, and reads the task reward off `self.reward`. The
+-    public surface is exactly {reset, get_descriptions, get_table_info,
+-    sql_query, submit_answer}: four tools, since finqa is a tool-use QA env (the
+-    model explores SEC-filing tables, then submits a numeric answer).
+-
+-    Three finqa specifics break the single-tool reasoning_gym pattern:
+-
+-    1. MCP client. The env is served over MCP; `FinQAEnv` is an MCPToolClient.
+-       Its `call_tool(name, **kw)` returns ONLY the tool's string result and
+-       discards reward/done. So the non-terminal tools use call_tool, but the
+-       terminal `submit_answer` MUST go through `step(CallToolAction(...))` to
+-       read the env reward off the StepResult.
+-
+-    2. Question delivery. finqa's reset puts the question in Observation.metadata,
+-       but the OpenEnv serializer drops metadata, so the question never reaches
+-       the client over the wire. The question is a pure function of the seed over
+-       finqa.csv, so we read it locally (same file, same seed -> same row the
+-       server scores) while still calling the server reset to arm its ground
+-       truth. The company is fixed per episode, so the tool methods inject it.
+-
+-    3. Multi-turn (up to FINQA_MAX_STEPS tool calls), so the adapter keeps
+-       `self.done` like textarena. Reward is binary (1 correct / 0 wrong), set
+-       only after submit_answer.
+-
+-    The client is injectable so the unit tests exercise the adapter logic without
+-    the OpenEnv install or a running server.
+-    """
+-
+-    def __init__(self, base_url, env_config=None, client=None):
+-        self._env_config = dict(env_config or {})
+-        self._data_path = self._env_config.get("data_path", _DEFAULT_DATA_PATH)
+-        self._client = client if client is not None else self._connect(base_url)
+-        self._company = ""
+-        self.reward = 0.0
+-        self.done = False
+-
+-    @staticmethod
+-    def _connect(base_url):
+-        # Lazy: the finqa client lives in the cloned OpenEnv repo's envs/ package
+-        # (not on PyPI). FinQAEnv is an MCPToolClient; .sync() wraps it for TRL,
+-        # matching the reasoning_gym/textarena pattern (the sync client connects
+-        # on first call - no explicit connect() needed).
+-        from finqa_env import FinQAEnv
+-
+-        return FinQAEnv(base_url).sync()
+-
+-    def _call(self, tool, **arguments):
+-        # Non-terminal MCP tool call: returns the tool's string result. call_tool
+-        # discards reward/done, which is correct here (these tools carry neither).
+-        result = str(self._client.call_tool(tool, **arguments))
+-        if len(result) > _MAX_RESULT_CHARS:
+-            result = result[:_MAX_RESULT_CHARS] + "\n...[truncated]"
+-        return result
+-
+-    def reset(self, *, seed=None, prompt=None, **_row):
+-        """Arm the server for this seed and return the question + company text.
+-
+-        TRL appends the returned string to the prompt's last user message, then
+-        applies the tool-calling chat template. The server reset arms the
+-        ground-truth answer for scoring (deterministic after the seed-patch); the
+-        question text shown to the model is read locally from finqa.csv at the
+-        same seed (the server's metadata channel is dropped by the serializer).
+-        The seed is required: an unseeded server reset arms a *random* question
+-        while this method would show row 0, so the episode would be scored
+-        against an answer the model never saw - silently, reward ~0 regardless
+-        of model quality. `prompt` and other dataset columns arrive as kwargs
+-        and are ignored.
+-        """
+-        if seed is None:
+-            raise ValueError(
+-                "FinQA reset requires a seed: the shown question is read locally "
+-                "at seed % len while an unseeded server reset scores a random one"
+-            )
+-        self._client.reset(seed=seed)
+-        questions = _load_questions(self._data_path)
+-        row = questions[seed % len(questions)]
+-        self._company = row["company"]
+-        self.reward = 0.0
+-        self.done = False
+-        return f"Question: {row['user_query']}\nCompany: {self._company}"
+-
+-    def get_descriptions(self) -> str:
+-        """List the data tables available for this company's SEC filing.
+-
+-        Call this first to discover which tables exist. Returns a JSON list of
+-        table names to pass to get_table_info / sql_query.
+-        """
+-        return self._call("get_descriptions", company_name=self._company)
+-
+-    def get_table_info(self, table_name: str) -> str:
+-        """Inspect one table's schema before querying it.
+-
+-        Returns the table's description, column data types, and sample values.
+-
+-        Args:
+-            table_name: A table name returned by get_descriptions.
+-        """
+-        return self._call("get_table_info", company_name=self._company, table_name=table_name)
+-
+-    def sql_query(self, table_name: str, query: str) -> str:
+-        """Run a read-only SQL query against one table and read the rows.
+-
+-        The query must filter (a WHERE/HAVING/IN/... clause is required; bare
+-        SELECT * is rejected).
+-
+-        Args:
+-            table_name: The table to query (from get_descriptions).
+-            query: A SQL SELECT statement with a filter clause.
+-        """
+-        return self._call("sql_query", company_name=self._company, table_name=table_name, query=query)
+-
+-    def submit_answer(self, answer: str) -> str:
+-        """Submit your final numeric answer and end the episode.
+-
+-        TRL renders this method into the tool spec the model sees, so this
+-        summary and the Args description below are the tool's model-facing
+-        documentation. transformers' get_json_schema requires a Google-style Args
+-        entry for every parameter.
+-
+-        Args:
+-            answer: The final answer to the question (a number, e.g. "6.118").
+-        """
+-        if self.done:
+-            # Done-guard: once the episode is over, a model that keeps calling
+-            # tools cannot corrupt the terminal reward.
+-            return "The question is already answered; no further tools are accepted."
+-        # submit_answer carries the reward, which call_tool drops - so go through
+-        # step(CallToolAction) and read the top-level StepResult.reward.
+-        from openenv.core.env_server.mcp_types import CallToolAction
+-
+-        result = self._client.step(
+-            CallToolAction(tool_name="submit_answer", arguments={"answer": answer})
+-        )
+-        self.reward = float(getattr(result, "reward", 0.0) or 0.0)
+-        self.done = bool(getattr(result, "done", True))
+-        return f"Recorded answer: {answer}"
+
+
+=== DIFF: pipeline/domains/finqa/domain.py ===
+@@ -1,85 +0,0 @@
+-from domains.env_base import EnvDomain
+-from domains.finqa.adapter import FinQAEnvAdapter
+-
+-# Brief task framing prepended to each prompt's user message. The tool spec is
+-# injected by the model's native tool-calling template (tools=...); this only
+-# nudges the model through the finqa workflow. reset() appends the question +
+-# company after this lead-in (TRL appends to the last user message).
+-_LEAD_IN = (
+-    "You are answering a financial question about a company's SEC 10-K filing. "
+-    "Work with the data tools: call get_descriptions to list the tables, "
+-    "get_table_info to inspect a table's columns, and sql_query to read values. "
+-    "When you have the number, call submit_answer with it.\n\n"
+-)
+-
+-
+-class FinQADomain(EnvDomain):
+-    """Third agentic domain: FinQA financial QA served through OpenEnv (MCP).
+-
+-    Multi-turn (the model explores tables across several tool calls before
+-    submitting), so the efficiency reward counts the model's assistant tokens
+-    across all turns, excluding the tool results the env injects between them.
+-    The adapter exposes four tools; the env reward is binary (1 correct / 0
+-    wrong), set only after submit_answer.
+-
+-    The finqa server selects questions non-deterministically as shipped (an
+-    unseeded shuffle), which breaks both the EnvDomain seed->question contract
+-    and GRPO's same-question-per-group invariant on a shared server. We carry a
+-    small server patch (see decisions.md / openenv_patches) making reset(seed=N)
+-    select questions[N % len] deterministically; this domain assumes it applied.
+-    """
+-
+-    # `python -m <server_module>` launches the OpenEnv env server (no Docker).
+-    server_module = "finqa_env.server.app"
+-    multi_turn = True
+-
+-    def make_env_factory(self, base_url, env_config=None, client_factory=None):
+-        env_config = dict(env_config or {})
+-        if client_factory is None:
+-            return lambda: FinQAEnvAdapter(base_url, env_config)
+-        # Test/injection path: build the adapter around a supplied client.
+-        return lambda: FinQAEnvAdapter(base_url, env_config, client=client_factory())
+-
+-    def build_seed_dataset(self, env_config=None, n=500, seed_base=0):
+-        # Each row is one training prompt: a fixed lead-in plus a distinct seed.
+-        # TRL repeats each row num_generations times to form a GRPO group, and
+-        # reset(seed=...) turns the seed into a deterministic question (one shared
+-        # question per group, given the server seed-patch).
+-        from datasets import Dataset
+-
+-        rows = [
+-            {"prompt": [{"role": "user", "content": _LEAD_IN}], "seed": seed_base + i}
+-            for i in range(int(n))
+-        ]
+-        return Dataset.from_list(rows)
+-
+-    def episode_messages(self, question):
+-        """Eval-time prompt for one episode. Mirrors the training framing: the
+-        same lead-in the seed rows carry, with the env question text appended (in
+-        training, TRL appends the question to the row's lead-in via reset)."""
+-        return [{"role": "user", "content": _LEAD_IN + question}]
+-
+-    def eval_tools(self, env):
+-        """The four finqa tools, in workflow order."""
+-        return [env.get_descriptions, env.get_table_info, env.sql_query, env.submit_answer]
+-
+-    def server_env(self, env_config=None):
+-        # The finqa server reads its data dir and step cap from process env vars.
+-        # FINQA_DATA_PATH default is a Docker path; our no-Docker launch must
+-        # point it at the dataset downloaded into the OpenEnv clone.
+-        #
+-        # The step cap comes from `max_turns`, the same key training
+-        # (max_tool_calling_iterations) and eval read, so all three agree. It used
+-        # to have its own `max_steps` key, which let the server cap (50) diverge
+-        # from the eval cap (8) while training ran unbounded - TRL treats an unset
+-        # max_tool_calling_iterations as sys.maxsize, and finqa's non-terminal
+-        # tools use call_tool, which drops `done`, so the adapter never sees the
+-        # server force-end and the loop had no client-side backstop.
+-        cfg = dict(env_config or {})
+-        env = {
+-            "FINQA_DATA_PATH": str(cfg.get("data_path", "/workspace/OpenEnv/envs/finqa_env/data")),
+-            "FINQA_TASK": "finqa",
+-        }
+-        if cfg.get("max_turns") is not None:
+-            env["FINQA_MAX_STEPS"] = str(int(cfg["max_turns"]))
+-        return env
+
+
+=== DIFF: pipeline/domains/reasoning_gym/adapter.py ===
+@@ -75,7 +75,7 @@ class ReasoningGymEnvAdapter:
+             answer: The final answer to submit for the current question.
+         """
+         # Re-entry guard, matching every sibling adapter (textarena.move,
+-        # finqa.submit_answer, repl.execute, browsergym._act). Without it a
++        # repl.execute, browsergym._act). Without it a
+         # second call re-stepped the env and overwrote self.reward, so a rollout
+         # that answered correctly and then answered again trained as WRONG while
+         # eval - which reads the first call - scored it correct. Training and
+
+
+=== DIFF: pipeline/domains/repl/adapter.py ===
+@@ -79,7 +79,7 @@ class REPLEnvAdapter:
+             # Done-guard: once a final answer is recorded, further code cannot
+             # corrupt the terminal reward.
+             return "The task is already answered; no further code is accepted."
+-        # step(REPLAction) is the canonical path (matches textarena/finqa); the
++        # step(REPLAction) is the canonical path (matches textarena); the
+         # client's execute() convenience wraps the same call.
+         from repl_env import REPLAction
+ 
+
+
+=== DIFF: pipeline/eval/agentic_eval.py ===
+@@ -169,8 +169,8 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
+     feedback, so ending the episode here would score a recoverable
+     hallucination as no_tool_call. The episode ends when the model emits no
+     call at all, the env reports done, or the budget runs out. This one loop
+-    drives every multi-turn domain - textarena (move), finqa (the four data
+-    tools), repl (execute) - via the parsed tool name. n_tokens is the
++    drives every multi-turn domain - textarena (move), repl (execute),
++    browsergym (the action tools) - via the parsed tool name. n_tokens is the
+     trajectory total (model-only, exact); n_steps is the count of calls that
+     reached the env, so a turn issuing several calls counts several steps.
+ 
+
+
+=== DIFF: pipeline/probes/env_check.py ===
+@@ -18,8 +18,6 @@ CASES = [
+      {"REASONING_GYM_DATASET": "polynomial_equations"}),
+     ("textarena", "textarena_env.server.app", 8202, {"TEXTARENA_ENV_ID": "Wordle-v0"}),
+     ("repl", "repl_env.server.app", 8203, {}),
+-    ("finqa", "finqa_env.server.app", 8204,
+-     {"FINQA_DATA_PATH": "/workspace/OpenEnv/envs/finqa_env/data"}),
+ ]
+ 
+ 
+
+
+=== DIFF: pipeline/tests/test_agentic_schema.py ===
+@@ -58,11 +58,12 @@ def test_build_domain_dispatches_reasoning_gym():
+     assert isinstance(d, ReasoningGymDomain)
+ 
+ 
+-def test_build_domain_dispatches_finqa():
+-    # The stale dispatch in eval/runner.py never learned finqa/repl.
+-    from domains.finqa import FinQADomain
+-    d = build_domain({"training": {"env": "finqa"}})
+-    assert isinstance(d, FinQADomain)
++def test_build_domain_dispatches_repl():
++    # A domain added after the dispatch was duplicated: the stale copy in
++    # eval/runner.py never learned the later ones.
++    from domains.repl import REPLDomain
++    d = build_domain({"training": {"env": "repl"}})
++    assert isinstance(d, REPLDomain)
+ 
+ 
+ def test_build_domain_rejects_unknown_env():
+
+
+=== DIFF: pipeline/tests/test_env_adapter.py ===
+@@ -120,7 +120,7 @@ def test_answer_tool_schema_is_generatable():
+ # so a rollout that answered correctly and then answered again trained as WRONG
+ # while eval - which reads the first call - scored it correct. Two plausible
+ # numbers, disagreeing about the same trajectory. Every sibling adapter
+-# (textarena.move, finqa.submit_answer, repl.execute, browsergym._act) guards.
++# (textarena.move, repl.execute, browsergym._act) guards.
+ 
+ class _ScoringClient(_FakeClient):
+     """Scores each submitted answer against a map, so order is observable."""
+
+
+=== DIFF: pipeline/tests/test_env_domain.py ===
+@@ -87,13 +87,6 @@ def test_reasoning_gym_eval_tools_is_answer():
+ # whose server cap lives under its own key leaves the training tool loop
+ # unbounded. Every multi-turn domain reads the same `max_turns`.
+ 
+-def test_finqa_server_env_maps_max_turns_to_its_step_cap():
+-    from domains.finqa import FinQADomain
+-
+-    env = FinQADomain().server_env({"max_turns": 12})
+-    assert env["FINQA_MAX_STEPS"] == "12"
+-
+-
+ def test_repl_server_env_maps_max_turns_to_its_iteration_cap():
+     from domains.repl import REPLDomain
+ 
+@@ -109,6 +102,6 @@ def test_schema_rejects_the_old_per_domain_cap_aliases():
+         with pytest.raises(ValueError, match="env_config"):
+             validate_config({
+                 "experiment_id": "x", "model": {"slug": "qwen3-1.7b"},
+-                "training": {"mode": "agentic", "env": "finqa",
++                "training": {"mode": "agentic", "env": "repl",
+                              "env_config": {stale: 12}},
+             })
+
+
+=== DIFF: pipeline/tests/test_finqa_adapter.py ===
+@@ -1,16 +0,0 @@
+-"""FinQA reset must be seeded.
+-
+-The shown question is read locally at seed % len while the server arms its
+-ground truth from the same seed. An unseeded reset armed a *random* server
+-question against the locally-shown row 0, so the episode was silently scored
+-against an answer the model never saw.
+-"""
+-import pytest
+-
+-from domains.finqa.adapter import FinQAEnvAdapter
+-
+-
+-def test_reset_without_seed_raises():
+-    adapter = FinQAEnvAdapter("http://x", client=object())
+-    with pytest.raises(ValueError, match="seed"):
+-        adapter.reset()
+
+
+=== DIFF: pipeline/training/config_schema.py ===
+@@ -79,8 +79,6 @@ _KNOWN_ENV_CONFIG_KEYS = {
+     "dataset", "dataset_name", "dataset_config", "size",
+     # textarena
+     "env_id", "num_players",
+-    # finqa
+-    "data_path",
+     # browsergym: `tasks` is the MiniWoB family list the seed cycles through
+     # (`tasks[seed % len]`), so it also sets the training task mix. `miniwob_url`
+     # points at the served miniwob-plusplus HTML, which browsergym-miniwob does
+@@ -88,9 +86,9 @@ _KNOWN_ENV_CONFIG_KEYS = {
+     "tasks", "benchmark", "miniwob_url",
+     # Every multi-turn domain: the ONE turn cap. Read by training
+     # (max_tool_calling_iterations), by the eval loop, and mapped to each
+-    # server's own env var (TEXTARENA_MAX_TURNS / FINQA_MAX_STEPS /
+-    # REPL_MAX_ITERATIONS). finqa's `max_steps` and repl's `max_iterations`
+-    # were per-domain aliases that let the three caps drift apart.
++    # server's own env var (TEXTARENA_MAX_TURNS / REPL_MAX_ITERATIONS).
++    # repl's `max_iterations` and the deleted finqa's `max_steps` were
++    # per-domain aliases that let the caps drift apart.
+     "max_turns",
+ }
+ 
+
+
+=== DIFF: pipeline/training/env_server.py ===
+@@ -133,7 +133,7 @@ def build_env_server(config, domain, python=None) -> EnvServerProcess:
+               * int(t.get("n_rollouts", DEFAULT_N_ROLLOUTS)))
+     return EnvServerProcess(
+         env_module=domain.server_module,
+-        # 8000 is every OpenEnv server's own default. finqa/repl/textarena/
++        # 8000 is every OpenEnv server's own default. repl/textarena/
+         # browsergym bind it unconditionally (their apps ignore the --port argv
+         # this process passes), and reasoning_gym honors whatever --port it
+         # gets - so one shared default keeps the readiness probe and the
+
+
+=== DIFF: pipeline/training/rewards/non_termination.py ===
+@@ -13,9 +13,10 @@ class NonTerminationPenalty:
+     not finishing. Weights stay positive across every reward in the registry.
+ 
+     `done` is the adapter's termination flag - set by the terminal tool
+-    (reasoning_gym `answer`, finqa `submit_answer`, repl's FINAL, textarena's
+-    solving move). An episode that ran out of turns, stopped emitting tool calls,
+-    or filled the token budget leaves it False.
++    (reasoning_gym `answer`, repl's FINAL, textarena's solving move) or, in
++    browsergym, by whichever action makes the env itself report done. An episode
++    that ran out of turns, stopped emitting tool calls, or filled the token budget
++    leaves it False.
+ 
+     Caveat, and the reason the E3 sweep runs under `naive_sum`: under
+     `advantage_weighted` each component is z-scored per prompt-group, and a
+
+
+Investigate per the method in your instructions, then return the findings list.
