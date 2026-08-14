@@ -1,0 +1,19 @@
+➜  master-thesis-code git:(master) sudo pfctl -F all -f /etc/pf.conf
+Password:
+pfctl: Use of -f option, could result in flushing of rules
+present in the main ruleset added by the system at startup.
+See /etc/pf.conf for further details.
+
+No ALTQ support in kernel
+ALTQ related functions disabled
+rules cleared
+nat cleared
+dummynet cleared
+0 tables deleted.
+1 states cleared
+source tracking entries cleared
+pf: statistics cleared
+pf: interface flags reset
+➜  master-thesis-code git:(master) nc -vz -w8 www.tu-berlin.de 443 && nc -vz -w8 130.149.248.103 30236 && ssh gpu-l4 hostname
+www.tu-berlin.de [141.23.73.70] 443 (https) open
+siena04.cit.tu-berlin.de [130.149.248.103] 30236: Connection refused
