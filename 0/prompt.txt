@@ -1,0 +1,5 @@
+is our @CLAUDE.md also aligned with such specifics?
+
+maybe do a broad sweep accross the project, align the @CLAUDE.md based on your analysis and also with all our learnings and best practices.
+
+add to the claude md as well that regressions are the worst thing that can happen to us since we make scientific work and we need to make sure that we never accidentally introduce new errors which would invalidate all of our results. therefore careful validation of assumptions is always to be done
