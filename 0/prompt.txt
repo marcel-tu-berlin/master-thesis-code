@@ -1,0 +1,627 @@
+Review this change for security vulnerabilities.
+
+Changed files (you may Read these and any other file in the repo):
+  - pipeline/configs/e27-browsergym-e1-baseline-qwen3-1_7b.yaml
+  - pipeline/domains/__init__.py
+  - pipeline/domains/browsergym/__init__.py
+  - pipeline/domains/browsergym/adapter.py
+  - pipeline/domains/browsergym/domain.py
+  - pipeline/probes/bg_seed_check.py
+  - pipeline/tests/test_browsergym_adapter.py
+  - pipeline/training/config_schema.py
+
+Unified diff (only + lines are new):
+
+=== DIFF: pipeline/configs/e27-browsergym-e1-baseline-qwen3-1_7b.yaml ===
+@@ -0,0 +1,78 @@
++experiment_id: e27-browsergym-e1-baseline-qwen3-1_7b
++description: "E27: task-success-only GRPO on BrowserGym/MiniWoB (E1), the specialized baseline every later condition is shaped on top of. Environment chosen by the feasibility probe (runs/browsergym_feasibility_findings.md) after e26 disqualified finqa. Task mix is deliberate: click-option supplies headroom (0.50 base success, inside the 40-80% band where GRPO gets within-group variance), click-checkboxes supplies axis separation (0.35 success against 0.50 termination). Headroom alone is not enough - on a set where every terminated episode is correct, reducing non-termination IS increasing task success, so a non-termination penalty would be indistinguishable from a task reward and RQ2 would have nothing to measure. naive_sum, not the advantage_weighted default: the E3 lambda sweep runs under naive_sum (a binary termination flag has zero within-group variance once rollouts terminate reliably, and advantage_weighted contributes exactly 0 there), so the lambda=0 control must run the same composer or it is not this sweep's baseline. Budget geometry: max_seq 8192 with max_prompt_length 6144 leaves 2048 per turn. That number is measured, not guessed - at 512 the probe read click-option as 0.10 with 17 of 20 episodes truncated, and the same task gives 0.50 at 2048. Qwen3's think block costs ~300 tokens per turn and every prior turn's block stays in context, so a budget that fits turn 1 does not fit turn 3. Turning thinking off is not the cheaper fix: the model then emits 24 tokens and passes the visible label instead of the element id."
++seed: 42
++
++model:
++  slug: qwen3-1.7b
++  lora_r: 16
++  # Multi-turn context: the prompt regrows each turn with the assistant's tool
++  # call, its think block, and the injected page.
++  max_seq_length: 8192
++  gpu_memory_utilization: 0.30
++
++training:
++  mode: agentic
++  env: browsergym
++  env_config:
++    benchmark: miniwob
++    # The seed cycles this list (`tasks[seed % len]`), so the mix is exactly
++    # balanced across the training set and reproducible per seed.
++    tasks: [click-option, click-checkboxes]
++    # MiniWoB HTML is not shipped with browsergym-miniwob. This must point at a
++    # served clone of miniwob-plusplus or the env raises "core is not defined"
++    # at the first reset. Start it before launching:
++    #   cd /workspace/miniwob-plusplus/miniwob/html && python3 -m http.server 8080
++    miniwob_url: http://localhost:8080/miniwob/
++    # The one turn cap. The probe needed 1.9 steps on click-option and 2.0 on
++    # click-checkboxes; 8 leaves room for retries and stalls without letting a
++    # looping episode run away.
++    max_turns: 8
++  env_server:
++    repo_path: /workspace/OpenEnv/envs
++    port: 8000
++  max_prompt_length: 6144
++  n_rollouts: 8
++  micro_batch_size: 1
++  max_steps: 300
++  learning_rate: 5e-6
++  kl_beta: 0.001
++
++rewards:
++  # Matches the E3 sweep's composer so lambda=0 is the same code path.
++  compose_method: naive_sum
++  env_reward:
++    enabled: true
++    weight: 1.0
++
++eval:
++  temperature: 0.0
++  do_sample: false
++  agentic:
++    splits:
++      # Held-out: same task mix as training, seeds disjoint via the offset.
++      - name: held_out
++        n_episodes: 100
++      # Shifted: two click-only families never trained on, both picked from a
++      # probe of eight candidates rather than guessed (click-widget 0.60/0.70,
++      # navigate-tree 0.70/0.75 base success/termination). Both clear the same
++      # two bars as the training mix - inside the band, and success below
++      # termination so the axes stay separable on the shifted split too.
++      #
++      # The shift is structural, not just unseen labels. Training is
++      # select-then-submit twice over (radio + Submit, checkboxes + Submit);
++      # click-widget is a single typed-widget click with no submit step, and
++      # navigate-tree is hierarchical. A drop here is transfer failure, not a
++      # missing tool: both are solvable with `click` alone.
++      #
++      # Rejected candidates and why, so this is not re-litigated: click-tab 1.00
++      # and click-collapsible 0.95 are saturated; click-link 0.00 and
++      # click-checkboxes-large 0.05 are unreachable (the latter budget-bound, 12
++      # of 20 episodes truncated); click-color and click-shape are structurally
++      # impossible here - color and shape are absent from an accessibility tree,
++      # so a text-only observation cannot see the target at all (click-shape
++      # terminated 19 of 20 times and was never right).
++      - name: shifted
++        n_episodes: 100
++        env_config:
++          tasks: [click-widget, navigate-tree]
++        seed_offset: 200000
+
+
+=== DIFF: pipeline/domains/__init__.py ===
+@@ -21,6 +21,9 @@ def build_domain(config: dict):
+     if env == "repl":
+         from domains.repl import REPLDomain
+         return REPLDomain()
++    if env == "browsergym":
++        from domains.browsergym import BrowserGymDomain
++        return BrowserGymDomain()
+     raise NotImplementedError(
+-        f"Env: {env!r} (known: reasoning_gym, textarena, finqa, repl)"
++        f"Env: {env!r} (known: reasoning_gym, textarena, finqa, repl, browsergym)"
+     )
+
+
+=== DIFF: pipeline/domains/browsergym/__init__.py ===
+@@ -0,0 +1,4 @@
++from domains.browsergym.adapter import BrowserGymEnvAdapter
++from domains.browsergym.domain import BrowserGymDomain
++
++__all__ = ["BrowserGymDomain", "BrowserGymEnvAdapter"]
+
+
+=== DIFF: pipeline/domains/browsergym/adapter.py ===
+@@ -0,0 +1,149 @@
++# The two MiniWoB families the feasibility probe selected (see
++# pipeline/runs/browsergym_feasibility_findings.md). click-option supplies
++# headroom (0.50 base success, inside the 40-80% band); click-checkboxes supplies
++# the property that headroom alone does not: its success (0.35) sits BELOW its
++# termination rate (0.50), so task performance and the off-target axis can move
++# independently. On click-option every terminated episode is correct, which would
++# make a non-termination penalty indistinguishable from a task reward.
++_DEFAULT_TASKS = ("click-option", "click-checkboxes")
++
++# Cap the accessibility tree injected back after each action. The probed families
++# render ~300 chars, but a MiniWoB page with a long list can be much larger, and
++# in a multi-turn episode every result re-enters the context. Qwen3's think block
++# already costs ~300 tokens per turn and accumulates, so an unbounded observation
++# is what pushes a later turn past the budget.
++_MAX_OBS_CHARS = 2000
++
++
++def _obs_text(observation) -> str:
++    """The page as the model should see it: accessibility tree, bids included."""
++    text = (getattr(observation, "axtree_txt", "") or
++            getattr(observation, "text", "") or "")
++    text = str(text).strip()
++    if len(text) > _MAX_OBS_CHARS:
++        text = text[:_MAX_OBS_CHARS] + "\n...[truncated]"
++    return text
++
++
++class BrowserGymEnvAdapter:
++    """TRL environment_factory adapter for the OpenEnv browsergym env (MiniWoB).
++
++    TRL's GRPOTrainer creates one instance per rollout slot, calls reset(**row)
++    (whose return becomes the prompt), exposes every *other* public method as a
++    tool, and reads the task reward off `self.reward`. The public surface is
++    exactly {reset, click, noop}.
++
++    Two tools, not the five browsergym ships. `fill`, `send_keys` and `scroll` do
++    nothing on click-option or click-checkboxes - both families are solved by
++    clicking radios/checkboxes and then Submit - and a tool that cannot affect the
++    task would only add a hallucination target. `noop` is kept deliberately: it is
++    a literal do-nothing action, so stalling becomes a tool call we can count
++    rather than an absence we have to infer. Add `fill` when a task needs typing.
++
++    The action bridge is upstream: browsergym takes a string DSL
++    (`click("13")`), and `harness.build_browsergym_action_str(name, args)`
++    translates a tool call into it, so this adapter does not parse or format
++    actions itself.
++
++    Unlike finqa, no server patch is needed. reset(seed=N) is deterministic
++    (verified: same seed reproduces goal and accessibility tree, and survives an
++    intervening reset), and reset(task_name=...) switches family per episode, so
++    one server serves the whole mixed task set.
++
++    The client is injectable so the unit tests exercise the adapter logic without
++    the OpenEnv install or a running server.
++    """
++
++    def __init__(self, base_url, env_config=None, client=None):
++        self._env_config = dict(env_config or {})
++        # An ABSENT `tasks` takes the default mix; an explicitly EMPTY one is a
++        # config error. Collapsing the two would silently train the default mix
++        # under a config that says otherwise.
++        tasks = self._env_config.get("tasks")
++        tasks = _DEFAULT_TASKS if tasks is None else tasks
++        self._tasks = tuple(str(t) for t in tasks)
++        if not self._tasks:
++            raise ValueError("browsergym env_config['tasks'] must name at least one task")
++        self._client = client if client is not None else self._connect(base_url)
++        self.reward = 0.0
++        self.done = False
++
++    @staticmethod
++    def _connect(base_url):
++        # Lazy: the browsergym client lives in the cloned OpenEnv repo's envs/
++        # package (not on PyPI). .sync() wraps it for TRL, which rejects async
++        # tools, matching the reasoning_gym/textarena/finqa pattern.
++        from browsergym_env import BrowserGymEnv
++
++        return BrowserGymEnv(base_url).sync()
++
++    def _make_action(self, tool, arguments):
++        """Tool call -> the browsergym action object.
++
++        The one seam that touches the OpenEnv clone on the action path, imported
++        lazily and kept in a single method so the unit tests can replace it and
++        run without browsergym installed.
++        """
++        from browsergym_env import BrowserGymAction
++        from browsergym_env.harness import build_browsergym_action_str
++
++        return BrowserGymAction(action_str=build_browsergym_action_str(tool, arguments))
++
++    def _act(self, tool, **arguments) -> str:
++        """Send one action and return the resulting page, or the env's error."""
++        if self.done:
++            # Done-guard: once the episode is over, further tool calls must not
++            # overwrite the terminal reward.
++            return "The episode is already finished; no further actions are accepted."
++        result = self._client.step(self._make_action(tool, arguments))
++        # MiniWoB pays out on the terminating step and 0 before it, so last-wins
++        # is the terminal reward. The done-guard above stops a later call from
++        # overwriting it.
++        self.reward = float(getattr(result, "reward", 0.0) or 0.0)
++        self.done = bool(getattr(result, "done", False))
++        observation = getattr(result, "observation", None)
++        error = str(getattr(observation, "error", "") or "")
++        page = _obs_text(observation)
++        if error:
++            return f"Action error: {error}\nPage now:\n{page}"
++        return f"Page now:\n{page}"
++
++    def reset(self, *, seed=None, prompt=None, **_row):
++        """Load this seed's page and return its goal plus accessibility tree.
++
++        TRL appends the returned string to the prompt's last user message, then
++        applies the tool-calling chat template. The task family is a pure function
++        of the seed (`tasks[seed % len(tasks)]`) because the eval loop resets with
++        a seed and nothing else, and because every rollout slot in a GRPO group
++        must land on the same page. `prompt` and other dataset columns arrive as
++        kwargs and are ignored.
++        """
++        s = 0 if seed is None else int(seed)
++        task = self._tasks[s % len(self._tasks)]
++        result = self._client.reset(seed=s, task_name=task)
++        self.reward = 0.0
++        self.done = False
++        observation = getattr(result, "observation", None)
++        goal = str(getattr(observation, "goal", "") or "").strip()
++        return f"Task: {goal}\n\nPage:\n{_obs_text(observation)}"
++
++    def click(self, bid: str) -> str:
++        """Click an element on the page and see the page that results.
++
++        TRL renders this method into the tool spec the model sees, so this summary
++        and the Args entry below are the tool's model-facing documentation.
++        transformers' get_json_schema requires a Google-style Args entry for every
++        parameter.
++
++        Args:
++            bid: The element id in square brackets in the accessibility tree, without
++                the brackets (for `[24] radio 'O2F2ioz'`, pass "24").
++        """
++        return self._act("click", bid=str(bid))
++
++    def noop(self) -> str:
++        """Do nothing this turn and look at the page again.
++
++        Use only when no action is appropriate; it does not advance the task.
++        """
++        return self._act("noop")
+
+
+=== DIFF: pipeline/domains/browsergym/domain.py ===
+@@ -0,0 +1,97 @@
++from domains.env_base import EnvDomain
++from domains.browsergym.adapter import BrowserGymEnvAdapter
++
++# Brief task framing prepended to each prompt's user message. The tool spec is
++# injected by the model's native tool-calling template (tools=...); this only
++# frames the setting. reset() appends the goal and the page after this lead-in
++# (TRL appends to the last user message).
++_LEAD_IN = (
++    "You are controlling a web page. Read the goal and the accessibility tree, "
++    "then call one tool per turn to act on the page. Element ids are the numbers "
++    "in square brackets. Most tasks need a selection followed by clicking Submit.\n\n"
++)
++
++
++class BrowserGymDomain(EnvDomain):
++    """MiniWoB web tasks served through OpenEnv's browsergym env.
++
++    Selected over finqa by the feasibility probe
++    (`pipeline/runs/browsergym_feasibility_findings.md`). The two properties that
++    decided it, neither of which finqa had:
++
++    1. Difficulty is selectable. MiniWoB spans saturated (click-test 1.00) to
++       unreachable (click-tab-2 0.00) for Qwen3-1.7B, so a task set can be chosen
++       inside the 40-80% band where GRPO gets within-group variance and the E1
++       baseline has headroom. finqa was fixed at 1% with no dial.
++    2. Task performance and the off-target axis can be decoupled. The default set
++       mixes click-option (0.50 success, headroom) with click-checkboxes (0.35
++       success against 0.50 termination, so the axes separate). On a set where
++       every terminated episode is correct, a non-termination penalty would be
++       indistinguishable from a task reward and RQ2 would have nothing to measure.
++
++    Multi-turn: the model clicks its way through a page across several turns, so
++    the efficiency reward counts assistant tokens across all turns, excluding the
++    page observations the env injects between them. The dominant base-model
++    failure is `no_tool_call` - stopping without acting - which is premature
++    stopping measured directly rather than inferred.
++    """
++
++    # `python -m <server_module>` launches the OpenEnv env server (no Docker).
++    server_module = "browsergym_env.server.app"
++    multi_turn = True
++
++    def make_env_factory(self, base_url, env_config=None, client_factory=None):
++        env_config = dict(env_config or {})
++        if client_factory is None:
++            return lambda: BrowserGymEnvAdapter(base_url, env_config)
++        # Test/injection path: build the adapter around a supplied client.
++        return lambda: BrowserGymEnvAdapter(base_url, env_config, client=client_factory())
++
++    def build_seed_dataset(self, env_config=None, n=500, seed_base=0):
++        # Each row is one training prompt: a fixed lead-in plus a distinct seed.
++        # TRL repeats each row num_generations times to form a GRPO group, and
++        # reset(seed=...) turns the seed into a deterministic (task, page) pair -
++        # so every rollout in a group sees the same page, and the mixed task set
++        # is interleaved evenly by `tasks[seed % len(tasks)]`.
++        from datasets import Dataset
++
++        rows = [
++            {"prompt": [{"role": "user", "content": _LEAD_IN}], "seed": seed_base + i}
++            for i in range(int(n))
++        ]
++        return Dataset.from_list(rows)
++
++    def episode_messages(self, observation):
++        """Eval-time prompt for one episode. Mirrors the training framing: the
++        same lead-in the seed rows carry, with the env's goal + page appended (in
++        training, TRL appends reset's return to the row's lead-in)."""
++        return [{"role": "user", "content": _LEAD_IN + str(observation)}]
++
++    def eval_tools(self, env):
++        """The adapter's two tools. `noop` is exposed so stalling is a countable
++        tool call rather than an absence to infer."""
++        return [env.click, env.noop]
++
++    def server_env(self, env_config=None):
++        # The browsergym server is configured entirely by process env vars.
++        # BROWSERGYM_TASK_NAME is only the server's default: the adapter passes
++        # task_name per reset, which is how one server serves the mixed set.
++        #
++        # No turn-cap var here on purpose. browsergym has no server-side step cap,
++        # so `max_turns` is enforced client-side only - by TRL's
++        # max_tool_calling_iterations in training and by the eval loop's turn
++        # budget. Both read the same `max_turns` key, so the two agree; there is
++        # simply no third place for them to disagree with.
++        cfg = dict(env_config or {})
++        tasks = cfg.get("tasks") or ["click-option", "click-checkboxes"]
++        env = {
++            "BROWSERGYM_BENCHMARK": str(cfg.get("benchmark", "miniwob")),
++            "BROWSERGYM_TASK_NAME": str(tasks[0]),
++            "BROWSERGYM_HEADLESS": "true",
++        }
++        # MiniWoB's HTML is not shipped with browsergym-miniwob; it is served from
++        # a clone of miniwob-plusplus. Without this the env raises at the first
++        # reset with "core is not defined".
++        if cfg.get("miniwob_url"):
++            env["MINIWOB_URL"] = str(cfg["miniwob_url"])
++        return env
+
+
+=== DIFF: pipeline/probes/bg_seed_check.py ===
+@@ -0,0 +1,54 @@
++"""Is BrowserGym reset(seed=N) deterministic, and does task_name switch per reset?
++
++Both are hard requirements. GRPO repeats a prompt num_generations times across
++rollout slots; if reset(seed=N) is not a pure function of N the slots get
++different pages and the group is not a group. FinQA needed a patch for exactly
++this.
++"""
++import sys, time, subprocess, os, urllib.request
++sys.path.insert(0, "/workspace/OpenEnv/envs")
++sys.path.insert(0, "/tmp")
++from bg_probe import start_server
++from browsergym_env import BrowserGymEnv
++
++assert start_server("click-option"), "server failed"
++env = BrowserGymEnv("http://localhost:8100").sync()
++
++
++def page(seed=None, task=None):
++    kw = {}
++    if seed is not None:
++        kw["seed"] = seed
++    if task is not None:
++        kw["task_name"] = task
++    o = env.reset(**kw).observation
++    goal = (getattr(o, "goal", "") or "").strip()
++    ax = (getattr(o, "axtree_txt", "") or getattr(o, "text", "") or "").strip()
++    return goal, ax
++
++
++print("=== same seed twice ===")
++g1, a1 = page(seed=7)
++g2, a2 = page(seed=7)
++print(f"  goal match: {g1 == g2}")
++print(f"  axtree match: {a1 == a2}")
++print(f"  goal(7): {g1[:70]}")
++
++print("=== different seed ===")
++g3, a3 = page(seed=8)
++print(f"  goal differs from seed 7: {g3 != g1}")
++print(f"  goal(8): {g3[:70]}")
++
++print("=== seed 7 again, after an intervening reset ===")
++g4, a4 = page(seed=7)
++print(f"  still matches seed 7: {g4 == g1 and a4 == a1}")
++
++print("=== task_name switch per reset ===")
++try:
++    g5, a5 = page(seed=7, task="enter-text")
++    print(f"  switched ok: {g5[:70]}")
++    print(f"  differs from click-option: {g5 != g1}")
++    g6, _ = page(seed=7, task="click-option")
++    print(f"  switched back, matches original: {g6 == g1}")
++except Exception as e:
++    print(f"  task switch FAILED: {type(e).__name__}: {e}")
+
+
+=== DIFF: pipeline/tests/test_browsergym_adapter.py ===
+@@ -0,0 +1,177 @@
++"""BrowserGym adapter: the seed->task contract and the terminal-reward guard.
++
++The two things that must not silently break are (a) reset(seed=N) picking a
++deterministic (task, page) pair - every rollout slot in a GRPO group resets with
++the same seed and must land on the same page, and (b) the terminal reward
++surviving any tool call the model makes after the episode ends.
++"""
++import inspect
++
++import pytest
++
++from domains.browsergym.adapter import BrowserGymEnvAdapter
++
++
++class _Obs:
++    def __init__(self, goal="", axtree_txt="", error=""):
++        self.goal = goal
++        self.axtree_txt = axtree_txt
++        self.error = error
++
++
++class _Result:
++    def __init__(self, obs, reward=0.0, done=False):
++        self.observation = obs
++        self.reward = reward
++        self.done = done
++
++
++class _FakeClient:
++    """Records reset kwargs and pops a canned step result per action."""
++
++    def __init__(self, steps=None, goal="Select cp and click Submit."):
++        self._goal = goal
++        self._steps = list(steps or [])
++        self.reset_calls = []
++        self.actions = []
++
++    def reset(self, **kwargs):
++        self.reset_calls.append(kwargs)
++        return _Result(_Obs(goal=self._goal, axtree_txt="[24] radio 'cp'"))
++
++    def step(self, action):
++        self.actions.append(action)
++        return self._steps.pop(0) if self._steps else _Result(_Obs())
++
++
++def _adapter(client, **cfg):
++    a = BrowserGymEnvAdapter("http://x", cfg, client=client)
++    # The real action builder lives in the OpenEnv clone; the tests run without it.
++    a._make_action = lambda tool, args: (tool, args)
++    return a
++
++
++# --- seed -> task is deterministic and cycles the mix ---
++
++def test_reset_forwards_seed_and_derives_task_from_it():
++    c = _FakeClient()
++    a = _adapter(c, tasks=["click-option", "click-checkboxes"])
++    a.reset(seed=4)
++    assert c.reset_calls == [{"seed": 4, "task_name": "click-option"}]
++
++
++def test_seed_cycles_the_task_mix_evenly():
++    c = _FakeClient()
++    a = _adapter(c, tasks=["click-option", "click-checkboxes"])
++    for s in range(4):
++        a.reset(seed=s)
++    assert [k["task_name"] for k in c.reset_calls] == [
++        "click-option", "click-checkboxes", "click-option", "click-checkboxes"]
++
++
++def test_same_seed_is_the_same_task():
++    # GRPO repeats one prompt across rollout slots; a group must share a page.
++    c = _FakeClient()
++    a = _adapter(c, tasks=["click-option", "click-checkboxes"])
++    a.reset(seed=7)
++    a.reset(seed=7)
++    assert c.reset_calls[0] == c.reset_calls[1]
++
++
++def test_default_task_mix_pairs_headroom_with_axis_separation():
++    # click-option gives base-model headroom; click-checkboxes is the family whose
++    # success sits below its termination rate, which is what decouples task
++    # performance from the off-target axis.
++    c = _FakeClient()
++    a = _adapter(c)
++    a.reset(seed=0)
++    a.reset(seed=1)
++    assert {k["task_name"] for k in c.reset_calls} == {"click-option", "click-checkboxes"}
++
++
++def test_empty_task_list_is_rejected():
++    with pytest.raises(ValueError, match="at least one task"):
++        BrowserGymEnvAdapter("http://x", {"tasks": []}, client=_FakeClient())
++
++
++# --- reset payload ---
++
++def test_reset_returns_goal_and_page():
++    a = _adapter(_FakeClient(goal="Select cp and click Submit."))
++    text = a.reset(seed=0)
++    assert "Select cp and click Submit." in text
++    assert "[24] radio 'cp'" in text
++    assert a.reward == 0.0 and a.done is False
++
++
++# --- reward and the done guard ---
++
++def test_click_records_terminal_reward_and_done():
++    c = _FakeClient(steps=[_Result(_Obs(axtree_txt="submitted"), reward=1.0, done=True)])
++    a = _adapter(c)
++    a.reset(seed=0)
++    a.click(bid="24")
++    assert a.reward == 1.0 and a.done is True
++
++
++def test_calls_after_done_cannot_overwrite_the_reward():
++    c = _FakeClient(steps=[
++        _Result(_Obs(), reward=1.0, done=True),
++        _Result(_Obs(), reward=0.0, done=True),   # must never be reached
++    ])
++    a = _adapter(c)
++    a.reset(seed=0)
++    a.click(bid="24")
++    out = a.click(bid="99")
++    assert a.reward == 1.0
++    assert "already finished" in out
++    assert len(c.actions) == 1
++
++
++def test_reset_clears_reward_and_done_between_episodes():
++    c = _FakeClient(steps=[_Result(_Obs(), reward=1.0, done=True)])
++    a = _adapter(c)
++    a.reset(seed=0)
++    a.click(bid="24")
++    a.reset(seed=1)
++    assert a.reward == 0.0 and a.done is False
++
++
++def test_env_error_is_surfaced_as_feedback_not_raised():
++    c = _FakeClient(steps=[_Result(_Obs(axtree_txt="page", error="bid not found"))])
++    a = _adapter(c)
++    a.reset(seed=0)
++    out = a.click(bid="999")
++    assert "bid not found" in out and "page" in out
++
++
++def test_long_observation_is_truncated():
++    c = _FakeClient(steps=[_Result(_Obs(axtree_txt="x" * 5000))])
++    a = _adapter(c)
++    a.reset(seed=0)
++    out = a.click(bid="1")
++    assert "[truncated]" in out and len(out) < 2500
++
++
++# --- the tool surface TRL will expose ---
++
++def test_public_surface_is_exactly_reset_click_noop():
++    # TRL turns every public method except reset into a tool, so an accidental
++    # public helper would silently become a tool the model can call.
++    public = {n for n, _ in inspect.getmembers(BrowserGymEnvAdapter, inspect.isfunction)
++              if not n.startswith("_")}
++    assert public == {"reset", "click", "noop"}
++
++
++def test_click_docstring_has_the_args_block_the_tool_schema_needs():
++    # transformers' get_json_schema raises without a Google-style Args entry.
++    assert "Args:" in BrowserGymEnvAdapter.click.__doc__
++    assert "bid:" in BrowserGymEnvAdapter.click.__doc__
++
++
++def test_noop_is_a_countable_stall_not_an_absence():
++    c = _FakeClient(steps=[_Result(_Obs(axtree_txt="unchanged"))])
++    a = _adapter(c)
++    a.reset(seed=0)
++    a.noop()
++    assert len(c.actions) == 1 and a.done is False
+
+
+=== DIFF: pipeline/training/config_schema.py ===
+@@ -35,6 +35,11 @@ _KNOWN_ENV_CONFIG_KEYS = {
+     "env_id", "num_players",
+     # finqa
+     "data_path",
++    # browsergym: `tasks` is the MiniWoB family list the seed cycles through
++    # (`tasks[seed % len]`), so it also sets the training task mix. `miniwob_url`
++    # points at the served miniwob-plusplus HTML, which browsergym-miniwob does
++    # not ship - without it the env raises "core is not defined" at first reset.
++    "tasks", "benchmark", "miniwob_url",
+     # Every multi-turn domain: the ONE turn cap. Read by training
+     # (max_tool_calling_iterations), by the eval loop, and mapped to each
+     # server's own env var (TEXTARENA_MAX_TURNS / FINQA_MAX_STEPS /
+
+
+Investigate per the method in your instructions, then return the findings list.
