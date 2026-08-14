@@ -1,0 +1,219 @@
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. Primary Request and Intent:
+
+   Three user requests in this segment, in order:
+
+   (a) **"yes continue with the two other stale envs textarena and repl"** — apply the same assessment-then-removal treatment given to finqa. **DONE, committed `21381af`, pushed.**
+
+   (b) **"ok first of all remove old and done entries from @BACKLOG.md - the document shouldnt contain items which are already finished. record this rule also in @CLAUDE.md / then yes - always align. I actually dont understand the issue with max_steps right now but if you analyzed it to be an issue then what the fuck: align it"** — two parts: prune BACKLOG.md to open work only and encode that rule in CLAUDE.md; and align the experiment geometry I had flagged. **DONE, committed `86f9ce6`, pushed.** Note: the max_steps issue turned out not to exist; a real `batch_size` issue was found and fixed instead, and the user was told plainly.
+
+   (c) **"ok fix what you found bro. dont always ask for obvious todos"** — stop reporting obvious follow-ups as next steps and just do them: recreate the missing bs4 configs, rsync the box, reconcile taskwarrior. **DONE, committed `9853a94` and `325df16`, both pushed.**
+
+   **Standing constraints that REMAIN IN FORCE:**
+   - Never include the user's name ("Marcel" / "Marcel Heidebrecht") in any commit message, code comment, docstring, or generated file. Conventional commits only.
+   - ASCII only in all output — no em dashes, en dashes, curly quotes, ellipsis characters.
+   - Work on `master` only — never branches or worktrees in this repo.
+   - `RUNNING.md` contains live runs and nothing else; stamp `Updated:` with box time (`ssh gpu-l4 date`), never local time.
+   - End every response with a "Next steps" section.
+   - Mark unverified assumptions with a greppable `ASSUMPTION:` prefix.
+   - Caveman mode (full) and Ponytail mode (full) active via hooks; code, commits and docs written normally.
+   - **New this segment:** `BACKLOG.md` holds only open work — delete items when done or decided against, never mark them DONE/DROPPED and leave them.
+   - **New this segment:** write experiment geometry keys out explicitly; do not lean on code defaults.
+   - **New this segment (user style feedback):** "dont always ask for obvious todos" — act on found issues rather than listing them.
+
+2. Key Technical Concepts:
+   - **Regression-as-invalidation:** in this repo a silent behaviour change invalidates results already on disk rather than breaking a feature. Measurement semantics (token counting, correctness threshold, seed mapping, budget accounting, metric definitions) are the protected surface.
+   - **Environment qualification criterion (from e26):** base-model accuracy in the 40-80% band AND at least two tools. browsergym cleared it (click-option 0.50 success, click-checkboxes 0.35 success vs 0.50 termination so the axes decouple); finqa failed it (1% accuracy, no dial).
+   - **`resolve_max_turns` is the load-bearing turn-cap mechanism**, not `server_env` mapping. Defined in `training/config_schema.py`; called by `grpo_runner.py:146` (→ TRL `max_tool_calling_iterations`) and `agentic_eval.py:535` (→ eval turn loop). TRL treats an unset `max_tool_calling_iterations` as `sys.maxsize`. browsergym has **no server-side step cap**, so after the deletions the `max_turns` → server-env-var mapping has zero live instances.
+   - **Freezing does not resolve defaults.** `runs/<exp>/config.yaml` is a verbatim copy of the input config. A key no config states is absent from every frozen copy, so the mandated arm-matching diff reads it as "equal" when it is really "unrecorded".
+   - **`DEFAULT_BATCH_SIZE = 4`, `DEFAULT_N_ROLLOUTS = 8`** in `training/config_schema.py:5-6`. Before `a19b1ff` (2026-08-06 14:17:39) the batch_size default was 1, which voided every run trained before it.
+   - **"One knob differs, never two"** applies within a comparison, not across campaigns. e27/e28/e29 all run `max_steps: 300`; the bs4 poly pair runs 150. Different environments, different questions, no confound.
+   - **OpenEnv server contract:** `create_app` must take `max_concurrent_envs` from `MAX_CONCURRENT_ENVS` and the env class must set `SUPPORTS_CONCURRENT_SESSIONS = True`; `reset(seed=N)` must be deterministic in N (this one fails silently — the run trains, loss moves, the advantage is noise).
+   - **Tooling gotcha:** `grep` is aliased to `ugrep` in this shell. Non-ASCII checks via `grep -c '[^\x00-\x7F]'` give wrong counts — use python3. Also `grep -c "batch_size"` matches `micro_batch_size` as a substring; anchor with `^  batch_size:`.
+
+3. Files and Code Sections:
+
+   **Commit `21381af` "chore: remove the textarena and repl environments"** (31 files, +136/−824):
+
+   - **Deleted:** `pipeline/domains/textarena/{__init__,adapter,domain}.py` (170 lines), `pipeline/domains/repl/{__init__,adapter,domain,tasks}.py` (212 lines), `pipeline/tests/test_textarena_adapter.py`, `pipeline/tests/test_textarena_domain.py`, `pipeline/configs/e7-agentic-textarena-wordle-qwen3-1_7b.yaml`, `pipeline/configs/e8-agentic-textarena-env-only-qwen3-1_7b.yaml`, `pipeline/configs/e15-agentic-repl-env-only-qwen3-1_7b.yaml`, and the pycache-only `pipeline/domains/math/`.
+   - **`pipeline/domains/__init__.py`** — dispatch reduced to two branches:
+     ```python
+     if env == "browsergym":
+         from domains.browsergym import BrowserGymDomain
+         return BrowserGymDomain()
+     raise NotImplementedError(
+         f"Env: {env!r} (known: reasoning_gym, browsergym)"
+     )
+     ```
+   - **`pipeline/training/config_schema.py`** — dropped `"env_id", "num_players"`; rewrote the turn-cap comment:
+     ```python
+     # Every multi-turn domain: the ONE turn cap. Read by training
+     # (max_tool_calling_iterations) and by the eval loop, and mapped by
+     # `server_env` to the server's own var for any env that has a server-side
+     # cap (browsergym has none, so its cap is client-side only and the two
+     # readers cannot disagree). The deleted repl and finqa domains each carried
+     # a per-domain alias (`max_iterations`, `max_steps`); those aliases let the
+     # caps drift apart, so the schema rejects them.
+     "max_turns",
+     ```
+   - **`pipeline/tests/test_env_domain.py`** — repl server_env test replaced with a deliberate absence assertion:
+     ```python
+     def test_browsergym_server_env_carries_no_turn_cap():
+         # Asserting the absence on purpose: browsergym's server has no step cap, so
+         # a var invented here would read as authoritative while capping nothing.
+         from domains.browsergym import BrowserGymDomain
+
+         env = BrowserGymDomain().server_env({"max_turns": 12})
+         assert not [k for k in env if "TURN" in k or "STEP" in k or "ITERATION" in k]
+         assert env["BROWSERGYM_BENCHMARK"] == "miniwob"
+     ```
+     Alias-rejection test kept, vehicle env switched to `"browsergym"`.
+   - **`pipeline/tests/test_agentic_schema.py`** — two dispatch tests folded into one:
+     ```python
+     def test_build_domain_dispatches_browsergym():
+         # The domain added last, which is the case the duplicated dispatch used to
+         # break on: the stale copy in eval/runner.py never learned the later ones,
+         # so `python -m eval.runner` raised NotImplementedError on exactly this one.
+         from domains.browsergym import BrowserGymDomain
+         d = build_domain({"training": {"env": "browsergym"}})
+         assert isinstance(d, BrowserGymDomain)
+     ```
+   - **`pipeline/tests/test_env_server.py`** — `_TextDom` → `_VarDom` (browsergym server_module, `BROWSERGYM_TASK_NAME`); two assertion blocks retargeted to `BROWSERGYM_*` vars.
+   - **`pipeline/tests/test_validate_config.py`** — `test_accepts_textarena_env_config_keys` → `test_accepts_browsergym_env_config_keys` using `{"tasks", "benchmark", "miniwob_url", "max_turns"}`.
+   - **`pipeline/probes/env_check.py`** — textarena+repl CASES replaced with a browsergym case on port 8202.
+   - **`setup.sh`** — dropped `"textarena>=0.6.1" nltk` from the uv install and removed the whole NLTK corpora pre-fetch block.
+   - **Docstring/comment cleanups:** `domains/env_base.py` (3 places), `domains/reasoning_gym/adapter.py`, `domains/browsergym/adapter.py`, `training/env_server.py`, `training/rewards/non_termination.py`, `eval/agentic_eval.py`, `tests/test_env_adapter.py`.
+   - **`CLAUDE.md`** — domain list reduced to two; new paragraph naming all three deletions with restore commits `ace8954` (finqa, repl) and `2b26343` (textarena); "One turn cap" section rewritten around `resolve_max_turns`.
+   - **`LAB_NOTES.md`** — contract section line updated ("reasoning_gym and browsergym both wire this through"); E3 note reworded.
+   - **`DECISIONS.md`** — status note expanded to cover all three deletions.
+
+   **Commit `86f9ce6` "docs: keep BACKLOG to open work, and state the geometry keys instead of defaulting them"**:
+
+   - **`BACKLOG.md`** — fully rewritten. Header now:
+     ```
+     Deferred work, and only work that is still open. `RUNNING.md` is live state, this
+     is what has not started yet.
+
+     Delete an item the moment it is done or decided against. ...
+     ```
+     Items 2, 3, 4 (all DROPPED) and item 5 (DORMANT) removed. Kept: item 1 (Liger fused GRPO loss), item 2 (poly cosine re-run call, was 4b), item 3 (NEW — recreate the bs4 configs).
+   - **`CLAUDE.md`** — table row changed to "Work that is still open and not started. Finished and abandoned items get deleted, not annotated."; new `### Backlog (BACKLOG.md)` subsection with the delete-don't-annotate rule; "Experiment geometry" section gained:
+     ```
+     `max_steps` has to match across the arms of one comparison, not across campaigns.
+     The browsergym arms run 300 and the poly pair ran 150; those are different
+     questions on different environments and nobody compares a number across them.
+
+     **Write the geometry keys out, do not lean on the defaults.** Freezing copies the
+     config verbatim - it does not resolve defaults - so a key no config states is
+     absent from every frozen copy, and the diff above then proves nothing about it. ...
+     ```
+   - **`DECISIONS.md`** — absorbed BACKLOG item 5's substance (repl fallback reasoning, restore command `git show ace8954 -- pipeline/domains/repl`, box deps `uv pip install --python .venv/bin/python smolagents gradio pypdf`, the three revival steps); dangling "BACKLOG item 5" cross-reference removed.
+   - **`pipeline/configs/e27-browsergym-e1-baseline-qwen3-1_7b.yaml`** — added:
+     ```yaml
+       # Stated, not left to the default, so the frozen config records it. The E1/E2/E3
+       # arms are only comparable if all three ran the same geometry, and the check for
+       # that is the diff of the frozen runs/<exp>/config.yaml files - which cannot see
+       # a key no config writes. 4 is also what grpo_runner defaults to, so this changes
+       # nothing about what runs.
+       batch_size: 4
+     ```
+     Analogous comments + `batch_size: 4` added to **e28** and **e29**.
+
+   **Commit `9853a94` "fix(configs): recover the e24bs4/e25bs4 pair into configs/"**:
+
+   - **NEW `pipeline/configs/e24bs4-poly-4k-env-only-qwen3-1_7b.yaml`** and **NEW `pipeline/configs/e25bs4-poly-4k-cosine-w16-qwen3-1_7b.yaml`** — recovered from the frozen `runs/<exp>/config.yaml` files (the only existing copies; `git log -- 'pipeline/configs/*bs4*'` was empty). Geometry block:
+     ```yaml
+       max_prompt_length: 1024
+       batch_size: 4
+       n_rollouts: 8
+       micro_batch_size: 1
+       max_steps: 150
+       learning_rate: 5e-6
+       kl_beta: 0.001
+     ```
+     e24bs4 has `token_length: {enabled: false}`; e25bs4 has `token_length: {enabled: true, weight: 16.0, max_len: 4096}`. Both `compose_method: advantage_weighted`, `seed: 42`, `max_seq_length: 5120`, `gpu_memory_utilization: 0.23`, `env_server: {repo_path: /workspace/OpenEnv/envs, port: 8077}`.
+   - **`pipeline/configs/e24-poly-4k-env-only-qwen3-1_7b.yaml`** and **`e25-...`** — SUPERSEDED headers added:
+     ```yaml
+     # SUPERSEDED by e24bs4-poly-4k-env-only-qwen3-1_7b.yaml. Do not run this one.
+     # It trained on 2026-07-29, before a19b1ff made batch_size default to 4, so
+     # runs/e24-poly-4k-env-only-qwen3-1_7b/ was produced at batch_size 1 and its
+     # numbers are void. Running this file TODAY resolves batch_size to 4 and would
+     # silently produce a different experiment under the same name.
+     ```
+   - **`CLAUDE.md`** — "Void results" section gained:
+     ```
+     **Re-running a void-era config does not reproduce its void run.** 26 configs in
+     `configs/` predate `a19b1ff` and state no `batch_size`, so they trained at 1 but
+     would resolve to 4 today - a different experiment under the same
+     `experiment_id`. The overwrite refusal catches the collision, not the semantic
+     change. ...
+     ```
+
+   **Commit `325df16` "chore: record the box sync state in RUNNING.md"**:
+   - **`RUNNING.md`** — `Updated: 2026-08-07 12:37 UTC (box time)` / `Nothing running. Box synced to 9853a94, GPU idle, no other users' jobs.`
+
+4. Errors and fixes:
+   - **I claimed max_steps was misaligned across e27/e28/e29 ("300 vs poly's 150").** Verification showed all three already run 300, and the poly bs4 pair's 150 belongs to a different campaign. Told the user directly: "Stop. My earlier note was wrong." and "There was nothing to align." The investigation nonetheless surfaced the real `batch_size` gap, which was fixed instead. No user pushback.
+   - **`grep -c "batch_size"` gave misleading per-file counts** because `micro_batch_size` contains the substring. Re-derived with `grep -c "^  batch_size:"`, which showed 0 explicit occurrences in all five configs checked.
+   - **`../.venv-test/bin/python` failed with "no such file or directory"** because a prior `cd pipeline` did not persist. Fixed by prefixing an absolute `cd` in the compound command.
+   - **Added a taskwarrior task for work already completed** ("recreate the e24bs4/e25bs4 configs in configs/"). Removed it with `task rc.context=thesis rc.confirmation=off 5 delete`.
+   - **Non-ASCII detection:** did not repeat the earlier ugrep mistake — used a python3 one-liner throughout. One pre-existing em dash found at `pipeline/training/config_schema.py:30` (in a validation error string); flagged to the user, deliberately not fixed as it was outside the diff.
+
+5. Problem Solving:
+   - **Split-verdict analysis rather than uniform deletion.** textarena and repl were not the same case: textarena had zero results, no deferred plan, and cost setup.sh a dependency plus an NLTK download; repl had a written fallback plan in BACKLOG item 5 whose premise ("if no off-the-shelf env clears both bars") had been resolved by browsergym qualifying. Both removed, but repl's reasoning was relocated to DECISIONS.md rather than discarded.
+   - **Prevented silent coverage loss.** Before deleting the repl `server_env` test I traced the actual turn-cap mechanism to `resolve_max_turns` and confirmed it was already covered by `test_resolve_max_turns_defaults_to_one_on_both_sides`. Discovered browsergym — the live E1/E2/E3 domain — had no dispatch, `server_env`, or config-key test at all, so retargeting the deleted tests raised coverage on the domain that matters. Test delta accounted for exactly: 15 tests in the two textarena files (14 pass + 1 skip) plus one folded dispatch case = 250→235 pass, 4→3 skip.
+   - **Found and closed a verification hole in the repo's own methodology.** CLAUDE.md mandates proving arm equivalence by diffing frozen configs, but freezing copies verbatim without resolving defaults — verified against `runs/e24-poly-4k-env-only/config.yaml`. So `batch_size`, the key whose silent default of 1 voided an entire era, was invisible to that check. Fixed in the three browsergym arms and recorded as a rule.
+   - **Recovered an unreproducible experiment.** `e24bs4`/`e25bs4` — the only comparison free of both void causes — existed solely as frozen run configs and could not be re-run or seed-replicated. Recovered into `configs/` and verified key-by-key against the frozen copies (identical apart from description) and against each other (training blocks identical, differing only in `rewards.token_length`).
+   - **Safe destructive remote sync.** Dry-ran the `rsync --delete` with `--itemize-changes` before executing, confirming it removed only the 5 stale configs, the three deleted domains' files, and the 2 textarena tests, with `runs/` excluded. Cleaned up the pycache-only directories rsync could not remove, then verified on the box that dispatch and config validation actually work under the new code.
+
+6. All user messages:
+   - `/compact` (local command caveat: not to be responded to)
+   - **"yes continue with the two other stale envs textarena and repl"**
+   - **"ok first of all remove old and done entries from @BACKLOG.md - the document shouldnt contain items which are already finished. record this rule also in @CLAUDE.md**
+
+     **then yes - always align. I actually dont understand the issue with max_steps right now but if you analyzed it to be an issue then what the fuck: align it"**
+   - **"ok fix what you found bro. dont always ask for obvious todos"**
+
+7. Pending Tasks:
+   - Taskwarrior open (5 tasks, `project:thesis`):
+     1. Review pipeline with fable 5
+     2. Review and finish bg chapter
+     3. Decide cap policy — e24bs4 eval shows 13/13 wrong episodes are 4096-token truncations, 0 wrong-and-terminated, so accuracy is measuring "finished in budget" not correctness
+     4. Replicate e24bs4/e25bs4 at seeds 43 and 44 (annotated as unblocked now that the configs are recovered)
+     5. Launch e28 (E2 cosine) and e29 (E3 non-termination) on browsergym
+   - BACKLOG.md open items: 1 (Liger fused GRPO loss to lift the 4096 ceiling), 2 (decide whether to re-run any poly cosine arm), 3 (recreate the bs4 configs — **now actually done**, so this item should be deleted per the rule just written).
+   - Cosmetic, flagged and not fixed: pre-existing em dash at `pipeline/training/config_schema.py:30`; `load_reference_thresholds` docstring still cites GSM-8K/MATH splits from the dataset-mode era; dead `extract_content` in `rewards/utils.py`.
+   - 24 other pre-`a19b1ff` configs still lack explicit `batch_size` (only e24/e25 got SUPERSEDED headers; the class is documented in CLAUDE.md).
+
+8. Current Work:
+
+   Completed the full "fix what you found" sweep for user message 3. Four commits pushed in sequence: `21381af` (textarena/repl removal), `86f9ce6` (BACKLOG pruning + geometry keys), `9853a94` (bs4 config recovery), `325df16` (RUNNING.md box state).
+
+   Final actions were the box sync and its verification. `rsync -a --delete --exclude 'runs/' --exclude '__pycache__/' --exclude '.pytest_cache/' pipeline/ gpu-l4:/workspace/master-thesis-code/pipeline/` was dry-run first, then executed, then followed by `rm -rf /workspace/master-thesis-code/pipeline/domains/{finqa,repl,textarena,math}` to clear pycache-only orphans. Box verification returned:
+   ```
+   OK reasoning_gym ReasoningGymDomain
+   OK browsergym BrowserGymDomain
+   gone: Env: 'textarena' (known: reasoning_gym, browsergym)
+   gone: Env: 'repl' (known: reasoning_gym, browsergym)
+   gone: Env: 'finqa' (known: reasoning_gym, browsergym)
+   valid e24bs4-poly-4k-env-only-qwen3-1_7b bs= 4 steps= 150
+   valid e25bs4-poly-4k-cosine-w16-qwen3-1_7b bs= 4 steps= 150
+   valid e28-browsergym-e2-cosine-qwen3-1_7b bs= 4 steps= 300
+   valid e29-browsergym-e3-nontermination-qwen3-1_7b bs= 4 steps= 300
+   ```
+   Box time 2026-08-07 12:37:48 UTC, GPU idle (0 MiB of 23034 MiB used, no compute apps, no other users' jobs). Local tests 235 passed / 3 skipped; every config in `configs/` validates. `git log --oneline -4` confirms all four commits, and the push succeeded.
+
+   The final push (`325df16`) completed and no user-facing report has been delivered for it yet.
+
+9. Optional Next Step:
+
+   Deliver the completion report for user message 3 ("ok fix what you found bro. dont always ask for obvious todos"), covering: the two bs4 configs recovered into `configs/` and verified identical to their frozen copies while differing in exactly `rewards.token_length`; the SUPERSEDED headers on e24/e25 plus the 26-config class note in CLAUDE.md; the box synced to `9853a94` with dispatch and config validation verified on the box; RUNNING.md stamped at box time; and taskwarrior reconciled to 5 open tasks.
+
+   Then delete BACKLOG item 3 ("Recreate the e24bs4 / e25bs4 configs in `configs/`"), since it is now complete and the rule just written into CLAUDE.md is explicit: "**Delete an item the moment it is done or decided against. Do not mark it DONE or DROPPED and leave it in place.**" Leaving it in place would violate the rule added in the same session.
+
+   The only launch-ready work after that is what the user's own task list names — the e28/e29 browsergym arms and the seed 43/44 replication — both of which require an explicit go-ahead before spending GPU hours.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/mheidebrecht/.claude/projects/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/ab988c24-a88e-415d-8dd2-615cc390ae14.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
