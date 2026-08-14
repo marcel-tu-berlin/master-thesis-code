@@ -1,0 +1,228 @@
+actually i just need you to do the following: in two days i have a meeting with my thesis supervisor and want to show him our current results. therefore i want a final experiment covering everything we have right now and whats working at least logical wise. run this experiment and configure it such that its done in about 12h or erlier such that i have time to check results etc. 
+
+when youve started the experiment please also schedule a gathering of the results or wait for the results. report to me and tell me where i find the relevant files. also give quick interpretation of the results and list of next steps for our fine tuning pipeline here. especially for the next steps list always remember that we first need to have a solid foundation. so dont add more complexity and features before what we have now doesnt work solidly.
+
+this should enable me to steer the pipeline in the right direction and decide for next steps and show the supervisor what we already have and what we dont have. 
+
+here for context the current expose for the master thesis such that you better understand what our research objective is. this should also influence our next steps for the pipeline accordingly: 
+// Master Thesis Exposé, Draft v0.4 (2026-07-20)
+// v0.4: storyline sharpened. The thesis now leads with on-demand
+// specialization: fine-tune small LLMs into per-task experts that are
+// efficient at inference and cheap to produce, trained and evaluated
+// in OpenEnv. One research question, no sub-questions.
+// expose.md (the old TODO tracker) is removed; open items live in
+// thesis/outline.md.
+// Compile with:  typst compile expose.typ   (or ./compile-expose.sh)
+//
+// Bibliography: refs.yml (Hayagriva format). IEEE style by default.
+
+#set page(
+  paper: "a4",
+  margin: (x: 2.5cm, y: 2.5cm),
+  numbering: "1",
+)
+#set text(font: "New Computer Modern", size: 11pt, lang: "en")
+#set par(justify: true, leading: 0.65em)
+#set heading(numbering: "1.")
+#show heading.where(level: 1): set text(size: 13pt)
+#show heading.where(level: 2): set text(size: 11.5pt)
+
+// ---------- Title block ----------
+#align(center)[
+  #text(size: 16pt, weight: "bold")[
+    Reward Signals for Efficient LLM Agents
+  ]
+
+  #text(size: 13pt)[
+    On-Demand Specialization of Small Reasoning Models \
+    with GRPO in OpenEnv
+  ]
+
+  #v(0.4cm)
+  _Master's Thesis Exposé_ \
+  #v(0.2cm)
+
+  #grid(
+    columns: (auto, auto),
+    column-gutter: 1.5cm,
+    row-gutter: 0.3em,
+    align: (right, left),
+    [*Author:*], [Marcel Heidebrecht],
+    [*University:*], [Technische Universität Berlin],
+    [*Date:*], [2026-07-20],
+  )
+]
+
+#v(0.5cm)
+#line(length: 100%)
+
+// ---------- 1 Motivation ----------
+= Motivation
+
+Reasoning LLMs overthink. They produce chains of thought far longer
+than the task requires, a behavior documented across models and
+benchmarks @sui2025survey. In an agentic system the cost compounds:
+the agent pays the reasoning bill at every step of a trajectory, and
+work on agentic tasks shows that curbing overthinking can cut compute
+and raise task success at the same time @cuadron2025agentic.
+
+Deployed agents are usually specialists in practice. An agent sits in
+front of one environment, say a shop system or a ticket queue, and
+works the same class of tasks over and over. A large general model
+treats every instance as a fresh reasoning problem and spends
+accordingly. A small model fine-tuned into an expert for exactly this
+task class can spend far less per solve. It can also solve more:
+accuracy does not keep rising with longer reasoning but peaks at a
+task-dependent optimum @wu2025length, so where the generalist's
+effort is badly calibrated, a specialist trained toward that optimum
+can beat it on success as well as cost.
+
+Such specialization only helps if producing the expert is cheap. The
+setting we target is close to online: a new task class arrives, a
+short fine-tuning run turns a small base model into its expert, and
+the expert takes over if it beats the model currently handling the
+task. Training cost is therefore a constraint of the method itself,
+and the thesis reports what an expert costs to produce next to what
+it saves at inference.
+
+We produce these experts with reinforcement learning, where what the
+expert learns to spend is decided by the reward. Which reward signals
+teach efficient behavior is open. A plain shorter-is-better penalty
+overshoots the accuracy optimum and collapses reasoning
+@wu2025length; our own pilot runs reproduce this collapse twice.
+Entropy-based signals target the tokens where reasoning branches
+@wang2025entropy but can inflate output, and pushing thinking further
+can stop paying off entirely @ghosal2025mirage. On top of that, a
+single mean length cannot tell whether a shorter model compressed
+waste or skipped reasoning it needed, so overthinking and
+underthinking have to be measured separately. Comparing these reward
+signals under controlled conditions is the core of the thesis.
+
+// ---------- 2 Research question and objective ----------
+= Research question and objective
+
+*Research question.* Which reward signals, alone or in combination,
+let GRPO fine-tune a small LLM into a task expert that matches or
+improves task success while spending fewer reasoning tokens, at a
+fine-tuning cost low enough for on-demand specialization?
+
+*Objective.* Answer this question empirically. We fine-tune a small
+open model with GRPO @shao2024grpo in OpenEnv environments, one
+reward configuration at a time, and measure every resulting expert on
+four axes: task success, reasoning tokens spent, the split between
+overthinking and underthinking, and the compute the fine-tuning
+itself consumed. Conditions are compared across settings of varying
+task difficulty and episode horizon. The result is a ranking of
+reward signals, with the evidence to say which of them produce agents
+that are cheaper and at least as good, and what such an expert costs
+to train.
+
+// ---------- 3 Approach ----------
+= Approach
+
+*Training.* GRPO @shao2024grpo is the training algorithm: critic-free,
+with rewards normalized within a group of rollouts, so the training
+loop stays small and fits the cheap-specialization constraint. The
+base model is a small open LLM fine-tuned with LoRA adapters; the
+pilot runs below use Qwen2-7B. The environment scores each episode,
+and that score is the reward. There is no dataset answer key;
+correctness comes from the environment itself.
+
+*Environment: OpenEnv.* Training and evaluation run in OpenEnv
+@openenv2025, the open environment-interface library started by
+Meta's PyTorch team and Hugging Face. An OpenEnv environment is a
+server with a Gym-style reset/step contract: the model acts through
+tool calls, the environment executes them, returns observations, and
+scores the episode. OpenEnv fits this thesis for two reasons. First,
+one interface covers many tasks: classic agentic benchmarks such as
+ALFWorld @shridhar2021alfworld and WebShop @yao2022webshop each come
+as a single environment with its own harness, while OpenEnv puts a
+growing catalog of environments behind one API. Second, that same
+property is what the on-demand story needs: a new task is a new
+environment behind an unchanged interface, so specializing for it
+means pointing the same training loop at a different environment
+server rather than building new infrastructure. The pipeline already
+runs end-to-end against a single-turn OpenEnv environment with
+procedurally generated tasks and a seed-disjoint train/test split;
+multi-turn environments plug into the same interface and are the
+first infrastructure step of the thesis.
+
+*Reward signals.* Every condition contains the environment's
+task-success score as the accuracy anchor. On top of it we study two
+efficiency signals. The first is a correctness-coupled cosine length
+reward: accuracy peaks at an interior, difficulty-dependent length
+@wu2025length, and a reward shaped as in DIET @chen2025diet aims the
+model at that optimum instead of at zero tokens, so it compresses
+where it can and keeps reasoning where it must. The second is token
+entropy: a minority of high-entropy tokens act as forking points
+where reasoning branches @wang2025entropy, which is the exploration
+an agentic task demands; whether rewarding it protects needed
+exploration or inflates effort without return @ghosal2025mirage is
+one of the things the comparison will show. Combinations of signals
+are tested under two composition rules, plain addition and the
+advantage weighting of DIET @chen2025diet. Composition is a tool
+here, not a contribution.
+
+*Evaluation.* Every condition reports task success, reasoning tokens
+per episode, overthinking and underthinking rates against fixed
+length thresholds, the correlation between task difficulty and spent
+length (efficient compression is difficulty-aware; flat compression
+is a warning sign), and the wall-clock and GPU cost of the
+fine-tuning run. Each expert is also probed outside its training
+distribution to check that specialization did not destroy general
+capability.
+
+*Experiment plan.*
+
++ E0: success-only baseline. Outcome-only GRPO already shortens
+  reasoning on its own @wu2025length, so every shaped signal must
+  beat this trained baseline, not the raw model.
++ E1: each efficiency signal alone, on top of task success.
++ E2: signal combinations, under both composition rules.
++ E3: the best conditions repeated across settings, on harder tasks
+  and longer horizons.
+
+// ---------- 4 Preliminary results ----------
+= Preliminary results
+
+Two pilot batches have run so far, on single-turn math tasks with
+Qwen2-7B and a single seed each, so all of the following is
+preliminary.
+
+- The correctness-coupled cosine length reward matched the baseline's
+  task accuracy (0.795 vs. 0.785, statistically tied) while cutting
+  mean reasoning length by about 40%. It also kept the correlation
+  between task difficulty and spent length close to baseline, so the
+  compression is difficulty-aware rather than flat.
+- A plain linear length penalty collapsed to about 17 output tokens
+  and roughly a third of baseline accuracy, in both batches and under
+  two different rollout backends. The shape of the length reward
+  matters more than its weight.
+- The entropy results flipped sign between the two batches. No
+  conclusion until multi-seed replication.
+- Plain signal addition beat advantage-weighted composition in the
+  combined runs, which runs against the prior from DIET
+  @chen2025diet. Also unconfirmed until replicated.
+
+Since these batches the pipeline has moved from dataset-scored math
+to its first OpenEnv environment: the same training loop now runs
+against a live environment server whose score is the reward.
+
+// ---------- 5 Timeline ----------
+= Timeline (provisional)
+
+#table(
+  columns: (1fr, 4fr),
+  align: (left, left),
+  stroke: 0.5pt + gray,
+  [*Months*], [*Deliverable*],
+  [M1], [Exposé sign-off; review of OpenEnv-related literature; first multi-turn OpenEnv environment running.],
+  [M2], [E0 baseline and single-signal runs (E1), multi-seed.],
+  [M3], [Combined-signal runs (E2).],
+  [M4], [Setting scaling (E3).],
+  [M5], [Draft of all chapters.],
+  [M6], [Revision, defense preparation.],
+)
+
+// ---------- Bibliography ----------
+#bibliography("refs.yml", style: "ieee", title: [References])
