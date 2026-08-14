@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>b54e7my8c</task-id>
+<tool-use-id>toolu_014Vhsf1DPdynkdSRV4EkrGu</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/e023ab91-4ec9-4799-ba43-493733af57c7/tasks/b54e7my8c.output</output-file>
+<status>killed</status>
+<summary>Background command "Wait for step-30 verdict file" was stopped</summary>
+</task-notification>
