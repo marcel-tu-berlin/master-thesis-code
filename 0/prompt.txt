@@ -1,0 +1,2 @@
+yes your concern regarding wrong episodes due to truncations is correct. thats a memory limit we cant avoid. thats why we will use trunctions as a signal
+  in our experimental setup as well. but one after the other. lets first fix what we have
