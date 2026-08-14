@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bdraf19mf</task-id>
+<tool-use-id>toolu_01VAgFYdk1kAxi1HT6pVvzar</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/a60fe906-0c99-4fe6-a577-dba65b8b9745/tasks/bdraf19mf.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for e19 smoke to finish and show log tail" completed (exit code 0)</summary>
+</task-notification>
