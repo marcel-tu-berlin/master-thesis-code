@@ -1,0 +1,141 @@
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. **Primary Request and Intent:**
+
+   Three user requests in this segment, in order:
+
+   (a) **"is our @CLAUDE.md also aligned with such specifics? maybe do a broad sweep accross the project, align the @CLAUDE.md based on your analysis and also with all our learnings and best practices. add to the claude md as well that regressions are the worst thing that can happen to us since we make scientific work and we need to make sure that we never accidentally introduce new errors which would invalidate all of our results. therefore careful validation of assumptions is always to be done"** — a project-wide verification sweep, then align CLAUDE.md with what the code actually does plus accumulated learnings, and add an explicit scientific-integrity/regressions rule. **DONE, committed 6102a35, pushed.**
+
+   (b) **"commit and push"** — **DONE** (`2520441..6102a35`).
+
+   (c) **"looking at @openenv-patches/ i think this is a not needed patch anymore since we use browsergym and polynomical equations. looking at our current state and experiments - do we still need finqa? if not remove this patch and related files if not needed. they are only technical debt otherwise"** — assess whether finqa is still needed; if not, remove the patch and related files. **DONE, committed 0bb1cbc, pushed.**
+
+   **Standing constraints that REMAIN IN FORCE:**
+   - Never include the user's name ("Marcel" / "Marcel Heidebrecht") in any commit message, code comment, docstring, or generated file. Conventional commits only.
+   - ASCII only in all output — no em dashes, en dashes, curly quotes, ellipsis characters.
+   - Work on `master` only — never branches or worktrees in this repo.
+   - Commit only when asked.
+   - `RUNNING.md` contains a list of running experiments and nothing else. Rules/traps/decisions/history go to `LAB_NOTES.md`; per-run numbers to `pipeline/runs/*_findings.md`.
+   - `RUNNING.md`: stamp `Updated:` with box time (`ssh gpu-l4 date`), update at every phase change, delete rows once harvested, write "Nothing running." when idle.
+   - End every response with a "Next steps" section.
+   - Mark unverified assumptions with a greppable `ASSUMPTION:` prefix.
+   - Caveman mode (full) and Ponytail mode (full) active via hooks; code/commits/docs written normally.
+
+2. **Key Technical Concepts:**
+   - **Regression-as-invalidation:** in this repo a silent behaviour change does not break a feature, it invalidates results already on disk. Measurement semantics (token counting, correctness threshold, seed mapping, budget accounting, metric definitions) are the protected surface.
+   - **`model_token_count` (two-sided bug history):** must sum `content` + `reasoning_content` + serialized tool-call arguments over assistant messages only. Dropping `reasoning_content` measured 18 tokens of a 1024-token completion (~2%). Preferring `len(completion_ids)` branched on whether TRL had interleaved a tool message — which happens exactly when the model called a tool — so the ruler became a proxy for correctness.
+   - **`SEED_BLOCK = 1_000_000`:** question seed = `config_seed * SEED_BLOCK + offset`; `_EVAL_SEED_OFFSET = 100_000` lives inside the block. Before this, `--seeds 42 43` shared ~99% of questions.
+   - **Whole-trajectory generation budget:** eval charges interleaved tool responses against it, matching training. Per-turn application let an episode generate `max_turns` × the training budget.
+   - **Gradient-coverage asymmetry:** under `advantage_weighted`, a zero-within-group-variance group trains on nothing. Adding any varying component (cosine) makes every group live: 40.7% vs 99.5% live groups in the e24bs4/e25bs4 pair.
+   - **Per-run percentile thresholds:** under/overthinking rates are not cross-arm comparable unless pinned via `load_reference_thresholds`.
+   - **Environment qualification criterion (from e26):** base-model accuracy in the 40-80% band (for within-group variance and headroom) AND at least two tools (to separate premature stopping, verification depth, unsupported claims).
+   - **OpenEnv server contract:** `create_app` must take `max_concurrent_envs` from `MAX_CONCURRENT_ENVS` and the env class must set `SUPPORTS_CONCURRENT_SESSIONS = True`, or the server closes every WebSocket session after the first; `reset(seed=N)` must be deterministic in N or rollout slots sharing a server get different questions and the GRPO group is not a group (fails silently).
+   - **`grep` is aliased to `ugrep`** in this shell — `grep -c '[^\x00-\x7F]'` gives wrong counts. Use python3 for non-ASCII checks.
+
+3. **Files and Code Sections:**
+
+   **Commit 6102a35 "docs: align CLAUDE.md with the code and make regressions the standing rule"** (CLAUDE.md, LAB_NOTES.md, pipeline/training/rewards/utils.py):
+
+   - **`CLAUDE.md`** — grew 287 → ~448 lines. New sections added:
+     - `## This is scientific work, so a regression is the worst outcome` — five bullets: verify the assumption before writing code against it; know what the change touches (grep every caller); run the tests; never change a measurement silently; a smoke test is not a validation. Closes: "When in doubt, stop and confirm rather than ship and let the next eval catch it. The next eval is nine hours of GPU time."
+     - `## Void results, do not cite` — e9-e21 (reasoning_content + truncation-as-wrong) and everything before `a19b1ff` (`batch_size` defaulted to 1). "The 4096-cap pair (`e24bs4` / `e25bs4`) is the first comparison free of both."
+     - `## Where things are written down` — table of RUNNING.md / LAB_NOTES.md / `pipeline/runs/*_findings.md` / BACKLOG.md / DECISIONS.md / CODE_REVIEW+FIX_PLAN / taskwarrior. Run state, Lab notes, Task tracking demoted to `###`.
+     - `## Where code runs` — the verified commands:
+       ```bash
+       cd pipeline && ../.venv-test/bin/python -m pytest tests/ -q
+       rsync -a --delete --exclude 'runs/' --exclude '__pycache__/' --exclude '.pytest_cache/' \
+         pipeline/ gpu-l4:/workspace/master-thesis-code/pipeline/
+       rsync -a --exclude 'checkpoint*' \
+         gpu-l4:/workspace/master-thesis-code/pipeline/runs/<experiment_id> pipeline/runs/
+       ```
+     - `### Experiment geometry: one knob differs, never two` — `batch_size: 4`, `n_rollouts: 8`, same `max_steps`; diff the *frozen* `runs/<exp>/config.yaml` files.
+     - Stale fixes: 4-domain list (after finqa removal), seed block, `training.mode` (only agentic), 3-entry registry, entropy deletion note, cosine length measurement paragraph, scale-invariance + gradient-coverage asymmetry, eval seeds/budget/three reading rules, three overwrite refusals.
+   - **`pipeline/training/rewards/utils.py`** — one-word fix: `See RUNNING.md.` → `See LAB_NOTES.md.` in the `model_token_count` docstring.
+   - **`LAB_NOTES.md`** — `--base-model` trap updated from live hazard to guarded (`base_model_conflict` / `smoke_conflict`).
+
+   **Commit 0bb1cbc "chore: remove the finqa environment and its OpenEnv server patches"** (24 files, +76/−617):
+
+   - **Deleted:** `openenv-patches/README.md`, `openenv-patches/finqa-concurrency-and-seeding.patch` (plus stray `.README.md.swp`), `patch_openenv.py` (99 lines, 100% finqa), `pipeline/domains/finqa/{__init__,adapter,domain}.py` (269 lines), `pipeline/tests/test_finqa_adapter.py`, `pipeline/configs/e14-agentic-finqa-env-only-qwen3-1_7b.yaml`, `pipeline/configs/e26-finqa-e1-baseline-qwen3-1_7b.yaml`.
+   - **`LAB_NOTES.md`** — new section rescuing the patches' two lessons before deletion:
+     ```markdown
+     ## Contract a new OpenEnv env must meet
+
+     Two requirements, both learned by finqa failing them. finqa is gone but the
+     contract is not: an env that misses either one breaks GRPO rather than the env.
+
+     1. **`create_app` must take `max_concurrent_envs` from `MAX_CONCURRENT_ENVS`, and
+        the env class must set `SUPPORTS_CONCURRENT_SESSIONS = True`.** ...
+     2. **`reset(seed=N)` must be a deterministic function of N.** ...
+        `pipeline/probes/bg_seed_check.py` is the check; run it against any new env.
+     ```
+     Added to the TOC under "Standing decisions"; the OpenEnv-clone bullet now reads "The clone carries no local patches any more".
+   - **`pipeline/domains/__init__.py`** — dropped the finqa branch; error message now `f"Env: {env!r} (known: reasoning_gym, textarena, repl, browsergym)"`; docstring generalized.
+   - **`pipeline/probes/env_check.py`** — dropped the `("finqa", "finqa_env.server.app", 8204, {...})` CASES entry.
+   - **`pipeline/training/config_schema.py`** — dropped `"data_path"` from `_KNOWN_ENV_CONFIG_KEYS`; turn-cap comment now `(TEXTARENA_MAX_TURNS / REPL_MAX_ITERATIONS)`.
+   - **`pipeline/tests/test_agentic_schema.py`** — `test_build_domain_dispatches_finqa` retargeted to `test_build_domain_dispatches_repl` (repl is also a late-added domain, the case the test was written for).
+   - **`pipeline/tests/test_env_domain.py`** — deleted `test_finqa_server_env_maps_max_turns_to_its_step_cap`; `test_schema_rejects_the_old_per_domain_cap_aliases` keeps both aliases (`max_steps`, `max_iterations`) but its vehicle env changed `"finqa"` → `"repl"`.
+   - **Six enumeration comments cleaned** (orphans created by the deletion): `domains/reasoning_gym/adapter.py`, `domains/repl/adapter.py`, `eval/agentic_eval.py`, `tests/test_env_adapter.py`, `training/env_server.py`, `training/rewards/non_termination.py`, plus `domains/browsergym/adapter.py`.
+   - **`pipeline/training/rewards/non_termination.py`** final wording:
+     ```
+     `done` is the adapter's termination flag - set by the terminal tool
+     (reasoning_gym `answer`, repl's FINAL, textarena's solving move) or, in
+     browsergym, by whichever action makes the env itself report done. ...
+     ```
+   - **`DECISIONS.md`** — status note added at the top; the finqa section kept as history.
+   - **`CLAUDE.md`** — domain list now four; new paragraph explaining finqa's deletion and pointing at `pipeline/runs/e26_finqa_qualification_findings.md` for the environment criterion; `FINQA_MAX_STEPS` dropped from the turn-cap line.
+   - **Kept deliberately:** `pipeline/runs/e26_finqa_qualification_findings.md`, `DECISIONS.md` history, `CODE_REVIEW.md`/`FIX_PLAN.md`, and the "why browsergym over finqa" rationale comments in `domains/browsergym/domain.py`, `domains/browsergym/adapter.py`, `probes/bg_seed_check.py`, `training/train.py`, `config_schema.py`, and the e27 config description.
+
+4. **Errors and fixes:**
+   - **Wrote a false claim about the cosine reward** ("measures length over the same token ids the trainer optimises"). Reading `training/rewards/cosine_length.py` and `tests/test_cosine_length_ids.py` showed the fix went the opposite way: it *ignores* `completion_ids` and re-tokenizes via `model_token_count`, because the ids branch was a correctness proxy. Rewrote the paragraph before committing.
+   - **`grep -c '[^\x00-\x7F]'` reported 361/796/56 non-ASCII lines**, contradicting an earlier clean `grep -n`. Cause: `grep` is aliased to `ugrep` here. Re-derived with a python3 one-liner: 0 non-ASCII lines in all files. Trusting the tool would have produced a wrong claim.
+   - **Wrote "browsergym's terminal action"** in `non_termination.py`. Verified browsergym exposes `click`/`noop` routing through `_act`, with `done` read from the env's own flag — no single terminal tool. Corrected the wording.
+   - **zsh glob failures** on unquoted `--include=*.py` — fixed by quoting.
+   - **`cd pipeline` persisting across Bash calls** caused "no such file or directory" — fixed with absolute paths.
+   - **Memory note stale:** it claimed 4 pre-existing `test_multiturn_eval` failures; the suite actually ran `252 passed, 4 skipped`. Not acted on further.
+
+5. **Problem Solving:**
+   - Grounded every CLAUDE.md claim in a read of the actual source rather than the conversation summary — which is how the token-entropy drift (documented in 3 places, deleted in code, configs, and schema) was found. `pipeline/README.md` was already correct; only CLAUDE.md was stale.
+   - Recovered the two canonical rsync commands from session `.jsonl` history because they existed nowhere in the repo.
+   - Before deleting finqa tests, checked coverage overlap so no mechanism silently lost its check: dispatch retargeted to repl, `max_turns` mapping still covered by `test_repl_server_env_maps_max_turns_to_its_iteration_cap`, alias-rejection test kept with a live vehicle env. Result: `250 passed, 4 skipped` (252 minus exactly the 2 finqa-specific tests).
+   - Separated knowledge from debt: rescued the OpenEnv server contract into LAB_NOTES before deleting the patch README that held it; kept the e26 findings file because it establishes the environment-selection criterion browsergym was chosen under.
+
+6. **All user messages:**
+   - `/compact` (local command caveat: not to be responded to)
+   - **"is our @CLAUDE.md also aligned with such specifics?**
+
+     **maybe do a broad sweep accross the project, align the @CLAUDE.md based on your analysis and also with all our learnings and best practices.**
+
+     **add to the claude md as well that regressions are the worst thing that can happen to us since we make scientific work and we need to make sure that we never accidentally introduce new errors which would invalidate all of our results. therefore careful validation of assumptions is always to be done"**
+   - **"commit and push"**
+   - **"looking at @openenv-patches/ i think this is a not needed patch anymore since we use browsergym and polynomical equations. looking at our current state and experiments - do we still need finqa? if not remove this patch and related files if not needed. they are only technical debt otherwise"**
+
+7. **Pending Tasks:**
+   - Report the outcome of the last verification: `38c3e6d "remove docs folder"` is an external commit that landed between my two pushes, not something my `git add -A` swept up. Confirmed: 0bb1cbc contains exactly the 24 intended files; 38c3e6d touched only `...2026-06-15-b6-openenv-reasoning-gym-findings.md` (76 deletions).
+   - Taskwarrior open (4 tasks, `project:thesis`): review pipeline with fable 5; review/finish bg chapter; decide cap policy (at 4096 accuracy and termination rate are one measurement); replicate e24bs4/e25bs4 at seeds 43 and 44.
+   - rsync `pipeline/` to the box before any launch — the box copy is now stale by 5ebc0a0, 86eb392, 6aca37c, 2520441, 6102a35 and 0bb1cbc. The `build_composer` signature change makes a partial sync fatal; `--delete` will also remove the box's finqa files.
+   - Align e27/e28/e29 `max_steps` (300 vs poly's 150) before any browsergym relaunch.
+   - Re-derive "+247 median tokens" in `pipeline/runs/e27_e1_baseline_findings.md`.
+   - e0 re-eval on the new seed scheme.
+   - Open question I flagged but did not act on: `textarena` and `repl` are also unused by any live experiment — same debt class as finqa, but the user asked only about finqa.
+   - Cosmetic leftovers noticed, not fixed: empty `pipeline/domains/math/` directory (only `__pycache__`); `load_reference_thresholds` docstring still cites GSM-8K/MATH splits from the dataset-mode era; dead `extract_content` in `rewards/utils.py`.
+
+8. **Current Work:**
+
+   Finishing the finqa removal. All edits, deletions, tests (`250 passed, 4 skipped`), ASCII checks (0 non-ASCII lines in CLAUDE.md / LAB_NOTES.md / DECISIONS.md), and a runtime dispatch check were done:
+   ```
+   reasoning_gym ReasoningGymDomain
+   textarena TextArenaDomain
+   repl REPLDomain
+   finqa -> Env: 'finqa' (known: reasoning_gym, textarena, repl, browsergym)
+   ```
+   Committed as `0bb1cbc chore: remove the finqa environment and its OpenEnv server patches` and pushed `38c3e6d..0bb1cbc  master -> master`; `git status --short` clean.
+
+   Immediately before the summary request I spotted an unexpected commit in the log — `38c3e6d remove docs folder` sitting between my 6102a35 and my 0bb1cbc — and ran a check to rule out that my `git add -A` had swept up unrelated changes. The check came back clean (0bb1cbc = 24 files, all finqa + the three docs; 38c3e6d = one deleted docs file, 76 lines, arrived on the remote independently). That result has not yet been reported to the user.
+
+9. **Optional Next Step:**
+
+   Report the finqa removal outcome plus the git-log verification. Content to convey: finqa is gone (patch dir, `patch_openenv.py`, domain, both configs, its test, dispatch branch, `data_path` key, env_check case); the e26 findings and the "why browsergym over finqa" rationale comments were kept; the two server-contract lessons moved to `LAB_NOTES.md` as "Contract a new OpenEnv env must meet"; tests 250 pass; pushed `38c3e6d..0bb1cbc`; and that `38c3e6d "remove docs folder"` is an external commit that arrived between pushes, not part of my change. Close with the required "Next steps" block: (1) rsync `pipeline/` to the box — `--delete` will clear the box's finqa copy too; (2) launch seeds 43/44 for e24bs4/e25bs4; (3) optionally decide whether `textarena` and `repl` should follow finqa out, since neither is used by a live experiment. Caveman-terse prose, ASCII only.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/mheidebrecht/.claude/projects/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/ab988c24-a88e-415d-8dd2-615cc390ae14.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
