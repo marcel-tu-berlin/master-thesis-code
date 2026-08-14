@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bzg2vmr3g</task-id>
+<tool-use-id>toolu_01BdPhLodwCnRyKnTM5cxxMH</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/25f68f83-6041-4412-8b24-5cd51640c84a/tasks/bzg2vmr3g.output</output-file>
+<status>completed</status>
+<summary>Background command "Monitor e0m eval phase of the e30 gate" completed (exit code 0)</summary>
+</task-notification>
