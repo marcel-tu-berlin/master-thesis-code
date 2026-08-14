@@ -1,0 +1,6 @@
+<task-notification>
+<task-id>buj2cjpn8</task-id>
+<summary>Monitor event: "e27 retrain milestones and failures"</summary>
+<event>e27 batch pid 1008154 exited. step=300 episodes=200</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
