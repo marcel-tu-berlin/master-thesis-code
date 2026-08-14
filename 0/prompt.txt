@@ -1,0 +1,6 @@
+<task-notification>
+<task-id>bo9j52xmx</task-id>
+<summary>Monitor event: "browsergym probe per-task results"</summary>
+<event>click-option         n= 20 success=0.10 term=0.10 tok=   525 steps=0.3 {'hit_generation_cap': 17, 'env_done': 2, 'no_tool_call': 1}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
