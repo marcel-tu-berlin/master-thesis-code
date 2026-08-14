@@ -1,0 +1,6 @@
+<task-notification>
+<task-id>bso76kfqo</task-id>
+<summary>Monitor event: "e0-oldseeds zero-point probe"</summary>
+<event>e0 probe held_out complete (100 eps) - this is the zero point for click-menu-2.</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
