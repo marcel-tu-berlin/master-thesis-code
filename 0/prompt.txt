@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bhv60y9cv</task-id>
+<tool-use-id>toolu_01B6tQLnBCBvQnjv36XQQ7oh</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/e023ab91-4ec9-4799-ba43-493733af57c7/tasks/bhv60y9cv.output</output-file>
+<status>killed</status>
+<summary>Background command "Wait for e28+e29 batch to finish" was stopped</summary>
+</task-notification>
