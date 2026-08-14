@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>b0gsb7xc9</task-id>
+<tool-use-id>toolu_01JEBfKkAtNG5SntmJApWo27</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/e023ab91-4ec9-4799-ba43-493733af57c7/tasks/b0gsb7xc9.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for probe, dump report" completed (exit code 0)</summary>
+</task-notification>
