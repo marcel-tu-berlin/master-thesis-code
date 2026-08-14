@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bmcdd2yea</task-id>
+<tool-use-id>toolu_01Mcd1eDVMVGMkt3Y3U8vxDK</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/e023ab91-4ec9-4799-ba43-493733af57c7/tasks/bmcdd2yea.output</output-file>
+<status>killed</status>
+<summary>Background command "Launch paired-seed diagnostic eval detached" was stopped</summary>
+</task-notification>
