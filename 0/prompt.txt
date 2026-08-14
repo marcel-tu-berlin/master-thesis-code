@@ -1,0 +1,1 @@
+i thought that we need a batch size of 8 which is split into 2 * 4 due to memory? please ensure that batch size is the measured working value
