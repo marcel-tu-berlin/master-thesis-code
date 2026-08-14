@@ -1,0 +1,477 @@
+Review this change for security vulnerabilities.
+
+Changed files (you may Read these and any other file in the repo):
+  - pipeline/configs/e27-browsergym-e1-baseline-qwen3-1_7b.yaml
+  - pipeline/configs/e27probe-browsergym-difficulty-qwen3-1_7b.yaml
+  - pipeline/configs/e27probe2-browsergym-nohint-qwen3-1_7b.yaml
+  - pipeline/configs/e27probe3-browsergym-4k-qwen3-1_7b.yaml
+  - pipeline/configs/e27probe4-browsergym-short-qwen3-1_7b.yaml
+  - pipeline/domains/browsergym/domain.py
+  - pipeline/tests/test_env_server.py
+  - pipeline/training/env_server.py
+
+Unified diff (only + lines are new):
+
+=== DIFF: pipeline/configs/e27-browsergym-e1-baseline-qwen3-1_7b.yaml ===
+@@ -1,12 +1,12 @@
+ experiment_id: e27-browsergym-e1-baseline-qwen3-1_7b
+-description: "E27: task-success-only GRPO on BrowserGym/MiniWoB (E1), the specialized baseline every later condition is shaped on top of. Environment chosen by the feasibility probe (runs/browsergym_feasibility_findings.md) after e26 disqualified finqa. Task mix is deliberate: click-option supplies headroom (0.50 base success, inside the 40-80% band where GRPO gets within-group variance), click-checkboxes supplies axis separation (0.35 success against 0.50 termination). Headroom alone is not enough - on a set where every terminated episode is correct, reducing non-termination IS increasing task success, so a non-termination penalty would be indistinguishable from a task reward and RQ2 would have nothing to measure. naive_sum, not the advantage_weighted default: the E3 lambda sweep runs under naive_sum (a binary termination flag has zero within-group variance once rollouts terminate reliably, and advantage_weighted contributes exactly 0 there), so the lambda=0 control must run the same composer or it is not this sweep's baseline. Budget geometry: max_seq 8192 with max_prompt_length 6144 leaves 2048 per turn. That number is measured, not guessed - at 512 the probe read click-option as 0.10 with 17 of 20 episodes truncated, and the same task gives 0.50 at 2048. Qwen3's think block costs ~300 tokens per turn and every prior turn's block stays in context, so a budget that fits turn 1 does not fit turn 3. Turning thinking off is not the cheaper fix: the model then emits 24 tokens and passes the visible label instead of the element id."
++description: "E27: task-success-only GRPO on BrowserGym/MiniWoB (E1), the specialized baseline every later condition is shaped on top of. Environment chosen after e26 disqualified finqa; task mix chosen by four probes, because the first three sets of difficulty numbers did not survive contact with the conditions they were used under. The mix is click-menu-2 (0.60 success against 0.70 termination, 2.6 steps) and click-dialog-2 (0.80 against 1.00, 1.0 steps), giving roughly 0.70 success against 0.85 termination. Both bars are required and both are load-bearing: headroom alone is not enough, because on a set where every terminated episode is correct, reducing non-termination IS increasing task success, and a non-termination penalty would be indistinguishable from a task reward with nothing left for RQ2 to measure. naive_sum, not the advantage_weighted default: the E3 lambda sweep runs under naive_sum (a binary termination flag has zero within-group variance once rollouts terminate reliably, and advantage_weighted contributes exactly 0 there), so the lambda=0 control must run the same composer or it is not this sweep's baseline."
+ seed: 42
+ 
+ model:
+   slug: qwen3-1.7b
+   lora_r: 16
+-  # Multi-turn context: the prompt regrows each turn with the assistant's tool
+-  # call, its think block, and the injected page.
++  # Initial prompt is small (lead-in, goal, first page: about 700 tokens), and
++  # the whole trajectory is capped at 4096 below, so 8192 leaves slack.
+   max_seq_length: 8192
+   gpu_memory_utilization: 0.30
+ 
+@@ -17,20 +17,40 @@ training:
+     benchmark: miniwob
+     # The seed cycles this list (`tasks[seed % len]`), so the mix is exactly
+     # balanced across the training set and reproducible per seed.
+-    tasks: [click-option, click-checkboxes]
++    #
++    # Chosen from fifteen families probed under these exact conditions
++    # (runs/browsergym_difficulty_correction.md). They are the only two that are
++    # both unsaturated and trainable. Every family the base model gets wrong at
++    # a useful rate is wrong for one reason - it needs more decisions than the
++    # model can keep coherent, and then loops until the turn cap - and those
++    # same families cost 5600-8900 assistant tokens an episode, which does not
++    # fit the completion budget below. The boundary is sharp: at or under 2.6
++    # mean steps everything is solvable, at 3.4 and above everything is dead,
++    # and nothing sits in between.
++    tasks: [click-menu-2, click-dialog-2]
+     # MiniWoB HTML is not shipped with browsergym-miniwob. This must point at a
+     # served clone of miniwob-plusplus or the env raises "core is not defined"
+-    # at the first reset. Start it before launching:
++    # at the first reset, and it does not survive a box restart. Start it first:
+     #   cd /workspace/miniwob-plusplus/miniwob/html && python3 -m http.server 8080
+     miniwob_url: http://localhost:8080/miniwob/
+-    # The one turn cap. The probe needed 1.9 steps on click-option and 2.0 on
+-    # click-checkboxes; 8 leaves room for retries and stalls without letting a
+-    # looping episode run away.
++    # The one turn cap. The mix needs 1.0 and 2.6 steps, so 8 is headroom rather
++    # than a constraint; it exists to stop a looping episode running away.
+     max_turns: 8
+   env_server:
+     repo_path: /workspace/OpenEnv/envs
+     port: 8000
+-  max_prompt_length: 6144
++  # Sets TRL's max_completion_length to 8192 - 4096 = 4096.
++  #
++  # Read that as the budget for the WHOLE trajectory, not per turn: TRL drops
++  # tool results once `len(pct) - len(prompt_ids)` passes it (grpo_trainer.py
++  # :1605) and sizes the loss tensor to it (:2628), so memory scales with it
++  # directly and the fp32 logits upcast puts this L4 near a 4096 ceiling.
++  #
++  # Measured against that: click-menu-2 spends a median 2569 assistant tokens
++  # and 4007 at p90, its pages cost 45 tokens each and click-dialog-2's 101, so
++  # the worst trajectory in the mix lands near 4124 and the median near 2686.
++  # It fits, with nothing to spare at the tail - watch clip ratio at step 5.
++  max_prompt_length: 4096
+   n_rollouts: 8
+   micro_batch_size: 1
+   max_steps: 300
+@@ -47,32 +67,34 @@ rewards:
+ eval:
+   temperature: 0.0
+   do_sample: false
++  # Pinned, not derived. `max_seq - max_prompt_length` feeds two different
++  # quantities: TRL's whole-trajectory budget above, and max_new_tokens PER TURN
++  # here (agentic_eval.py:36, with generate called once a turn and no total
++  # cap). They coincide on a single-turn domain, which is why reasoning_gym
++  # never exposed it, and differ by a factor of n turns here. 4096 is the
++  # per-turn budget every probed number was measured at; setting it explicitly
++  # keeps that true if the training geometry is ever retuned.
++  max_new_tokens: 4096
+   agentic:
+     splits:
+       # Held-out: same task mix as training, seeds disjoint via the offset.
+       - name: held_out
+         n_episodes: 100
+-      # Shifted: two click-only families never trained on, both picked from a
+-      # probe of eight candidates rather than guessed (click-widget 0.60/0.70,
+-      # navigate-tree 0.70/0.75 base success/termination). Both clear the same
+-      # two bars as the training mix - inside the band, and success below
+-      # termination so the axes stay separable on the shifted split too.
++      # Shifted: two families never trained on, both measured at this budget.
++      # navigate-tree is hierarchical expansion (0.85 success, 331 median
++      # tokens, 1.6 steps); click-checkboxes-transfer is multi-select (1.00,
++      # 687, 1.9). Both are structurally unlike a menu path or a dialog button,
++      # both are solvable with `click` alone, and both are short enough to train
++      # on, so a drop here is transfer failure rather than a budget artifact.
+       #
+-      # The shift is structural, not just unseen labels. Training is
+-      # select-then-submit twice over (radio + Submit, checkboxes + Submit);
+-      # click-widget is a single typed-widget click with no submit step, and
+-      # navigate-tree is hierarchical. A drop here is transfer failure, not a
+-      # missing tool: both are solvable with `click` alone.
+-      #
+-      # Rejected candidates and why, so this is not re-litigated: click-tab 1.00
+-      # and click-collapsible 0.95 are saturated; click-link 0.00 and
+-      # click-checkboxes-large 0.05 are unreachable (the latter budget-bound, 12
+-      # of 20 episodes truncated); click-color and click-shape are structurally
+-      # impossible here - color and shape are absent from an accessibility tree,
+-      # so a text-only observation cannot see the target at all (click-shape
+-      # terminated 19 of 20 times and was never right).
++      # Stated plainly because it limits what this split can support: both are
++      # at or near ceiling, so it can detect degradation but not improvement.
++      # That is the direction RQ2 needs - substitution shows up as a shifted-set
++      # drop - but a shifted gain would be invisible here. Every family probed
++      # that was NOT near ceiling was also untrainable, so this is the ceiling
++      # of the environment, not a lazy pick.
+       - name: shifted
+         n_episodes: 100
+         env_config:
+-          tasks: [click-widget, navigate-tree]
++          tasks: [navigate-tree, click-checkboxes-transfer]
+         seed_offset: 200000
+
+
+=== DIFF: pipeline/configs/e27probe-browsergym-difficulty-qwen3-1_7b.yaml ===
+@@ -0,0 +1,76 @@
++experiment_id: e27probe-browsergym-difficulty-qwen3-1_7b
++description: "Base-model difficulty sweep over MiniWoB families, measured under the EXACT conditions e27 trains under: the real BrowserGymEnvAdapter, its two tools (click, noop), the domain's _LEAD_IN, and a 2048-token completion budget. This exists because the first difficulty probe (runs/browsergym_feasibility_findings.md) used browsergym's five tools and its own prompt, measured click-option 0.50 and click-checkboxes 0.35, and the e27 training run then read 0.93 mean reward with frac_reward_zero_std 0.70 - 14 of 20 prompt groups had all 8 rollouts score identically, so no gradient and, worse, success and termination collapsed back onto one axis and RQ2 had nothing to measure. Difficulty measured under conditions you do not train under is not difficulty. Run with `python -m eval.runner --config <this> --base-model`; every split is a single family so `tasks[seed % 1]` pins it, and all splits share seed_offset 300000 so the families are scored on paired seeds. Selection bars, both required: base success inside 0.40-0.80, and success strictly below termination so the task and off-target axes can move independently."
++seed: 42
++
++model:
++  slug: qwen3-1.7b
++  lora_r: 16
++  max_seq_length: 8192
++
++training:
++  mode: agentic
++  env: browsergym
++  env_config:
++    benchmark: miniwob
++    tasks: [click-option]
++    miniwob_url: http://localhost:8080/miniwob/
++    max_turns: 8
++  env_server:
++    repo_path: /workspace/OpenEnv/envs
++    port: 8000
++  # Sets the eval completion budget to 8192 - 6144 = 2048, matching e27.
++  max_prompt_length: 6144
++
++rewards:
++  compose_method: naive_sum
++  env_reward:
++    enabled: true
++    weight: 1.0
++
++eval:
++  temperature: 0.0
++  do_sample: false
++  agentic:
++    splits:
++      # --- calibration: what the first probe scored 0.50 and 0.35 ---
++      - name: click-option
++        n_episodes: 20
++        env_config: {tasks: [click-option]}
++        seed_offset: 300000
++      - name: click-checkboxes
++        n_episodes: 20
++        env_config: {tasks: [click-checkboxes]}
++        seed_offset: 300000
++
++      # --- the current shifted split, which needs re-checking for the same reason ---
++      - name: click-widget
++        n_episodes: 20
++        env_config: {tasks: [click-widget]}
++        seed_offset: 300000
++      - name: navigate-tree
++        n_episodes: 20
++        env_config: {tasks: [navigate-tree]}
++        seed_offset: 300000
++
++      # --- candidates the first probe scored at or near zero, which is where the
++      #     band should now sit if two tools plus the lead-in lift everything ---
++      - name: click-checkboxes-large
++        n_episodes: 20
++        env_config: {tasks: [click-checkboxes-large]}
++        seed_offset: 300000
++      - name: click-tab-2
++        n_episodes: 20
++        env_config: {tasks: [click-tab-2]}
++        seed_offset: 300000
++      - name: click-link
++        n_episodes: 20
++        env_config: {tasks: [click-link]}
++        seed_offset: 300000
++
++      # --- unprobed, click-only, and hard for a reason that is not a budget or an
++      #     unobservable attribute: the goal names synonyms of the checkbox labels,
++      #     so it needs a semantic match rather than a string match ---
++      - name: click-checkboxes-soft
++        n_episodes: 20
++        env_config: {tasks: [click-checkboxes-soft]}
++        seed_offset: 300000
+
+
+=== DIFF: pipeline/configs/e27probe2-browsergym-nohint-qwen3-1_7b.yaml ===
+@@ -0,0 +1,41 @@
++experiment_id: e27probe2-browsergym-nohint-qwen3-1_7b
++description: "One-variable follow-up to e27probe: identical setup, identical seeds, with the solution hint removed from the domain's _LEAD_IN. e27probe measured click-option 1.00 and click-checkboxes 0.95 under the real adapter, against 0.50 and 0.35 from the original five-tool probe. Two changes could explain that gap - the adapter exposes two tools instead of five, and the lead-in ended 'Most tasks need a selection followed by clicking Submit', which is the solution to both families. This isolates the second. Same families, same seed_offset 300000, so the numbers are directly comparable to e27probe's; the only difference is the prompt. If accuracy falls back toward 0.5 the hint was the cause and the original training mix stands with a hint-free prompt; if it stays near 1.0 the two-tool menu is the cause and the family set has to change instead."
++seed: 42
++
++model:
++  slug: qwen3-1.7b
++  lora_r: 16
++  max_seq_length: 8192
++
++training:
++  mode: agentic
++  env: browsergym
++  env_config:
++    benchmark: miniwob
++    tasks: [click-option]
++    miniwob_url: http://localhost:8080/miniwob/
++    max_turns: 8
++  env_server:
++    repo_path: /workspace/OpenEnv/envs
++    port: 8000
++  max_prompt_length: 6144
++
++rewards:
++  compose_method: naive_sum
++  env_reward:
++    enabled: true
++    weight: 1.0
++
++eval:
++  temperature: 0.0
++  do_sample: false
++  agentic:
++    splits:
++      - name: click-option
++        n_episodes: 20
++        env_config: {tasks: [click-option]}
++        seed_offset: 300000
++      - name: click-checkboxes
++        n_episodes: 20
++        env_config: {tasks: [click-checkboxes]}
++        seed_offset: 300000
+
+
+=== DIFF: pipeline/configs/e27probe3-browsergym-4k-qwen3-1_7b.yaml ===
+@@ -0,0 +1,60 @@
++experiment_id: e27probe3-browsergym-4k-qwen3-1_7b
++description: "Re-measures the four surviving e27 candidate families at a 4096-token completion budget instead of 2048. e27probe ranked families at 2048 and the hard end of that ranking is not difficulty, it is truncation: click-checkboxes-large hit the generation cap in 8 of 20 episodes and exhausted its turns in 3 more, click-tab-2 hit the cap in 11 of 20. Selecting a training mix on those numbers would repeat the artifact that invalidated e9-e21, where a whole sweep's null was measured on episodes mislabelled as wrong when they had merely been cut off. Two of the four are controls that barely truncated (navigate-tree 0/20, click-checkboxes-soft 3/20) and should not move; if they do, the budget change itself is not neutral and neither reading is safe. Paired seeds with e27probe (seed_offset 300000) so every number here is directly comparable to its 2048 counterpart. Whatever budget this probe validates is the budget e27 then trains at, so difficulty is measured under the conditions it is used for. Run with `python -m eval.runner --config <this> --base-model`. Selection bars, both required: base success inside 0.40-0.80, and success strictly below termination so the task and off-target axes can move independently."
++seed: 42
++
++model:
++  slug: qwen3-1.7b
++  lora_r: 16
++  max_seq_length: 12288
++
++training:
++  mode: agentic
++  env: browsergym
++  env_config:
++    benchmark: miniwob
++    tasks: [click-option]
++    miniwob_url: http://localhost:8080/miniwob/
++    max_turns: 8
++  env_server:
++    repo_path: /workspace/OpenEnv/envs
++    port: 8000
++  # Sets the eval completion budget to 12288 - 8192 = 4096, double e27probe's.
++  # The prompt half stays generous on purpose: browsergym re-injects the page
++  # every turn, so an 8-turn episode accumulates roughly 8 x (500 obs + 1100
++  # assistant) tokens and a 4096 prompt would start dropping the early turns.
++  max_prompt_length: 8192
++
++rewards:
++  compose_method: naive_sum
++  env_reward:
++    enabled: true
++    weight: 1.0
++
++eval:
++  temperature: 0.0
++  do_sample: false
++  agentic:
++    splits:
++      # --- controls: barely truncated at 2048, so these pin whether the budget
++      #     change moves anything on its own ---
++      - name: navigate-tree
++        n_episodes: 20
++        env_config: {tasks: [navigate-tree]}
++        seed_offset: 300000
++      - name: click-checkboxes-soft
++        n_episodes: 20
++        env_config: {tasks: [click-checkboxes-soft]}
++        seed_offset: 300000
++
++      # --- the budget-bound pair: 0.45 and 0.10 at 2048, both mostly cap-hits.
++      #     If either rises into the band with its gap intact it is the better
++      #     training family; if neither moves, 2048 was never the binding
++      #     constraint and the mix has to come from the top edge instead ---
++      - name: click-checkboxes-large
++        n_episodes: 20
++        env_config: {tasks: [click-checkboxes-large]}
++        seed_offset: 300000
++      - name: click-tab-2
++        n_episodes: 20
++        env_config: {tasks: [click-tab-2]}
++        seed_offset: 300000
+
+
+=== DIFF: pipeline/configs/e27probe4-browsergym-short-qwen3-1_7b.yaml ===
+@@ -0,0 +1,71 @@
++experiment_id: e27probe4-browsergym-short-qwen3-1_7b
++description: "Searches the one quadrant the earlier probes never sampled: MiniWoB families that are hard for a semantic reason rather than a long-trajectory reason. e27probe3 established that difficulty and trajectory length are entangled in the families probed so far - click-checkboxes-large is the only family that clears both selection bars (0.60 success against 0.75 termination) and it is hard precisely because it takes 5.9 turns, which costs a median 6066 assistant tokens before page observations are counted. TRL applies max_completion_length to the whole multi-turn trajectory, not per turn, and the fp32 logits upcast puts this L4's ceiling near 4096 completion tokens, so 16 of 20 of that family's episodes would train truncated. Every family probed so far is therefore either trainable and saturated (navigate-tree 0.85, 331 median tokens) or interesting and untrainable. These seven are all click-only and decided in one or two decisions, so their trajectories are short by construction; the difficulty, where it exists, has to come from reading the page correctly rather than from acting many times. Excluded on the rule established for click-shape and click-color: count-shape, count-sides, identify-shape and click-shades turn on attributes an accessibility tree does not carry, so a text-only observation cannot see the target at all. Run with `python -m eval.runner --config <this> --base-model`. Three bars now, all required: base success inside 0.40-0.80, success strictly below termination, and a median assistant-token count low enough that the trajectory plus its page observations fits a 4096 completion budget - roughly under 2500."
++seed: 42
++
++model:
++  slug: qwen3-1.7b
++  lora_r: 16
++  max_seq_length: 12288
++
++training:
++  mode: agentic
++  env: browsergym
++  env_config:
++    benchmark: miniwob
++    tasks: [click-pie]
++    miniwob_url: http://localhost:8080/miniwob/
++    max_turns: 8
++  env_server:
++    repo_path: /workspace/OpenEnv/envs
++    port: 8000
++  # Same 4096 per-turn eval budget as e27probe3, so token counts compare directly.
++  max_prompt_length: 8192
++
++rewards:
++  compose_method: naive_sum
++  env_reward:
++    enabled: true
++    weight: 1.0
++
++eval:
++  temperature: 0.0
++  do_sample: false
++  agentic:
++    splits:
++      # Two-decision menus: open a container, then pick a labelled item. Both
++      # labels live in the accessibility tree, so the difficulty is choosing.
++      - name: click-pie
++        n_episodes: 20
++        env_config: {tasks: [click-pie]}
++        seed_offset: 300000
++      - name: click-menu-2
++        n_episodes: 20
++        env_config: {tasks: [click-menu-2]}
++        seed_offset: 300000
++      - name: click-collapsible-2
++        n_episodes: 20
++        env_config: {tasks: [click-collapsible-2]}
++        seed_offset: 300000
++
++      # One decision, semantic: the goal names an outcome and several buttons or
++      # tabs plausibly match it. Shortest possible trajectory.
++      - name: click-dialog-2
++        n_episodes: 20
++        env_config: {tasks: [click-dialog-2]}
++        seed_offset: 300000
++      - name: click-tab-2-hard
++        n_episodes: 20
++        env_config: {tasks: [click-tab-2-hard]}
++        seed_offset: 300000
++      - name: grid-coordinate
++        n_episodes: 20
++        env_config: {tasks: [grid-coordinate]}
++        seed_offset: 300000
++
++      # The short checkbox variant. click-checkboxes-large clears the bars but
++      # is untrainable here at 6066 median tokens; this one asks for a subset of
++      # a small set, so it may keep the separation at a fraction of the length.
++      - name: click-checkboxes-transfer
++        n_episodes: 20
++        env_config: {tasks: [click-checkboxes-transfer]}
++        seed_offset: 300000
+
+
+=== DIFF: pipeline/domains/browsergym/domain.py ===
+@@ -5,10 +5,18 @@ from domains.browsergym.adapter import BrowserGymEnvAdapter
+ # injected by the model's native tool-calling template (tools=...); this only
+ # frames the setting. reset() appends the goal and the page after this lead-in
+ # (TRL appends to the last user message).
++#
++# It explains the interface and stops there. An earlier version ended "Most tasks
++# need a selection followed by clicking Submit", which states the solution to
++# both original training families outright. Removing it is the fair measurement,
++# not a fix: on paired seeds it changed nothing (click-option 1.00 -> 1.00,
++# click-checkboxes 0.95 -> 1.00). What actually inflated base accuracy was the
++# adapter exposing two tools where the first probe used five. See
++# runs/browsergym_difficulty_correction.md.
+ _LEAD_IN = (
+     "You are controlling a web page. Read the goal and the accessibility tree, "
+     "then call one tool per turn to act on the page. Element ids are the numbers "
+-    "in square brackets. Most tasks need a selection followed by clicking Submit.\n\n"
++    "in square brackets.\n\n"
+ )
+ 
+ 
+@@ -82,6 +90,10 @@ class BrowserGymDomain(EnvDomain):
+         # max_tool_calling_iterations in training and by the eval loop's turn
+         # budget. Both read the same `max_turns` key, so the two agree; there is
+         # simply no third place for them to disagree with.
++        # The server picks its port from BROWSERGYM_PORT and ignores the --port
++        # argv EnvServerProcess passes, so training.env_server.port must stay at
++        # the server's own default of 8000. A mismatch is loud (nothing answers
++        # the client), not silent.
+         cfg = dict(env_config or {})
+         tasks = cfg.get("tasks") or ["click-option", "click-checkboxes"]
+         env = {
+
+
+=== DIFF: pipeline/tests/test_env_server.py ===
+@@ -48,6 +48,17 @@ def test_env_sets_concurrency_and_pythonpath():
+     assert env["PYTHONPATH"].startswith("/workspace/OpenEnv/envs")
+ 
+ 
++def test_start_refuses_an_occupied_port():
++    # A leftover server from another env keeps the port, the new one dies on bind,
++    # and the readiness probe then passes against the wrong server. That silently
++    # ran a whole browsergym training against a stale reasoning_gym server.
++    srv = _srv()
++    srv.is_ready = lambda: True
++    with pytest.raises(RuntimeError, match="already in use"):
++        srv.start()
++    assert srv._proc is None
++
++
+ def test_wait_until_ready_returns_when_ready():
+     assert _srv().wait_until_ready(_ready=lambda: True, _sleep=lambda *_: None) is True
+ 
+
+
+=== DIFF: pipeline/training/env_server.py ===
+@@ -45,6 +45,19 @@ class EnvServerProcess:
+         return env
+ 
+     def start(self) -> "EnvServerProcess":
++        # Refuse to start onto an occupied port. Every env's server/app.py binds a
++        # fixed port from its own env var, so a leftover server from another env
++        # keeps the port, the new one exits on bind, and wait_until_ready's socket
++        # probe succeeds against the *wrong* server. Training then runs to
++        # completion against it: a browsergym run whose actions all hit a stale
++        # reasoning_gym server scored 0 with tools/failure_frequency 1.0 and no
++        # traceback anywhere. Loud here beats a plausible-looking null.
++        if self.is_ready():
++            raise RuntimeError(
++                f"port {self.port} is already in use; a stale env server would "
++                f"silently serve this run. Kill it before launching "
++                f"({' '.join(self.command())})"
++            )
+         self._proc = subprocess.Popen(
+             self.command(),
+             cwd=self.repo_envs_path,
+
+
+Investigate per the method in your instructions, then return the findings list.
