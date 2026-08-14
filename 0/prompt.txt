@@ -1,0 +1,200 @@
+Review this change for security vulnerabilities.
+
+Changed files (you may Read these and any other file in the repo):
+  - pipeline/domains/env_base.py
+  - pipeline/eval/agentic_eval.py
+  - pipeline/eval/metrics.py
+  - pipeline/tests/test_agentic_episode_eval.py
+  - pipeline/tests/test_cosine_length_ids.py
+  - pipeline/tests/test_env_domain.py
+  - pipeline/training/rewards/cosine_length.py
+
+Unified diff (only + lines are new):
+
+=== DIFF: pipeline/domains/env_base.py ===
+@@ -1,3 +1,12 @@
++# Minimum env reward that counts as a solved episode. reasoning_gym scorers are
++# graded, not binary: countdown hands 0.05 to a near-miss and 0.01 to garbage,
++# polynomial_equations decays exponentially with distance to the root (an
++# off-by-one answer still scores 4.5e-5). A bare `> 0` therefore counts almost
++# any parseable answer as correct. 0.5 admits only near-exact solutions under
++# every scorer in use while staying scorer-agnostic.
++CORRECT_REWARD_THRESHOLD = 0.5
++
++
+ class EnvDomain:
+     """Base for OpenEnv-backed agentic domains.
+ 
+@@ -27,8 +36,8 @@ class EnvDomain:
+         return float(step_result.reward)
+ 
+     def is_correct(self, step_result) -> bool:
+-        """Binary success for evaluation: a positive env reward counts as solved."""
+-        return float(step_result.reward) > 0.0
++        """Binary success for evaluation: near-exact reward counts as solved."""
++        return float(step_result.reward) >= CORRECT_REWARD_THRESHOLD
+ 
+     def difficulty(self, task) -> float | None:
+         return None
+
+
+=== DIFF: pipeline/eval/agentic_eval.py ===
+@@ -9,6 +9,7 @@ import os
+ import re
+ import sys
+ 
++from domains.env_base import CORRECT_REWARD_THRESHOLD
+ from eval.metrics import SampleResult, compute_metrics
+ 
+ # The model answers by emitting a Hermes-style tool call (Qwen3 native format):
+@@ -77,7 +78,9 @@ def _run_episodes(env, n: int, seed_base: int, gen_fn) -> list[SampleResult]:
+         question = env.reset(seed=seed_base + i)
+         answer, n_tokens = gen_fn(question)
+         env.answer(answer if answer is not None else "")
+-        results.append(SampleResult(correct=env.reward > 0, n_tokens=n_tokens, n_steps=1))
++        r = float(env.reward)
++        results.append(SampleResult(correct=r >= CORRECT_REWARD_THRESHOLD,
++                                    n_tokens=n_tokens, n_steps=1, reward=r))
+     return results
+ 
+ 
+@@ -121,7 +124,9 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
+             messages.append({"role": "tool", "content": str(feedback)})
+             if getattr(env, "done", False):
+                 break
+-        results.append(SampleResult(correct=env.reward > 0, n_tokens=total_tokens, n_steps=steps))
++        r = float(env.reward)
++        results.append(SampleResult(correct=r >= CORRECT_REWARD_THRESHOLD,
++                                    n_tokens=total_tokens, n_steps=steps, reward=r))
+     return results
+ 
+ 
+@@ -142,7 +147,8 @@ def _metrics_to_dict(m) -> dict:
+         "n_samples": m.n_samples,
+         "n_correct": m.n_correct,
+         "samples": [
+-            {"correct": r.correct, "n_tokens": r.n_tokens, "n_steps": r.n_steps}
++            {"correct": r.correct, "n_tokens": r.n_tokens, "n_steps": r.n_steps,
++             "reward": r.reward}
+             for r in m.raw
+         ],
+     }
+
+
+=== DIFF: pipeline/eval/metrics.py ===
+@@ -18,6 +18,9 @@ class SampleResult:
+     # Env steps for an agentic episode (1 for single-step reasoning_gym);
+     # None for dataset-mode eval, where the notion of a step does not apply.
+     n_steps: int | None = None
++    # Raw graded env reward for the episode, kept so reports can be
++    # re-thresholded offline; `correct` alone loses that information.
++    reward: float | None = None
+ 
+ 
+ @dataclass
+
+
+=== DIFF: pipeline/tests/test_agentic_episode_eval.py ===
+@@ -91,8 +91,10 @@ def test_run_episodes_handles_none_answer():
+ # --- _metrics_to_dict: serialize EvalMetrics for the report ---
+ 
+ def test_metrics_to_dict_shape():
+-    m = compute_metrics([SampleResult(True, 10, n_steps=1), SampleResult(False, 20, n_steps=1)])
++    m = compute_metrics([SampleResult(True, 10, n_steps=1, reward=1.0),
++                         SampleResult(False, 20, n_steps=1, reward=0.05)])
+     d = _metrics_to_dict(m)
+     assert d["accuracy"] == 0.5 and d["n_samples"] == 2 and d["n_correct"] == 1
+-    assert d["samples"][0] == {"correct": True, "n_tokens": 10, "n_steps": 1}
++    assert d["samples"][0] == {"correct": True, "n_tokens": 10, "n_steps": 1,
++                               "reward": 1.0}
+     assert "mean_token_count" in d and "mean_steps" in d
+
+
+=== DIFF: pipeline/tests/test_cosine_length_ids.py ===
+@@ -28,8 +28,9 @@ def test_falls_back_to_text_without_ids():
+ 
+ 
+ def test_agentic_correctness_from_environments():
+-    # Correctness comes from env.reward > 0. Same length, so the correct env must
+-    # outrank the wrong env purely on the correctness gate.
++    # Correctness comes from the env reward crossing CORRECT_REWARD_THRESHOLD.
++    # Same length, so the correct env must outrank the wrong env purely on the
++    # correctness gate.
+     r = CosineLengthReward(_Tok(), max_len=10)
+     out = r(
+         ["p", "p"], ["a b", "a b"],
+@@ -38,6 +39,17 @@ def test_agentic_correctness_from_environments():
+     assert out[0] > out[1]
+ 
+ 
++def test_partial_credit_gates_as_wrong():
++    # A graded near-miss (countdown 0.05, poly exp-decay) must land in the
++    # wrong branch, identical to a hard 0.0 - not in the correct branch.
++    r = CosineLengthReward(_Tok(), max_len=10)
++    out = r(
++        ["p", "p"], ["a b", "a b"],
++        environments=[_Env(0.05), _Env(0.0)], completion_ids=[[1, 2], [1, 2]],
++    )
++    assert out[0] == out[1]
++
++
+ def test_requires_environments():
+     # No environments kwarg -> must raise (there is no answer-column fallback).
+     r = CosineLengthReward(_Tok(), max_len=10)
+
+
+=== DIFF: pipeline/tests/test_env_domain.py ===
+@@ -36,6 +36,17 @@ def test_is_correct_from_reward_sign():
+     assert d.is_correct(_FakeStep(0.0)) is False
+ 
+ 
++def test_is_correct_rejects_graded_partial_credit():
++    # reasoning_gym scorers are graded: countdown gives 0.05 to a near-miss and
++    # 0.01 to garbage; polynomial_equations decays to tiny-but-positive for
++    # wrong roots. None of these count as solved.
++    d = ReasoningGymDomain()
++    assert d.is_correct(_FakeStep(0.01)) is False
++    assert d.is_correct(_FakeStep(0.05)) is False
++    assert d.is_correct(_FakeStep(4.5e-5)) is False
++    assert d.is_correct(_FakeStep(0.5)) is True
++
++
+ def test_make_env_factory_is_zero_arg_and_builds_adapter():
+     d = ReasoningGymDomain()
+     factory = d.make_env_factory(
+
+
+=== DIFF: pipeline/training/rewards/cosine_length.py ===
+@@ -1,5 +1,6 @@
+ import math
+ 
++from domains.env_base import CORRECT_REWARD_THRESHOLD
+ from training.rewards.utils import model_token_count
+ 
+ 
+@@ -32,7 +33,9 @@ class CosineLengthReward:
+     per-component z-scoring and is the intended Wu/Yeo coupling.
+ 
+     Agentic-only: correctness is read from the live OpenEnv instances TRL passes
+-    as kwargs['environments'] (env.reward > 0). There is no answer column.
++    as kwargs['environments'] (env.reward >= CORRECT_REWARD_THRESHOLD; graded
++    scorers hand partial credit to near-misses, so a bare > 0 gates wrong).
++    There is no answer column.
+     """
+ 
+     def __init__(
+@@ -69,7 +72,10 @@ class CosineLengthReward:
+                 "CosineLengthReward requires kwargs['environments'] (agentic mode). "
+                 "TRL's environment_factory path supplies the live env instances."
+             )
+-        correct_flags = [float(getattr(e, "reward", 0.0)) > 0.0 for e in environments]
++        correct_flags = [
++            float(getattr(e, "reward", 0.0)) >= CORRECT_REWARD_THRESHOLD
++            for e in environments
++        ]
+         # Prefer the exact model-generated token ids TRL/the rollout_func provide
+         # over re-encoding decoded text, so the length signal counts model tokens
+         # only. Falls back to re-encoding the decoded completion.
+
+
+Investigate per the method in your instructions, then return the findings list.
