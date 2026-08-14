@@ -1,0 +1,6 @@
+<task-notification>
+<task-id>b70ukqzf3</task-id>
+<summary>Monitor event: "batch-size probe: gradient coverage and failures"</summary>
+<event>bs8 probe pid 1877378 exited at step 40</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
