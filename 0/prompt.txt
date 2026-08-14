@@ -1,0 +1,827 @@
+Review this change for security vulnerabilities.
+
+Changed files (you may Read these and any other file in the repo):
+  - pipeline/domains/finqa/adapter.py
+  - pipeline/eval/agentic_eval.py
+  - pipeline/tests/test_batch_seeds.py
+  - pipeline/tests/test_compose_metrics.py
+  - pipeline/tests/test_cosine_length_ids.py
+  - pipeline/tests/test_env_server.py
+  - pipeline/tests/test_finqa_adapter.py
+  - pipeline/tests/test_multiturn_eval.py
+  - pipeline/tests/test_validate_config.py
+  - pipeline/training/config_schema.py
+  - pipeline/training/env_server.py
+  - pipeline/training/grpo_runner.py
+  - pipeline/training/rewards/compose.py
+  - pipeline/training/rewards/cosine_length.py
+  - pipeline/training/train.py
+
+Unified diff (only + lines are new):
+
+=== DIFF: pipeline/domains/finqa/adapter.py ===
+@@ -104,14 +104,20 @@ class FinQAEnvAdapter:
+         ground-truth answer for scoring (deterministic after the seed-patch); the
+         question text shown to the model is read locally from finqa.csv at the
+         same seed (the server's metadata channel is dropped by the serializer).
+-        `prompt` and other dataset columns arrive as kwargs and are ignored.
++        The seed is required: an unseeded server reset arms a *random* question
++        while this method would show row 0, so the episode would be scored
++        against an answer the model never saw - silently, reward ~0 regardless
++        of model quality. `prompt` and other dataset columns arrive as kwargs
++        and are ignored.
+         """
+-        if seed is not None:
+-            self._client.reset(seed=seed)
+-        else:
+-            self._client.reset()
++        if seed is None:
++            raise ValueError(
++                "FinQA reset requires a seed: the shown question is read locally "
++                "at seed % len while an unseeded server reset scores a random one"
++            )
++        self._client.reset(seed=seed)
+         questions = _load_questions(self._data_path)
+-        row = questions[(seed or 0) % len(questions)]
++        row = questions[seed % len(questions)]
+         self._company = row["company"]
+         self.reward = 0.0
+         self.done = False
+
+
+=== DIFF: pipeline/eval/agentic_eval.py ===
+@@ -10,6 +10,7 @@ import sys
+ 
+ from domains.env_base import CORRECT_REWARD_THRESHOLD
+ from eval.metrics import SampleResult, compute_metrics, load_reference_thresholds
++from training.config_schema import SEED_BLOCK, resolve_max_turns
+ 
+ # Held-out offset: training takes the bottom of a seed's block, so eval at
+ # block + OFFSET evaluates on questions the model was not trained on.
+@@ -22,14 +23,14 @@ _EVAL_SEED_OFFSET = 100_000
+ # the shared ones decode identically. Pooling three such runs counts the same
+ # questions three times and reports a CI far tighter than the data supports.
+ #
+-# The multiplier must exceed every split's seed_offset, or one seed's eval block
+-# lands inside another seed's. 1e6 against offsets of 100k / 200k leaves room.
+-_SEED_BLOCK = 1_000_000
++# SEED_BLOCK must exceed every split's seed_offset, or one seed's eval block
++# lands inside another seed's; config_schema._split_errors enforces that at
++# validation, next to the constant.
+ 
+ 
+ def seed_block(seed: int) -> int:
+     """Base of the question block belonging to `seed`."""
+-    return int(seed) * _SEED_BLOCK
++    return int(seed) * SEED_BLOCK
+ 
+ 
+ def _completion_budget(config, model_max_seq):
+@@ -152,26 +153,41 @@ def _run_episodes(env, n: int, seed_base: int, gen_fn, gen_cap=None,
+ 
+ 
+ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messages,
+-                            tool_names, gen_cap=None, on_result=None):
++                            tool_names, gen_cap=None, count_tokens=None,
++                            on_result=None):
+     """Run n multi-turn episodes greedily, tool-agnostic.
+ 
+     turn_fn(messages, budget) -> (message, [(tool_name, arguments), ...],
+     n_tokens) produces one greedy model turn given the running message list and
+     the tokens left in the episode's generation budget. Per episode: reset, then
+-    up to max_turns turns; each turn dispatches *every* call naming one of the
+-    domain's tools, in order, and appends the model's own message followed by one
+-    tool response per call; the episode ends when the model stops calling a known
+-    tool, the env reports done, or the budget runs out. Dispatching all of them
+-    is what TRL does in training, and a turn that requests four clicks is common
+-    on browsergym. Restricting dispatch to `tool_names` keeps a hallucinated name
+-    (or `reset`) from being invoked. This one loop drives every multi-turn domain
+-    - textarena (move), finqa (the four data tools), repl (execute) - via the
+-    parsed tool name. n_tokens is the trajectory total (model-only, exact);
+-    n_steps is the count of calls that reached the env, so a turn issuing several
+-    calls counts several steps.
++    up to max_turns turns; each turn appends the model's own message followed by
++    one tool response per call it advertised - every call gets an answer, which
++    is what TRL does in training. A call naming one of the domain's tools is
++    dispatched to the env; a hallucinated name (or `reset`) is never invoked and
++    gets the same {"error": "Tool X not found."} feedback TRL's dispatch
++    produces, and the episode continues - training regenerates after error
++    feedback, so ending the episode here would score a recoverable
++    hallucination as no_tool_call. The episode ends when the model emits no
++    call at all, the env reports done, or the budget runs out. This one loop
++    drives every multi-turn domain - textarena (move), finqa (the four data
++    tools), repl (execute) - via the parsed tool name. n_tokens is the
++    trajectory total (model-only, exact); n_steps is the count of calls that
++    reached the env, so a turn issuing several calls counts several steps.
+ 
+     `gen_cap` is the budget for the whole trajectory, matching training's
+-    max_completion_length, not a fresh allowance per turn.
++    max_completion_length, not a fresh allowance per turn. `count_tokens(text)`
++    charges each tool response against that budget too: TRL counts interleaved
++    tool results toward max_completion_length (rolling back results that would
++    exceed it), so an eval that charged only model tokens ran materially longer
++    trajectories than the cap it claims to mirror. None (unit tests) charges
++    nothing.
++
++    An exception from a tool dispatch that is not a TypeError propagates and
++    aborts the split. Every finished episode is already flushed via on_result,
++    and scoring episodes against dead infrastructure (a crashed env server, a
++    reset connection) fabricates a policy regression - reward 0.0 and a
++    non-termination spike - that reads exactly like the mislabelled-truncation
++    confound this eval was rebuilt to eliminate.
+ 
+     Each episode also records why it ended and which tools it called, in order.
+     The off-target panel (RQ2) is computed from those two fields, and neither is
+@@ -199,8 +215,7 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
+             msg, turn_calls, n_tok = turn_fn(messages, budget)
+             total_tokens += int(n_tok)
+             turn_cap, budget = budget, (None if budget is None else budget - int(n_tok))
+-            known = [(name, args) for name, args in turn_calls if name in tool_names]
+-            if not known:
++            if not turn_calls:
+                 stop_reason = _no_call_reason(n_tok, turn_cap)
+                 break
+             # The parsed message, not a stub. Rebuilding the turn as
+@@ -211,25 +226,34 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
+             # appending the parsed message reproduces that context.
+             messages.append(msg)
+             # One tool response per call, because the message just appended
+-            # advertises every one of them. Answering only the first leaves the
+-            # rest looking like they succeeded, and the model acts on that.
+-            for name, args in known:
+-                try:
+-                    feedback = getattr(env, name)(**(args or {}))
+-                except Exception as e:
+-                    # Malformed model arguments (TypeError) become feedback rather
+-                    # than crashing the episode. Everything else used to propagate:
+-                    # an HTTP error from the env server, a reset connection, a bad
+-                    # observation would kill the process on episode 95 of 100 and
+-                    # discard all 95 trajectories, since the jsonl was only written
+-                    # after the whole split returned.
+-                    feedback = f"Tool call error: {type(e).__name__}: {e}"
++            # advertises every one of them - a call left unanswered reads to the
++            # model as having succeeded, and it acts on that.
++            for name, args in turn_calls:
++                if name not in tool_names:
++                    # Never dispatched, but answered: the exact error shape
++                    # TRL's training dispatch feeds back for an unknown name.
++                    feedback = str({"error": f"Tool {name} not found."})
+                 else:
+-                    # Only a call that actually reached the env counts as a step.
+-                    # Counting a failed dispatch inflated n_steps and, through it,
+-                    # mean_verification_depth in the RQ2 panel.
+-                    calls.append(name)
+-                messages.append({"role": "tool", "content": str(feedback)})
++                    try:
++                        feedback = getattr(env, name)(**(args or {}))
++                    except TypeError as e:
++                        # Malformed model arguments are agent behavior; training
++                        # turns the exception into error feedback, so eval does
++                        # too. Any other exception is infrastructure and
++                        # propagates - see the docstring.
++                        feedback = str({"error": str(e)})
++                    else:
++                        # Only a call that actually reached the env counts as a
++                        # step. Counting a failed dispatch inflated n_steps and,
++                        # through it, mean_verification_depth in the RQ2 panel.
++                        calls.append(name)
++                fb = str(feedback)
++                # `name` mirrors TRL's tool-message shape. The budget charge
++                # mirrors its accounting: the content's token count, leaving
++                # only the few per-message template framing tokens uncounted.
++                messages.append({"role": "tool", "name": name, "content": fb})
++                if budget is not None and count_tokens is not None:
++                    budget -= count_tokens(fb)
+                 if getattr(env, "done", False):
+                     stop_reason = "env_done"
+                     break
+@@ -503,16 +527,21 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
+             print(f"Agentic eval [{split['name']}]: {n} episodes "
+                   f"(seed_base={seed_base}, max_new_tokens={max_new})")
+             if getattr(domain, "multi_turn", False):
+-                # env_config.max_turns is the single turn cap - training passes it
+-                # to TRL as max_tool_calling_iterations and each domain maps it to
+-                # its server's own cap var, so eval must read the same key or it
+-                # measures a different episode length than training produced.
+-                max_turns = int(env_config.get("max_turns", 8))
++                # env_config.max_turns is the single turn cap - training passes
++                # it to TRL as max_tool_calling_iterations via the same
++                # resolver, so an unset key means the same episode process on
++                # both sides instead of training at 1 iteration while eval runs
++                # 8.
++                max_turns = resolve_max_turns(env_config)
++                # Tool responses are charged against the trajectory budget with
++                # the same tokenizer that counts the model's own tokens.
++                def count_text_tokens(text):
++                    return len(tokenizer(text, add_special_tokens=False)["input_ids"])
+                 results = _run_multiturn_episodes(
+                     env, n, seed_base, gen_turn,
+                     max_turns=max_turns, make_messages=domain.episode_messages,
+                     tool_names={t.__name__ for t in tools}, gen_cap=max_new,
+-                    on_result=on_result,
++                    count_tokens=count_text_tokens, on_result=on_result,
+                 )
+             else:
+                 results = _run_episodes(env, n, seed_base, gen_fn, gen_cap=max_new,
+
+
+=== DIFF: pipeline/tests/test_batch_seeds.py ===
+@@ -78,8 +78,9 @@ def test_eval_splits_stay_disjoint_from_training_and_each_other():
+ def test_block_size_exceeds_every_split_offset():
+     # If a seed's offset reached the next block, seed 42's shifted split would
+     # land inside seed 43's questions.
+-    from eval.agentic_eval import _SEED_BLOCK, _EVAL_SEED_OFFSET
+-    assert _SEED_BLOCK > 2 * _EVAL_SEED_OFFSET
++    from eval.agentic_eval import _EVAL_SEED_OFFSET
++    from training.config_schema import SEED_BLOCK
++    assert SEED_BLOCK > 2 * _EVAL_SEED_OFFSET
+ 
+ 
+ def test_old_scheme_would_have_overlapped():
+
+
+=== DIFF: pipeline/tests/test_compose_metrics.py ===
+@@ -13,6 +13,8 @@ AdvantageWeightedComposer imports torch lazily; torch is available in
+ import importlib.util
+ import os
+ 
++import pytest
++
+ # Direct-load compose.py by path so we skip the training.rewards package
+ # __init__ (which imports every reward builder -> torch + datasets). torch is
+ # lazy inside AdvantageWeightedComposer, so NaiveSumComposer loads clean.
+@@ -77,7 +79,7 @@ def test_advantage_weighted_zscores_per_group():
+     class Comp:
+         def __call__(self, prompts, completions, **kw):
+             return [0.0, 2.0, 5.0, 5.0]
+-    comp = AdvantageWeightedComposer([(Comp(), 1.0)])
++    comp = AdvantageWeightedComposer([(Comp(), 1.0)], num_generations=2)
+     out = comp(["p", "p", "q", "q"], ["a", "b", "c", "d"])
+     inv = 2 ** 0.5
+     assert abs(out[0] + 1 / inv) < 1e-5
+@@ -85,11 +87,36 @@ def test_advantage_weighted_zscores_per_group():
+     assert out[2] == 0.0 and out[3] == 0.0
+ 
+ 
++def test_advantage_weighted_groups_positionally_not_by_prompt_text():
++    # The Wordle regression: a seed-invariant reset observation makes every
++    # prompt in the batch byte-identical. Grouping by adjacent equality merged
++    # the whole batch into ONE z-scoring group, normalizing each component
++    # across different games; TRL's advantages are positional blocks of
++    # num_generations, so the composer must cut the same blocks.
++    class Comp:
++        def __call__(self, prompts, completions, **kw):
++            return [0.0, 2.0, 5.0, 5.0]
++    comp = AdvantageWeightedComposer([(Comp(), 1.0)], num_generations=2)
++    out = comp(["p", "p", "p", "p"], ["a", "b", "c", "d"])
++    inv = 2 ** 0.5
++    assert abs(out[0] + 1 / inv) < 1e-5 and abs(out[1] - 1 / inv) < 1e-5
++    assert out[2] == 0.0 and out[3] == 0.0
++
++
++def test_advantage_weighted_rejects_indivisible_batch():
++    class Comp:
++        def __call__(self, prompts, completions, **kw):
++            return [0.0, 2.0, 5.0]
++    comp = AdvantageWeightedComposer([(Comp(), 1.0)], num_generations=2)
++    with pytest.raises(ValueError, match="groups of 2"):
++        comp(["p", "p", "p"], ["a", "b", "c"])
++
++
+ def test_advantage_weighted_weight_applies_after_zscoring():
+     class Comp:
+         def __call__(self, prompts, completions, **kw):
+             return [0.0, 2.0]
+-    comp = AdvantageWeightedComposer([(Comp(), 2.0)])
++    comp = AdvantageWeightedComposer([(Comp(), 2.0)], num_generations=2)
+     out = comp(["p", "p"], ["a", "b"])
+     inv = 2 ** 0.5
+     assert abs(out[0] + 2 / inv) < 1e-5 and abs(out[1] - 2 / inv) < 1e-5
+
+
+=== DIFF: pipeline/tests/test_cosine_length_ids.py ===
+@@ -60,6 +60,14 @@ def test_requires_environments():
+         r(["p"], ["a b"])
+ 
+ 
++def test_rejects_environments_completions_length_mismatch():
++    # Same guard as EnvReward: a silent misalignment gates the length reward on
++    # the wrong rollout's correctness - a per-rollout sign flip in the signal.
++    r = CosineLengthReward(_Tok(), max_len=10)
++    with pytest.raises(ValueError, match="length"):
++        r(["p", "p"], ["a b", "c d"], environments=[_Env(1.0)])
++
++
+ def test_multiturn_counts_assistant_only_not_completion_ids():
+     # A multi-turn completion (assistant/tool/assistant) with a long completion_ids
+     # stream that includes tool tokens. The reward must use the assistant-only
+
+
+=== DIFF: pipeline/tests/test_env_server.py ===
+@@ -79,7 +79,10 @@ def test_wait_until_ready_times_out():
+ def test_build_env_server_defaults():
+     srv = build_env_server(_agentic_cfg(n_rollouts=8, batch_size=1), _Dom(), python="/p")
+     assert srv.command()[:3] == ["/p", "-m", "reasoning_gym_env.server.app"]
+-    assert srv.port == 8077
++    # 8000 is every OpenEnv server's own default; four of the five domain
++    # servers bind it unconditionally and ignore the --port argv, so a default
++    # of anything else only ever worked for reasoning_gym.
++    assert srv.port == 8000
+     assert srv.repo_envs_path == "/workspace/OpenEnv/envs"
+     assert srv.max_concurrent == 8  # max(8, 1*8)
+ 
+@@ -89,6 +92,15 @@ def test_build_env_server_sizes_concurrency_to_generation_batch():
+     assert srv.max_concurrent == 32  # 2*16 > floor of 8
+ 
+ 
++def test_build_env_server_default_geometry_matches_the_trainer():
++    # The trainer defaults batch_size to 4 (grpo_runner, via the shared
++    # constants in config_schema). A server sized from a stale default of 1
++    # capped sessions at 8 while the trainer opened 32 rollout envs, and the
++    # 9th slot's first reset() died with SessionCapacityError at step 1.
++    srv = build_env_server(_agentic_cfg(), _Dom())
++    assert srv.max_concurrent == 32  # DEFAULT_BATCH_SIZE 4 * DEFAULT_N_ROLLOUTS 8
++
++
+ def test_build_env_server_config_overrides():
+     cfg = _agentic_cfg(n_rollouts=8, batch_size=1)
+     cfg["training"]["env_server"] = {"repo_path": "/custom/envs", "port": 9000}
+
+
+=== DIFF: pipeline/tests/test_finqa_adapter.py ===
+@@ -0,0 +1,16 @@
++"""FinQA reset must be seeded.
++
++The shown question is read locally at seed % len while the server arms its
++ground truth from the same seed. An unseeded reset armed a *random* server
++question against the locally-shown row 0, so the episode was silently scored
++against an answer the model never saw.
++"""
++import pytest
++
++from domains.finqa.adapter import FinQAEnvAdapter
++
++
++def test_reset_without_seed_raises():
++    adapter = FinQAEnvAdapter("http://x", client=object())
++    with pytest.raises(ValueError, match="seed"):
++        adapter.reset()
+
+
+=== DIFF: pipeline/tests/test_multiturn_eval.py ===
+@@ -1,3 +1,5 @@
++import pytest
++
+ from eval.agentic_eval import _run_multiturn_episodes, _tool_calls
+ 
+ 
+@@ -241,13 +243,41 @@ def test_calls_after_the_env_is_done_are_not_dispatched():
+     assert rs[0].n_steps == 1 and rs[0].stop_reason == "env_done"
+ 
+ 
+-def test_unknown_names_are_filtered_but_known_ones_still_run():
++def test_unknown_names_get_an_error_response_but_never_reach_the_env():
++    # Training answers EVERY call: TRL's dispatch raises "Tool X not found." for
++    # an unknown name and feeds it back as an {"error": ...} tool message. An
++    # eval that silently filtered the call left it advertised-but-unanswered -
++    # the exact transcript state the multi-call fix exists to prevent - while
++    # still never invoking the hallucinated name on the env.
++    env = _ClickEnv({"30", "99"})            # not done after one click
++    seen = []
++
++    def turn_fn(messages, budget):
++        seen.append(list(messages))
++        return _turn("reset", {}, 9, extra=[("click", {"bid": "30"})])
++
++    rs = _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=2,
++                                 make_messages=_msgs, tool_names={"click"})
++    assert env.clicked == {"30"}             # reset never dispatched
++    assert rs[0].tool_calls == ["click", "click"]   # dispatched calls only
++    roles = [m["role"] for m in seen[1]]
++    assert roles == ["user", "assistant", "tool", "tool"]
++    unknown_response = seen[1][2]
++    assert unknown_response["name"] == "reset"
++    assert "not found" in unknown_response["content"]
++
++
++def test_a_turn_of_only_unknown_names_continues_with_error_feedback():
++    # TRL keeps iterating after a failed call; ending the episode here would
++    # score a recoverable hallucination as no_tool_call.
+     env = _ClickEnv({"30"})
+     rs = _run_multiturn_episodes(
+         env, 1, 0,
+-        _scripted(_turn("reset", {}, 9, extra=[("click", {"bid": "30"})])),
+-        max_turns=8, make_messages=_msgs, tool_names={"click"})
+-    assert env.clicked == {"30"} and rs[0].n_steps == 1
++        _scripted(_turn("navigate", {"url": "x"}, 5),
++                  _turn("click", {"bid": "30"}, 5)),
++        max_turns=4, make_messages=_msgs, tool_names={"click"})
++    assert rs[0].correct is True and rs[0].stop_reason == "env_done"
++    assert rs[0].n_steps == 1
+ 
+ 
+ # --- the generation budget covers the whole trajectory, not each turn ---
+@@ -301,13 +331,36 @@ def test_short_turn_without_a_call_is_not_a_cap_hit():
+     assert rs[0].stop_reason == "no_tool_call"
+ 
+ 
+-# --- an env-side error must not discard the split ---
+-# Only TypeError used to be caught, so an HTTP error / reset connection /
+-# malformed observation propagated out and killed the process before any
+-# episode record was written.
++def test_tool_feedback_is_charged_against_the_budget():
++    # Training counts interleaved tool results toward max_completion_length
++    # (TRL rolls back results that would exceed it). An eval that charged only
++    # model tokens ran materially longer trajectories than the cap it claims to
++    # mirror - browsergym injects pages of up to 2000 chars per turn for free.
++    env = _FakeGameEnv("zzzzz", fail_after=99)
++    budgets = []
++
++    def turn_fn(messages, budget):
++        budgets.append(budget)
++        return _turn("move", {"message": "aaaaa"}, 100)
++
++    rs = _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=8,
++                                 make_messages=_msgs, tool_names={"move"},
++                                 gen_cap=1000, count_tokens=lambda s: 150)
++    # Each turn: -100 generated, -150 tool feedback.
++    assert budgets == [1000, 750, 500, 250]
++    assert rs[0].stop_reason == "hit_generation_cap"
++
++
++# --- model-caused dispatch errors are feedback; infrastructure errors abort ---
++# TypeError (the model inventing an argument name) is agent behavior and becomes
++# error feedback, exactly as TRL's training dispatch does. Anything else - an
++# HTTP error, a reset connection, a dead env server - propagates: every finished
++# episode is already flushed via on_result, and scoring episodes against dead
++# infrastructure fabricates a policy regression (reward 0.0, non-termination
++# spike) that reads exactly like the mislabelled-truncation confound.
+ 
+ class _ExplodingEnv:
+-    """Env whose tool raises something that is not a TypeError."""
++    """Env whose tool raises the given exception."""
+ 
+     def __init__(self, exc=RuntimeError("env server gone")):
+         self.reward = 0.0
+@@ -323,22 +376,24 @@ class _ExplodingEnv:
+         raise self.exc
+ 
+ 
+-def test_env_error_becomes_feedback_not_a_crash():
+-    env = _ExplodingEnv()
+-    rs = _run_multiturn_episodes(
+-        env, 2, 0, _scripted(*[_turn("move", {"action": "x"}, 5)] * 4),
+-        max_turns=2, make_messages=_msgs, tool_names={"move"})
+-    assert len(rs) == 2                       # both episodes survived
+-    assert all(r.stop_reason == "max_turns" for r in rs)
++def test_infra_error_aborts_the_split():
++    env = _ExplodingEnv(RuntimeError("env server gone"))
++    with pytest.raises(RuntimeError, match="env server gone"):
++        _run_multiturn_episodes(
++            env, 2, 0, _scripted(*[_turn("move", {"action": "x"}, 5)] * 4),
++            max_turns=2, make_messages=_msgs, tool_names={"move"})
+ 
+ 
+-def test_failed_dispatch_is_not_counted_as_a_step():
+-    # calls.append used to run even when the call never reached the env, which
+-    # inflated n_steps and mean_verification_depth in the RQ2 panel.
+-    env = _ExplodingEnv()
++def test_bad_model_arguments_become_feedback_not_a_crash():
++    # move() takes `message`; the model inventing `wrong_kw` raises TypeError at
++    # dispatch. The episode survives with error feedback, and the failed
++    # dispatch is not counted as a step (that inflated n_steps and, through it,
++    # mean_verification_depth in the RQ2 panel).
++    env = _FakeGameEnv("zzzzz", fail_after=99)
+     rs = _run_multiturn_episodes(
+-        env, 1, 0, _scripted(*[_turn("move", {"action": "x"}, 5)] * 3),
+-        max_turns=3, make_messages=_msgs, tool_names={"move"})
++        env, 1, 0, _scripted(*[_turn("move", {"wrong_kw": "x"}, 5)] * 2),
++        max_turns=2, make_messages=_msgs, tool_names={"move"})
++    assert rs[0].stop_reason == "max_turns"
+     assert rs[0].n_steps == 0
+     assert rs[0].tool_calls == []
+ 
+
+
+=== DIFF: pipeline/tests/test_validate_config.py ===
+@@ -119,3 +119,46 @@ def test_rejects_unknown_env_server_key():
+     cfg["training"]["env_server"] = {"repo_pth": "/workspace/OpenEnv/envs"}
+     with pytest.raises(ValueError, match="env_server"):
+         validate_config(cfg)
++
++
++# --- split seed_offset must stay inside one seed's question block ---
++# The eval seed base is seed * SEED_BLOCK + offset, so an offset at or above
++# SEED_BLOCK lands inside the NEXT seed's block: seed 42's shifted split would
++# evaluate on exactly the questions the seed-43 replicate trained on, silently.
++
++def _cfg_with_offset(offset):
++    cfg = _agentic_base()
++    cfg["eval"] = {"agentic": {"splits": [{"name": "s", "seed_offset": offset}]}}
++    return cfg
++
++
++def test_accepts_split_seed_offset_below_block():
++    validate_config(_cfg_with_offset(200_000))  # must not raise
++
++
++def test_rejects_split_seed_offset_at_or_above_seed_block():
++    with pytest.raises(ValueError, match="seed_offset"):
++        validate_config(_cfg_with_offset(1_000_000))
++
++
++def test_rejects_negative_split_seed_offset():
++    with pytest.raises(ValueError, match="seed_offset"):
++        validate_config(_cfg_with_offset(-1))
++
++
++def test_rejects_non_int_split_seed_offset():
++    with pytest.raises(ValueError, match="seed_offset"):
++        validate_config(_cfg_with_offset("far"))
++
++
++# --- one turn-cap resolution for training and eval ---
++
++def test_resolve_max_turns_defaults_to_one_on_both_sides():
++    # Unset max_turns must mean the same episode process in training and eval.
++    # The old pair of defaults - TRL capped at 1, eval looping 8 - measured a
++    # policy under an episode length it never trained with.
++    from training.config_schema import resolve_max_turns
++    assert resolve_max_turns(None) == 1
++    assert resolve_max_turns({}) == 1
++    assert resolve_max_turns({"max_turns": 0}) == 1
++    assert resolve_max_turns({"max_turns": 6}) == 6
+
+
+=== DIFF: pipeline/training/config_schema.py ===
+@@ -1,3 +1,30 @@
++# Shared batch-geometry defaults. grpo_runner (the trainer's geometry) and
++# env_server (MAX_CONCURRENT_ENVS sizing) both resolve batch_size/n_rollouts;
++# a default that lives in only one of them is how the server ended up capped
++# at 8 sessions while the trainer opened 32 rollout envs against it.
++DEFAULT_BATCH_SIZE = 4
++DEFAULT_N_ROLLOUTS = 8
++
++# Each config seed owns a disjoint block of the seed -> question mapping
++# (question seed = config_seed * SEED_BLOCK + offset). Every eval split's
++# seed_offset must stay below this or one seed's eval lands inside the next
++# seed's training questions; _split_errors enforces it at validation.
++SEED_BLOCK = 1_000_000
++
++
++def resolve_max_turns(env_config) -> int:
++    """The tool-loop turn cap training and eval must agree on.
++
++    training.env_config.max_turns is the single cap key. Training maps the
++    resolved value to TRL's max_tool_calling_iterations and the eval loop runs
++    the same number of turns; both call this resolver so an unset key means the
++    same episode process on both sides (one tool-calling iteration) instead of
++    a silent train/eval divergence.
++    """
++    max_turns = int((env_config or {}).get("max_turns", 0))
++    return max_turns if max_turns > 0 else 1
++
++
+ _REQUIRED_KEYS = {
+     "experiment_id": "experiment_id (str)",
+     "model.slug": "model.slug (str) — must match a key in training/registry.py",
+@@ -175,6 +202,21 @@ def _split_errors(splits) -> list[str]:
+                     f"Unknown eval.agentic.splits[{i}].env_config keys: "
+                     f"{sorted(unknown_ec)}. Known: {sorted(_KNOWN_ENV_CONFIG_KEYS)}"
+                 )
++        offset = s.get("seed_offset")
++        if offset is not None:
++            try:
++                off = int(offset)
++            except (TypeError, ValueError):
++                errors.append(
++                    f"eval.agentic.splits[{i}].seed_offset={offset!r} is not an int"
++                )
++            else:
++                if not (0 <= off < SEED_BLOCK):
++                    errors.append(
++                        f"eval.agentic.splits[{i}].seed_offset={off} out of range "
++                        f"[0, {SEED_BLOCK}): an offset at or above the seed-block "
++                        f"size evaluates on another seed's training questions"
++                    )
+     return errors
+ 
+ 
+
+
+=== DIFF: pipeline/training/env_server.py ===
+@@ -4,6 +4,8 @@ import subprocess
+ import sys
+ import time
+ 
++from training.config_schema import DEFAULT_BATCH_SIZE, DEFAULT_N_ROLLOUTS
++
+ 
+ class EnvServerProcess:
+     """Launch an OpenEnv env server as a local subprocess (no Docker) and tear
+@@ -123,10 +125,21 @@ def build_env_server(config, domain, python=None) -> EnvServerProcess:
+     t = config.get("training", {}) or {}
+     es = t.get("env_server", {}) or {}
+     env_config = t.get("env_config", {}) or {}
+-    n_envs = int(t.get("batch_size", 1)) * int(t.get("n_rollouts", 8))
++    # Same defaults as grpo_runner._grpo_config, imported from one place: the
++    # trainer opens batch_size * n_rollouts env sessions, and a server sized
++    # from a different default dies with SessionCapacityError on the first
++    # rollout slot past its cap.
++    n_envs = (int(t.get("batch_size", DEFAULT_BATCH_SIZE))
++              * int(t.get("n_rollouts", DEFAULT_N_ROLLOUTS)))
+     return EnvServerProcess(
+         env_module=domain.server_module,
+-        port=int(es.get("port", 8077)),
++        # 8000 is every OpenEnv server's own default. finqa/repl/textarena/
++        # browsergym bind it unconditionally (their apps ignore the --port argv
++        # this process passes), and reasoning_gym honors whatever --port it
++        # gets - so one shared default keeps the readiness probe and the
++        # server's actual port equal for every domain. start() still refuses a
++        # port something else already holds.
++        port=int(es.get("port", 8000)),
+         repo_envs_path=es.get("repo_path", "/workspace/OpenEnv/envs"),
+         max_concurrent=max(8, n_envs),
+         server_env=domain.server_env(env_config),
+
+
+=== DIFF: pipeline/training/grpo_runner.py ===
+@@ -11,6 +11,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+ from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+ from trl import GRPOConfig, GRPOTrainer
+ 
++from training.config_schema import (DEFAULT_BATCH_SIZE, DEFAULT_N_ROLLOUTS,
++                                    resolve_max_turns)
+ from training.registry import LORA_TARGET_MODULES, get_model_config
+ 
+ 
+@@ -91,8 +93,8 @@ class GRPORunner:
+         # length) does not saturate, so the defect hit env-only baselines about
+         # twice as hard as the treatment arms they were compared against. A step
+         # is dead only when every group in it saturates: 0.46^4 = 4.5%.
+-        n_rollouts = int(t.get("n_rollouts", 8))
+-        batch_size = int(t.get("batch_size", 4))
++        n_rollouts = int(t.get("n_rollouts", DEFAULT_N_ROLLOUTS))
++        batch_size = int(t.get("batch_size", DEFAULT_BATCH_SIZE))
+         total_completions = batch_size * n_rollouts
+         micro = int(t.get("micro_batch_size", 2))
+         if micro < 1 or total_completions % micro != 0:
+@@ -137,12 +139,11 @@ class GRPORunner:
+         # single-step domains left the loop unbounded: a reasoning_gym rollout
+         # could call `answer` repeatedly until it filled the completion budget,
+         # which is itself a mechanism for the cap-bound rollouts the e22/e23 cap
+-        # probes went looking for. Default to 1 - a single-step domain's model
+-        # calls its one tool and stops - and let env_config.max_turns raise it.
+-        # max_tool_calling_iterations is a TRL 1.6 GRPOConfig field (confirmed
+-        # at the L4 smoke).
+-        max_turns = int((t.get("env_config") or {}).get("max_turns", 0))
+-        kwargs["max_tool_calling_iterations"] = max_turns if max_turns > 0 else 1
++        # probes went looking for. resolve_max_turns is shared with the eval
++        # loop, so an unset env_config.max_turns means the same episode process
++        # (one iteration) on both sides. max_tool_calling_iterations is a TRL
++        # 1.6 GRPOConfig field (confirmed at the L4 smoke).
++        kwargs["max_tool_calling_iterations"] = resolve_max_turns(t.get("env_config"))
+         if self._use_vllm:
+             kwargs["use_vllm"] = True
+             kwargs["vllm_mode"] = "colocate"
+
+
+=== DIFF: pipeline/training/rewards/compose.py ===
+@@ -5,29 +5,25 @@ from typing import Callable
+ # exercised) without pulling the full deep-learning stack.
+ 
+ 
+-def _group_indices(prompts) -> list[list[int]]:
+-    """Partition completions into prompt-groups for per-group z-scoring.
+-
+-    TRL GRPOTrainer's reward function receives `prompts` of length
+-    batch_size * num_generations, with each prompt repeated num_generations
+-    times *consecutively*. We rely on that ordering and compare each prompt
+-    to its predecessor with `==` only — no hashing, so no chance of a
+-    64-bit collision merging two distinct prompts into one group.
+-
+-    Returns a list of index-lists, one per group.
++def _group_indices(n: int, group_size: int) -> list[list[int]]:
++    """Positional prompt-groups for per-group z-scoring.
++
++    TRL groups advantages positionally - rewards.view(-1, num_generations)
++    (grpo_trainer.py) - so the composer must cut the same consecutive blocks.
++    Grouping by adjacent prompt equality matched that only while neighbouring
++    groups never shared their prompt text; a domain whose reset observation is
++    seed-invariant (Wordle: the target word is hidden, every prompt in the
++    batch is byte-identical) merged the whole batch into one z-scoring group
++    and normalized each component across different games.
+     """
+-    if not prompts:
+-        return []
+-    groups: list[list[int]] = []
+-    cur: list[int] = [0]
+-    for i in range(1, len(prompts)):
+-        if prompts[i] == prompts[i - 1]:
+-            cur.append(i)
+-        else:
+-            groups.append(cur)
+-            cur = [i]
+-    groups.append(cur)
+-    return groups
++    if group_size <= 0:
++        raise ValueError(f"group_size must be positive, got {group_size}")
++    if n % group_size:
++        raise ValueError(
++            f"{n} completions do not divide into groups of {group_size}; "
++            f"num_generations is out of sync with the trainer"
++        )
++    return [list(range(i, i + group_size)) for i in range(0, n, group_size)]
+ 
+ 
+ def _drain_step_metrics(composer) -> dict:
+@@ -56,14 +52,17 @@ class AdvantageWeightedComposer:
+     zero-mean unit-std before summing ensures weights faithfully control contribution.
+ 
+     Per-group normalization: GRPO advantages are computed within each prompt-group
+-    (n_rollouts completions for one prompt). When `per_device_train_batch_size > 1`,
+-    the reward function receives multiple groups concatenated. Z-scoring across
+-    that concatenation conflates rewards across different prompts, distorting the
+-    relative ranking inside each group. We z-score per group instead.
++    (n_rollouts completions for one prompt). With batch_size > 1 the reward
++    function receives multiple groups concatenated - consecutive blocks of
++    `num_generations` completions, the same positional cut TRL applies to the
++    advantages. Z-scoring across the concatenation conflates rewards across
++    different prompts, distorting the relative ranking inside each group.
+     """
+ 
+-    def __init__(self, components: list[tuple[Callable, float]]) -> None:
++    def __init__(self, components: list[tuple[Callable, float]],
++                 num_generations: int) -> None:
+         self.components = components
++        self.num_generations = int(num_generations)
+         self.__name__ = "advantage_weighted_composer"
+         # Per-step diagnostics, drained by a TrainerCallback (T2.1). Purely
+         # observational — never read back into the composed reward.
+@@ -74,7 +73,7 @@ class AdvantageWeightedComposer:
+ 
+         n = len(completions)
+         total = [0.0] * n
+-        groups = _group_indices(prompts)
++        groups = _group_indices(n, self.num_generations)
+ 
+         call_metrics: dict[str, float] = {}
+         for fn, weight in self.components:
+@@ -151,10 +150,11 @@ class NaiveSumComposer:
+ 
+ def build_composer(
+     components: list[tuple[Callable, float]],
+-    method: str = "advantage_weighted",
++    method: str,
++    num_generations: int,
+ ) -> AdvantageWeightedComposer | NaiveSumComposer:
+     if method == "advantage_weighted":
+-        return AdvantageWeightedComposer(components)
++        return AdvantageWeightedComposer(components, num_generations)
+     if method == "naive_sum":
+         return NaiveSumComposer(components)
+     raise ValueError(f"Unknown compose_method: {method!r}. Choose advantage_weighted | naive_sum")
+
+
+=== DIFF: pipeline/training/rewards/cosine_length.py ===
+@@ -72,6 +72,12 @@ class CosineLengthReward:
+                 "CosineLengthReward requires kwargs['environments'] (agentic mode). "
+                 "TRL's environment_factory path supplies the live env instances."
+             )
++        # Same guard as EnvReward: a silent misalignment would gate the length
++        # reward on the wrong rollout's correctness - a per-rollout sign flip.
++        if len(environments) != len(completions):
++            raise ValueError(
++                f"environments length {len(environments)} != completions {len(completions)}"
++            )
+         correct_flags = [
+             float(getattr(e, "reward", 0.0)) >= CORRECT_REWARD_THRESHOLD
+             for e in environments
+
+
+=== DIFF: pipeline/training/train.py ===
+@@ -16,7 +16,8 @@ from training.grpo_runner import GRPORunner
+ from training.env_server import build_env_server
+ from training.rewards import REWARD_REGISTRY
+ from training.rewards.compose import build_composer
+-from training.config_schema import validate_config, warn_inert_scalars
++from training.config_schema import (DEFAULT_N_ROLLOUTS, validate_config,
++                                    warn_inert_scalars)
+ from transformers import TrainerCallback, set_seed
+ 
+ 
+@@ -175,7 +176,10 @@ def main() -> None:
+         raise ValueError("No reward components enabled. Check config rewards section.")
+ 
+     method = config.get("rewards", {}).get("compose_method", "advantage_weighted")
+-    reward_fn = build_composer(components, method)
++    # The composer z-scores per GRPO group, cut positionally in blocks of
++    # num_generations - the same resolution grpo_runner hands TRL.
++    n_rollouts = int(config["training"].get("n_rollouts", DEFAULT_N_ROLLOUTS))
++    reward_fn = build_composer(components, method, n_rollouts)
+ 
+     callbacks = []
+     # The callback holds the same composer instance passed as the reward fn, so
+
+
+Investigate per the method in your instructions, then return the findings list.
