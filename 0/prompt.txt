@@ -1,0 +1,18 @@
+Run the workflow-backed code review at max effort instead of reviewing inline.
+
+Invoke: Workflow({ name: "code-review", args: "max the entire machine learning pipeline for my thesis. focus on YAGNI and good coding practices and logic issues (the ones that would actually destroy our findings like the length reward counting bug from earlier). first report your review in an analysis document on which we can build a fix plan and then finally can fix everything. if you find nothing thats alright - in this case lets just focus on code cleanup" })
+
+Everything after the level in the args string is passed to the workflow as the review target / instructions. If the user gave additional instructions for this review elsewhere in the conversation (a scope restriction, files to focus on, things to skip), append them to the args string so the workflow honors them.
+
+The workflow runs the same finder angles and verify pass as the inline review, in the background; the verified findings arrive as a task notification. When they arrive, call ReportFindings once with {level, findings} from the result payload (most-severe first; empty array if nothing survived). Give each finding a `short_summary`: the claim compressed to ≤60 characters, no rationale or consequence clause. Do not also print the findings as text.
+
+## If findings are fixed later
+
+Whenever reported findings get fixed later in this session - the user asks you
+to fix them, or later work fixes them incidentally - you MUST call ReportFindings again with the same findings, each
+carrying an `outcome`: `fixed`, `no_change_needed` (the finding was wrong or
+already handled), or `skipped` (real but not applied). Do not repeat the
+findings as text.
+Make that call immediately after the fixes land, before any prose summary; the
+host UI's per-finding status updates only from it, and without it the findings
+stay marked unresolved.
