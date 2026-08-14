@@ -1,0 +1,1 @@
+looking at @openenv-patches/ i think this is a not needed patch anymore since we use browsergym and polynomical equations. looking at our current state and experiments - do we still need finqa? if not remove this patch and related files if not needed. they are only technical debt otherwise
