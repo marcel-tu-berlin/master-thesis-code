@@ -1,0 +1,195 @@
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. **Primary Request and Intent:**
+
+   Four user turns in this segment:
+
+   (a) **"how is it going?"** (x2) — status requests on the running paired eval.
+
+   (b) **"commit, then do whatever you mean here: 'Your earlier go-ahead covered the 16-fix batch, not this. Say go and it lands.' and then launch e27. only await my approval if you find new bugs/errors"** — This is the governing instruction for the rest of the session. It grants standing authority to commit the multi-call fix, launch e27, and proceed through follow-on work autonomously, with the single exception that new bugs/errors require checking in.
+
+   (c) **"everything still looks good?"** — status check mid-eval, which surfaced the click-menu-2 accuracy drop.
+
+   (d) Three AskUserQuestion answers: **"Rerun e27 identically (~8h)"**, **"Short batch-size probe first (~8h)"**, **"reasoning_gym poly first (~6h/arm)"**.
+
+   **Standing constraints from CLAUDE.md / global config that REMAIN IN FORCE:**
+   - **Never include the user's name ("Marcel" / "Marcel Heidebrecht") in any commit message, code comment, docstring, or generated file.** Conventional commits (`feat:`, `fix:`, `refactor:`, `chore:`, `docs:`), no personal names.
+   - **ASCII only in all output** — no em dashes, en dashes, curly/smart quotes, ellipsis characters, non-breaking spaces.
+   - **Work on `master` only** — never create branches or git worktrees for this repo.
+   - **Commit only when asked.**
+   - `RUNNING.md` must be stamped with box time (`ssh gpu-l4 date`), never local time; updated at every phase change, kill, and crash; rows deleted once harvested; "Nothing running." when idle.
+   - **End every response with a "Next steps" section.**
+   - Mark any unverified assumption acted on with a greppable `ASSUMPTION:` prefix.
+   - Use Context7 MCP for library/framework/API documentation questions.
+   - Mandatory skills: `humanizer` + `writing-clearly-and-concisely` for human-facing prose; `karpathy-guidelines`; `/ponytail` YAGNI ladder; `i-have-adhd` for decision/action turns.
+   - Caveman mode (terse prose) and Ponytail mode (YAGNI) active via hooks; code/commits/docs written normally.
+   - Do not call the Agent tool unless the user requested it. Do not use workflows or deep-research unless the user requested it.
+
+2. **Key Technical Concepts:**
+   - GRPO (TRL `GRPOTrainer`) with `environment_factory`, LoRA/PEFT, Qwen3-1.7B, vLLM colocate, NVIDIA L4 (24 GB)
+   - **TRL builds the next prompt by raw token concatenation, not re-rendering**: `grpo_trainer.py:1578` comment "Build token IDs by concatenation: prompt + completion + tool_suffix"; line 1590 `prompt_ids[i] + completion_ids[i] + suffix_ids`. It dispatches every entry of `tool_call_list`.
+   - Qwen3 puts think blocks in `reasoning_content` on assistant messages carrying tool calls
+   - Seed blocks: `seed_block(seed) = seed * 1_000_000`; eval offsets 100000 (held_out) / 200000 (shifted). `seed_block(0) == 0`, which is what makes paired probes possible.
+   - browsergym task selection: `adapter.py:122` `task = self._tasks[s % len(self._tasks)]`
+   - `grpo_runner.py` batch construction: `total_completions = batch_size * n_rollouts`; `micro = micro_batch_size`; `grad_accum = total_completions // micro`. **`batch_size` defaults to 1.**
+   - `build_env_server`: `max_concurrent = max(8, batch_size * n_rollouts)`
+   - GRPO advantage z-scoring: a component with zero within-group variance contributes 0. Binary `env_reward` → zero variance when all rollouts share a correctness label. Continuous cosine reward → always has variance.
+   - Statistics: Wilson CI (`eval.metrics._wilson_ci`, note the underscore), McNemar exact / two-sided binomial, sign test
+   - Python block-buffers stdout to a file (8 KB), so logs appear frozen — read `episodes_*.jsonl` or wait for flush
+
+3. **Files and Code Sections:**
+
+   **`pipeline/eval/agentic_eval.py`** — the multi-call fix, committed in `6f91b98`. `_first_tool_call` became `_tool_calls(msg) -> list[tuple]` returning every `(name, arguments)` in order; `_run_multiturn_episodes` appends the parsed `msg` (preserving `reasoning_content`) and emits one tool response per dispatched call, breaking out if `env.done`. `n_steps` now counts calls, not turns.
+
+   **`pipeline/tests/test_multiturn_eval.py`, `test_offtarget_metrics.py`, `test_response_parsing.py`** — updated for the 3-tuple `turn_fn` signature and list-returning `_tool_calls`; four new regression tests pin the multi-call transcript shape.
+
+   **`/private/tmp/.../scratchpad/paired_diff.py`** (also at `/workspace/paired_diff.py`) — paired pre/post comparison. Edited to add uncapped FLIP output:
+   ```python
+   # Every flip, uncapped: a lost episode is the thing that has to be explained,
+   # so it never gets truncated out of the report.
+   flipped = [(pre[e["seed"]], e) for e in post
+              if pre[e["seed"]]["correct"] != e["correct"]]
+   for a, b in flipped:
+       print(f"    FLIP seed {b['seed']}  "
+             f"{a['stop_reason']}/{a['n_steps']}st/{a['n_tokens']}tok  ->  "
+             f"{b['stop_reason']}/{b['n_steps']}st/{b['n_tokens']}tok  "
+             f"correct {a['correct']}->{b['correct']}")
+   ```
+
+   **`/private/tmp/.../scratchpad/debug_turn.py`** (also `/workspace/debug_turn.py`) — gained `--first-only` mode reproducing the pre-fix dispatch, and seed-based split selection:
+   ```python
+   FIRST_ONLY = "--first-only" in sys.argv
+   # Seed range picks the split, since the two use different task sets.
+   split = config["eval"]["agentic"]["splits"][1 if SEED >= 200_000 else 0]
+   ...
+   if FIRST_ONLY:
+       calls = calls[:1]
+       messages.append({"role": "assistant", "content": msg.get("content") or "",
+                        "tool_calls": [{"type": "function",
+                                        "function": {"name": calls[0][0],
+                                                     "arguments": calls[0][1]}}]})
+   else:
+       messages.append(msg)
+   ```
+
+   **`pipeline/training/grpo_runner.py`** (read, not modified) — the root cause:
+   ```python
+   n_rollouts = int(t.get("n_rollouts", 8))
+   total_completions = int(t.get("batch_size", 1)) * n_rollouts
+   micro = int(t.get("micro_batch_size", 2))
+   if micro < 1 or total_completions % micro != 0:
+       micro = 1
+   grad_accum = total_completions // micro
+   ```
+
+   **`RUNNING.md`** — rewritten repeatedly; current top section documents the batch-size confound, the poly bs=4 launch table row, corrected cost figures, and preserved traps.
+
+   **Box-only diagnostic configs** (deliberately outside the repo): `/workspace/e27retrain-oldseeds.yaml`, `/workspace/e0-oldseeds.yaml`, `/workspace/e27rep2.yaml`, `/workspace/e27bs8probe.yaml`, `/workspace/e24bs4-poly-4k-env-only-qwen3-1_7b.yaml`, `/workspace/e25bs4-poly-4k-cosine-w16-qwen3-1_7b.yaml`.
+
+   **Commits made (all on master):**
+   ```
+   6f91b98  fix(eval): dispatch every tool call in a turn, as training does
+   d6c34b4  docs(running): record the paired probe result and the flip replay
+   864d441  docs(running): log the e27 retrain and correct the e28/e29 launch command
+   0aea709  docs(running): record the e27 step-6 health check and correct the ETA
+   449d186  docs(running): close the clipping question and queue the e0 re-eval
+   edfffb1  docs(running): the retrained e27 dropped on click-menu-2, attribution running
+   ff88982  docs(running): the e27 regression is real and confined to click-menu-2
+   20a61d2  docs(running): the e27 regression is variance, not a bug
+   b78db8f  docs(running): complete the zero point and launch the e27 replication
+   500c05c  docs(running): root cause is batch_size defaulting to one prompt per step
+   ceeee67  docs(running): launch the batch-size probe, train only
+   a0641aa  docs(running): batch_size 1 confounded every treatment-vs-baseline pair
+   9e42576  docs(running): launch the poly cosine pair at batch_size 4
+   ```
+
+4. **Errors and fixes:**
+   - **`paired_diff.py` truncated flips.** The `moved[:6]` cap plus the fact that flips with unchanged `stop_reason` never printed hid the losing episodes. Added an uncapped FLIP section.
+   - **`from eval.metrics import wilson_ci` → ImportError.** The function is `_wilson_ci` (underscore-prefixed). Retried with the correct name.
+   - **`cd pipeline` failed** when already in `pipeline/`. Used the absolute path or dropped the `cd`.
+   - **`git add RUNNING.md` → "pathspec did not match"** twice, because the working directory was `pipeline/`. Fixed by prefixing `cd /Users/mheidebrecht/Documents/Projects/Uni/Master_Thesis/master-thesis-code &&`.
+   - **Probe log showed 0 loss blocks at step 5**, which looked like a failure. Diagnosed as Python block-buffering stdout to a file — the same trap already recorded in RUNNING.md for eval progress. Waited for the flush rather than treating it as a fault.
+   - **My own stated success criterion was wrong.** I said the batch-size probe should show `frac_reward_zero_std` collapse toward 0. It counts prompt-*groups*, not steps, so it stays ~0.47 at any batch size. Corrected to "steps with any gradient" before the probe finished, and recorded the correction in RUNNING.md.
+   - **My own cost estimate was wrong.** I told the user poly was ~6h/arm; the stored logs show e24 took 9h50m and e25 8h17m at 95-118 s/it, the same rate as browsergym. The 6h figure came from a 2048-budget run. Corrected publicly before launching, noting the choice still holds because poly is 2 arms vs browsergym's 3.
+   - **Premature "free observation" hypothesis.** I proposed that the pre-fix loop gave the model extra mid-turn observations. The replay showed that was only half right — seed 100106's flip was caused by the pre-fix stub dropping `reasoning_content`, not by extra observations. Corrected with evidence.
+
+5. **Problem Solving:**
+
+   **The multi-call fix validated.** Paired on 200 episodes: accuracy unchanged (McNemar 5 lost / 1 gained, p=0.219), tokens down 396/episode with 34 of 34 non-tied shifted pairs shorter (sign test p=1.2e-10). All five flips replayed under both loop modes and explained: the pre-fix loop was easier than training in two independent ways (dropped think block, extra observations from undispatched calls). Verified against TRL source that concatenation-not-re-rendering is what training does.
+
+   **The e27 retrain regression, traced to ground.** Sequence of probes, each isolating one variable:
+   - `e27retrain-oldseeds` (new policy, old seeds) vs `e27paired-oldseeds` (old policy, old seeds): click-menu-2 0.660 → 0.480, lost 9 gained 0, p=0.004. Policy effect -0.18, seed effect -0.08.
+   - `e0-oldseeds` (base model, same seeds): base 0.600 on click-menu-2. base→new lost 6 gained 0, p=0.031 — the retrain is worse than not training. Shifted: base 0.800 vs 0.780/0.800, all ns.
+   - Traced every training-path change in `8a01cc8`: `max_tool_calling_iterations` unchanged for browsergym (both versions pass 8), reward changes to unused components, frozen configs differ by one eval-only key. Only `seed_base=seed_block(seed)` remained.
+   - `e27rep2` (byte-identical config, same seed): held_out 0.650 → 0.560. **Run nondeterminism alone moves 9pp.**
+
+   **Root cause found:** `batch_size` defaults to 1, so each optimizer step is one prompt-group of 8 rollouts. When those 8 share a correctness label the step has zero advantage variance. Measured: ~50% of steps carry no gradient across all three e27 runs.
+
+   **The larger confound.** Surveying every stored `train_log.json` revealed the defect does not hit arms equally:
+   ```
+   ENV-ONLY (baselines)        gradient   grad_norm median
+     e10/e12/e24 poly            41-43%      ~2.3e-04
+     e20 countdown                 50%        5.85e-03
+     e27 browsergym (x3)        50-54%   2.5e-03..9.5e-03
+     e26 finqa                      3%        1.47e-04
+   COSINE/ENTROPY (treatments)
+     e11/e13/e17/e18/e25 poly    71-79%   5.1e-02..8.9e-02
+     e21 countdown                 68%        4.44e-02
+     e19 entropy                  100%        1.22e-01
+   ```
+   Three matched pairs (e12/e11, e24/e25, e20/e21) split cleanly. Every treatment arm trained on ~2x the steps at ~300x the gradient. The e9-e25 campaign compared a barely-trained baseline against a trained arm.
+
+   **The batch-size probe confirmed the fix.** `e27bs8probe` (batch_size 8, 40 steps): 40/40 = 100% gradient coverage, grad_norm median 0.0398 (min 0.0103, max 0.0944) vs bs=1's 50%/48% at median 0.0005/0.0007 with exact zeros and 0.8 spikes. `frac_reward_zero_std` stayed 0.419, confirming the mechanism. `tools/failure_frequency` 0.000 at 64 concurrent browsers. Measured cost: 674 s/it.
+
+6. **All user messages:**
+   - `/compact` (local command), then: *"how is it going?"*
+   - *"how is it going?"*
+   - *"commit, then do whatever you mean here: 'Your earlier go-ahead covered the 16-fix batch, not this. Say go and it lands.' and then launch e27. only await my approval if you find new bugs/errors"*
+   - *"everything still looks good?"*
+   - AskUserQuestion answer: *"Rerun e27 identically (~8h) (Recommended)"*
+   - AskUserQuestion answer: *"Short batch-size probe first (~8h) (Recommended)"*
+   - AskUserQuestion answer: *"reasoning_gym poly first (~6h/arm) (Recommended)"*
+
+   (All `[SYSTEM NOTIFICATION - NOT USER INPUT]` blocks are automated background-task events, explicitly marked as not user input, and carry no approval.)
+
+7. **Pending Tasks:**
+   - The poly bs=4 pair is running (~36h). Diff the arms when both land.
+   - Re-derive "+247 median tokens" in `pipeline/runs/e27_e1_baseline_findings.md` — every eval number predating the multi-call fix overstates tokens/steps ~3x on multi-click families.
+   - e0 re-eval on the new seed scheme (queued in RUNNING.md, superseded in priority by the batch-size work).
+   - e28/e29 browsergym arms remain held (~84h at batch_size 4).
+   - The e9-e25 poly campaign conclusions are void on two independent grounds now (token-count bug, batch-size confound) and must not be cited.
+
+8. **Current Work:**
+
+   I had just launched the poly cosine pair at `batch_size: 4` — the user's chosen path — and committed the RUNNING.md update.
+
+   Launch confirmed live at 11:54 UTC Aug 6:
+   ```
+   batch pid 2268241
+   2268241  ../.venv/bin/python -m training.batch /workspace/e24bs4-poly-4k-env-only-qwen3-1_7b.yaml /workspace/e25bs4-poly-4k-cosine-w16-qwen3-1_7b.yaml --train --eval
+   2268243  ... -m training.train --config /workspace/e24bs4-poly-4k-env-only-qwen3-1_7b.yaml
+   Experiment: e24bs4-poly-4k-env-only-qwen3-1_7b  (agentic)
+   Reward components: ['EnvReward']
+   Compose method: advantage_weighted
+   Agentic env: reasoning_gym  seed-rows: 500  server: http://127.0.0.1:8077 (max_concurrent=32)
+   ```
+
+   Config diffs against the originals are three lines each: `experiment_id`, `batch_size: 4`, `max_steps: 150`. A Monitor (task `bd692ridl`) is armed on arm transitions (e24 eval written, e25 checkpoint, e25 eval) and failures.
+
+   RUNNING.md records this as the first cosine test clean on both known defects simultaneously — the token counter now sums `reasoning_content`, and at `batch_size: 4` a step is dead only if all four groups saturate (0.46^4 = 4.5%), so the env-only baseline gets a gradient on ~95% of steps instead of 43%.
+
+   Also recorded: `ASSUMPTION: gpu_memory_utilization: 0.23 leaves vLLM roughly 5 GB, which cannot hold 32 sequences at 5120 tokens, so it schedules within budget and the run is slower than 4x rather than failing.`
+
+   Last action was committing `9e42576 docs(running): launch the poly cosine pair at batch_size 4`.
+
+9. **Optional Next Step:**
+
+   Wait for the Monitor to report arm transitions, then read the step rate to confirm or correct the ~36h ETA, and diff the pair when both arms land.
+
+   This follows directly from the user's selection of *"reasoning_gym poly first"* and my stated framing in RUNNING.md: *"This is the first cosine test that is clean on both known defects at once."* The immediate check I flagged was the rate, per the recorded assumption: *"Same trade as the browsergym probe, where it held. Watching the step rate."*
+
+   No new work should start beyond this without checking in — the user's standing instruction is *"only await my approval if you find new bugs/errors"*, and the poly pair is the currently approved job.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/mheidebrecht/.claude/projects/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/ab988c24-a88e-415d-8dd2-615cc390ae14.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
