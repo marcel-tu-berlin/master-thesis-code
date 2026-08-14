@@ -1,0 +1,204 @@
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. Primary Request and Intent:
+
+   Four genuine user messages drove this session:
+
+   - **"ok launch e28 and e29 and schedule the monitoring for it"** — launch the E2 (cosine) and E3 (non-termination) browsergym arms on the GPU box, and set up scheduled monitoring for the run.
+   - **"wait wait wait Im super confused now - I thought that we already settled the batch size issue? your recommended setting for the next run sounds good but before we launch anything please verify that we use bs=4, a sensible amount of steps (you can decide) and that gpu box and repo here is synced"** — approval of the recommended geometry option, with three explicit pre-launch verification requirements (bs=4 in effect, sensible step count delegated to me, box and repo synced), plus confusion to clear up about the batch_size history.
+   - **"reconnected"** — confirmation the VPN was back after an outage.
+   - **"how is it going"** — a status request mid-campaign.
+
+   **Standing constraints that REMAIN IN FORCE (global config + repo CLAUDE.md):**
+   - Never include the user's name ("Marcel" / "Marcel Heidebrecht") in any commit message, code comment, docstring, or generated file. Conventional commits only.
+   - ASCII only in all output — no em dashes, en dashes, curly quotes, ellipsis characters.
+   - Work on `master` only — never branches or worktrees in this repo.
+   - `RUNNING.md` holds live runs only; stamp `Updated:` with box time (`ssh gpu-l4 date -u`), never local time. Delete rows once harvested. Nothing else goes in the file.
+   - End every response with a "Next steps" section.
+   - Mark unverified assumptions with a greppable `ASSUMPTION:` prefix.
+   - `BACKLOG.md`: delete items when done/decided against, never annotate as DONE.
+   - Commit only when asked (session pattern: run-state and config work gets committed).
+   - "Working code is enough" — change code only for actual verified bugs; debt gets reported, not rewritten.
+   - Caveman mode (full) and Ponytail mode (full) active via hooks; code/commits/docs written normal.
+   - Never relaunch a run on a failed ssh connection — you would start a second copy of a live job.
+
+2. Key Technical Concepts:
+   - **The batch_size confound:** `a19b1ff` (2026-08-06) changed `grpo_runner`'s default from `t.get("batch_size", 1)` to `t.get("batch_size", 4)`. Every run before it trained at 1 prompt-group per optimizer step with 40-60% of steps carrying no gradient. A config file stating `batch_size: 4` does not mean the *run* used it — configs get edited after their runs, frozen configs in `runs/` do not.
+   - **Independent verification of a run's batch size:** `train_log.json`'s `epoch` at the final step over the dataset size gives prompts per step directly (0.6 at step 300 over 500 questions = bs=1).
+   - **Step-time scaling on browsergym:** 94 s/it at bs=1 (e27: 28178s/300), 712 s/it at bs=8 (e27bs8probe: 28471s/40) — ~11.4 s per completion both, so bs=4 (32 completions) ≈ 365 s/it. Actuals came in at 358 (E1), 374 (E2), 414-419 (E3).
+   - **`MAX_CONCURRENT_ENVS` sizing:** `env_server.py:132-133` computes `batch_size * n_rollouts` = 32 from the shared `config_schema.DEFAULT_BATCH_SIZE = 4` / `DEFAULT_N_ROLLOUTS = 8`; the `e27bs8probe` already passed 64 concurrent sessions, so 32 is dominated.
+   - **vLLM defaults:** `grpo_runner.py:35` `use_vllm = config["model"].get("use_vllm", True)`, colocate mode, util from config (0.30). Passing `--vllm` would force util 0.6 and diverge from e27 — so it is deliberately NOT passed.
+   - **`--smoke` overrides:** `apply_smoke_overrides` sets max_steps 3, n_rollouts 2, max_seq ≤2048, gpu_memory_utilization ≤0.45, eval max_new_tokens 256, `_smoke=True`. It leaves `batch_size` untouched. A smoke's `hit_generation_cap` episodes and clipped_ratio do not transfer.
+   - **Episode record fields:** `['correct','index','n_steps','n_tokens','reward','seed','stop_reason','terminated','tool_calls']` — the token field is `n_tokens`, not `token_count`.
+   - **Eval report structure:** top-level `['experiment_id','model_slug','seed','compose_method','mode','checkpoint','smoke','results']`; `results` keyed by split; per-split metrics include `accuracy`, `accuracy_ci_low/high`, `mean_token_count_correct(_ci_low/high)`, `non_termination_rate(_ci_low/high)`, `mean_steps`, `stop_reasons`, `n_samples`, `n_correct`.
+   - **ssh-failure diagnosis (LAB_NOTES):** a *timeout* with the route off-tunnel means the VPN, never the pod; a *refused* connection (fast RST) means the machine is up but the devpod sshd is not. Check `route -n get 130.149.248.103` — expect `utun8` and a TUB gateway.
+   - **`pgrep -af <pattern>` aliasing:** the checking shell's own command line contains the pattern and matches itself.
+   - **Tooling gotchas:** `cd` persists between Bash calls; ssh prints a large banner that must be tailed past; rsync with a relative path from the wrong cwd creates nested debris directories.
+
+3. Files and Code Sections:
+
+   **`pipeline/configs/e27bs4-browsergym-e1-baseline-qwen3-1_7b.yaml`** (new) — the E1 control retrained at bs=4 because the e27 run on disk is unusable as a baseline. Key block:
+   ```yaml
+   experiment_id: e27bs4-browsergym-e1-baseline-qwen3-1_7b
+   description: "E1 re-trained at batch_size 4: ... Its frozen config records no batch_size key, it ran 2026-08-05, and the default was 1 until a19b1ff (2026-08-06) - train_log confirms it directly, epoch 0.6 at step 300 over a 500-question set is one prompt-group per optimizer step, and 47% of those steps had zero within-group reward variance ..."
+   seed: 42
+   model: {slug: qwen3-1.7b, max_seq_length: 8192, lora_r: 16, gpu_memory_utilization: 0.30}
+   training:
+     mode: agentic
+     env: browsergym
+     env_config: {benchmark: miniwob, tasks: [click-menu-2, click-dialog-2],
+                  miniwob_url: http://localhost:8080/miniwob/, max_turns: 8}
+     env_server: {repo_path: /workspace/OpenEnv/envs, port: 8000}
+     max_prompt_length: 4096
+     batch_size: 4
+     n_rollouts: 8
+     micro_batch_size: 1
+     max_steps: 150
+     learning_rate: 5e-6
+     kl_beta: 0.001
+   rewards:
+     compose_method: naive_sum
+     env_reward: {enabled: true, weight: 1.0}
+   eval:
+     temperature: 0.0
+     do_sample: false
+     max_new_tokens: 4096
+     reference_report: runs/e0-browsergym-base-qwen3-1_7b/eval_report.json
+     agentic:
+       splits:
+         - {name: held_out, n_episodes: 100}
+         - {name: shifted, n_episodes: 100, env_config: {tasks: [navigate-tree, click-checkboxes-transfer]}, seed_offset: 200000}
+   ```
+
+   **`pipeline/configs/e28bs4-browsergym-e2-cosine-qwen3-1_7b.yaml`** (new) — identical to e27bs4 except:
+   ```yaml
+     token_length:
+       enabled: true
+       weight: 1.0
+       max_len: 4096
+   ```
+   Description carries over e28's max_len rationale (e27's longest rollout 3969 = 97% of cap, median 1518, within-group spread median 1066, median at progress 0.37) and the weak-lever analysis (length share 0.063 at w=1 up to asymptote 0.097).
+
+   **`pipeline/configs/e29bs4-browsergym-e3-nontermination-qwen3-1_7b.yaml`** (new) — identical to e27bs4 except:
+   ```yaml
+     non_termination:
+       enabled: true
+       weight: 1.0
+   ```
+
+   **`pipeline/configs/e27-browsergym-e1-baseline-qwen3-1_7b.yaml`** (edited) — SUPERSEDED header added in the e24/e25 style:
+   ```yaml
+   # SUPERSEDED by e27bs4-browsergym-e1-baseline-qwen3-1_7b.yaml. Do not run this one.
+   # It trained on 2026-08-05, before a19b1ff made batch_size default to 4, so
+   # runs/e27-browsergym-e1-baseline-qwen3-1_7b/ was produced at batch_size 1 - its
+   # frozen config records no batch_size at all, and train_log's epoch 0.6 at step
+   # 300 over 500 questions confirms one prompt-group per step. The `batch_size: 4`
+   # below was added later (86f9ce6) to state the geometry keys, so running this
+   # file TODAY produces a different experiment under the same name. It is also the
+   # reason the E2/E3 arms could not be paired against this run.
+   ```
+
+   **Deleted:** `pipeline/configs/e28-browsergym-e2-cosine-qwen3-1_7b.yaml`, `pipeline/configs/e29-browsergym-e3-nontermination-qwen3-1_7b.yaml` (never produced numbers; descriptions carried into the bs4 files).
+
+   **`RUNNING.md`** — updated at every phase change, final state:
+   ```markdown
+   Updated: 2026-08-10 00:12 UTC (box time)
+
+   Nothing running. The E1/E2/E3 campaign finished at 00:08 UTC after 52h39m, all
+   six phases green, and all three arms are harvested into `pipeline/runs/`. GPU
+   idle, box synced to 274952f.
+   ```
+
+   **`LAB_NOTES.md`** — three additions:
+   - A trap bullet before "## Contract a new OpenEnv env must meet": "**A config that states a geometry key does not mean the run used it.** ... Check the frozen config, and cross-check it against `train_log.json`: `epoch` at the final step over the dataset size gives the prompts per step directly (0.6 at step 300 over 500 questions is bs=1)."
+   - A narrative section "## The E1/E2/E3 campaign relaunched as e27bs4/e28bs4/e29bs4" covering the baseline-retrain reason, the 150-step decision, why e28/e29 configs were deleted, and the smoke.
+   - A "## Harvested" entry with the three-arm results table and the "Still owed" note about paired statistics and `frac_reward_zero_std`.
+
+   **`/workspace/campaign_state.sh`** (created on the box) — the monitoring state script:
+   ```sh
+   cd /workspace/master-thesis-code/pipeline/runs 2>/dev/null || exit 0
+   for d in e27bs4-* e28bs4-* e29bs4-*; do
+     [ -d "$d" ] || continue
+     s=$(tr '\r' '\n' < "$d/batch_train.log" 2>/dev/null | grep -oE '[0-9]+/150' | tail -1 | cut -d/ -f1)
+     [ -n "$s" ] || s=0
+     eps=0
+     for f in "$d"/episodes_*.jsonl; do [ -f "$f" ] && eps=$((eps + $(wc -l < "$f"))); done
+     ck=; [ -d "$d/checkpoint-final" ] && ck=" TRAINED"
+     rp=; [ -f "$d/eval_report.json" ] && rp=" REPORT"
+     printf '%s step>=%s eval>=%s%s%s\n' "${d%%-*}" "$((s / 50 * 50))" "$((eps / 50 * 50))" "$ck" "$rp"
+   done
+   grep -hoE 'Traceback|SessionCapacityError|CUDA out of memory|OutOfMemoryError|Killed|Connection refused' */batch_*.log 2>/dev/null | sort -u | sed 's/^/ERR /'
+   pgrep -f 'training\.batch' >/dev/null || echo 'BATCH-PROCESS-GONE'
+   ```
+
+   **Launch command used** (no `--force` since ids were fresh; no `--vllm` to match e27's util 0.30):
+   ```
+   cd /workspace/master-thesis-code/pipeline && setsid nohup ../.venv/bin/python -m training.batch \
+     configs/e27bs4-browsergym-e1-baseline-qwen3-1_7b.yaml \
+     configs/e28bs4-browsergym-e2-cosine-qwen3-1_7b.yaml \
+     configs/e29bs4-browsergym-e3-nontermination-qwen3-1_7b.yaml \
+     --train --eval > /workspace/e27bs4_e28bs4_e29bs4_batch.log 2>&1 < /dev/null &
+   ```
+
+   **Harvested run dirs:** `pipeline/runs/e27bs4-browsergym-e1-baseline-qwen3-1_7b/`, `pipeline/runs/e28bs4-browsergym-e2-cosine-qwen3-1_7b/`, `pipeline/runs/e29bs4-browsergym-e3-nontermination-qwen3-1_7b/`, plus `pipeline/runs/batch_summary_20260810_000818.md`. (`pipeline/runs/` is gitignored; only the docs get committed.)
+
+   **Commits made:** `17c8509` (relaunch configs + LAB_NOTES + RUNNING.md), `9ee7f88` (e27bs4 harvested), `cf6f41f` (e28bs4 train→eval), `bb3ae00` (e28bs4 harvested), `274952f` (e29bs4 train→eval), `32aa1dc` (campaign finished, all three harvested).
+
+4. Errors and fixes:
+   - **User confusion about batch_size being "already settled":** The user pushed back — "I thought that we already settled the batch size issue?" I clarified that `a19b1ff` fixed the *default* and `86f9ce6` wrote `batch_size: 4` into the config *files*, both on 2026-08-06/07, but e27 *ran* 2026-08-05 so its frozen config carries no key and it trained at 1. Config text right, run predates it.
+   - **`cd pipeline` persisted between Bash calls**, causing `(eval):cd:1: no such file or directory: pipeline` on a second `cd pipeline`. Fixed by switching to absolute paths.
+   - **Wrong episode field name:** probed `token_count` and got `None`, briefly looking like a broken efficiency metric. Dumped the record keys and found the field is `n_tokens` (252 on the smoke's correct episode). The data was fine; my probe key was wrong.
+   - **Stray nested directory:** an `rsync ... pipeline/runs/` ran with cwd=`pipeline/`, creating `pipeline/pipeline/runs/batch_summary_*.md`. Fixed by moving the file to `pipeline/runs/` and `rm -rf pipeline/pipeline`.
+   - **`pgrep -f "e28bs4smoke.yaml"` self-matched** the checking shell (documented LAB_NOTES trap), giving a false "STILL-RUNNING". Recognized and cross-checked with `pgrep -af "training.train"` filtered.
+   - **Monitor died silently:** "No completion record was found for this background shell command from the previous session" — the watcher was lost at process teardown, leaving a monitoring gap from ~06:45 to 15:07 on Aug 8. Re-armed as task `bistckvlr` with the then-current state as its baseline.
+   - **VPN outage mid-run:** ssh timed out for ~7h. Ran the documented three-command proof — `route -n get 130.149.248.103` showed `en0`/`192.168.178.1` instead of `utun8`/TUB gateway, while `1.1.1.1:443` was open. Diagnosed as the TUB VPN, not the box, and told the user the fix (`sudo pfctl -F all -f /etc/pf.conf`). After the user reconnected, port 22 answered while 30236 lagged briefly — the tunnel settling, not a dead sshd.
+
+5. Problem Solving:
+   - **Caught a campaign-invalidating confound before spending 53h of GPU.** The task list said the configs were "geometry-aligned with e27 as of 86f9ce6", which was true of the config text but not of the run on disk. Verified the real geometry three independent ways rather than trusting either the config or the annotation.
+   - **Chose 150 steps over 300** on a compute-matched argument: 150 x bs=4 = 600 prompts and 150 optimizer updates per arm, against e27's 300 prompts and ~160 *live* updates — same real gradient count, twice the data, 2.2 days instead of 4.1 on a shared box that has been reclaimed mid-run before. This also matches the budget line already written in LAB_NOTES ("14h/arm at 150 steps, 43h for the three").
+   - **Proved one-knob-differs mechanically**, by diffing comment-stripped configs rather than by inspection: e27bs4 vs e28bs4 differs only by the `token_length` block; vs e29bs4 only by `non_termination`.
+   - **Smoke-tested before committing 53h.** Neither `86eb392`'s env-server sizing nor `bc7c7dd`'s eval dispatch had ever run against browsergym. A throwaway `e28bs4smoke` cleared the whole path in ~12 min (bs=4 training, env server, `click` → `env_done` reward 1.0, seed blocks 42100000/42200000, report write, zero errors), then was deleted along with its run directory.
+   - **Two-layer monitoring:** an event-driven persistent Monitor (15-min ssh poll, emits only on bucketed state change, with failure signatures and a box-unreachable warning after 4 failed polls) plus an 8-hourly cron for RUNNING.md upkeep and harvesting. Both torn down at campaign end (`TaskStop` on `bistckvlr`, `CronDelete` on `c6d82bbf`).
+
+6. All user messages:
+   - "ok launch e28 and e29 and schedule the monitoring for it"
+   - (AskUserQuestion answer) "wait wait wait Im super confused now - I thought that we already settled the batch size issue? your recommended setting for the next run sounds good but before we launch anything please verify that we use bs=4, a sensible amount of steps (you can decide) and that gpu box and repo here is synced"
+   - "reconnected"
+   - "how is it going"
+   - Local-command stdout that is NOT user input: `/compact`, `/model` (Opus 5 1M context), `/effort` (max). Several cron-fired "Campaign check for the browsergym E1/E2/E3 arms..." prompts arrived as user-role turns but are the scheduled job I created, not human input. All `<task-notification>` blocks are automated background events and explicitly not user acknowledgement.
+
+7. Pending Tasks:
+   Taskwarrior (`project:thesis`) open items:
+   - **Three-arm E1/E2/E3 writeup** (newly added this session): "paired McNemar on the intersection, paired token deltas, per-arm frac_reward_zero_std, stop_reason breakdown beside every accuracy - into pipeline/runs/e27bs4_e28bs4_e29bs4_findings.md"
+   - Review and finish bg chapter
+   - Replicate e24bs4/e25bs4 at seeds 43 and 44
+   - Promote `stop_reason` to a first-class metric (per-reason rate with Wilson CI in `compute_metrics`)
+   - Re-eval e0 on the new seed scheme (~3.3h, needs the GPU; blocks the e0-vs-e27 pairing)
+   Task 3 ("launch and harvest the E1/E2/E3 browsergym campaign") was annotated with all three arms' numbers and marked **done**.
+
+8. Current Work:
+   The campaign is **complete and fully closed out**. All three arms trained and evaluated in 52h39m (batch summary shows six green checkmarks), the GPU is released, and all three run directories plus the batch summary are harvested to `pipeline/runs/`.
+
+   Final held-out results (one seed, unpaired as stated):
+   ```
+   arm                acc    non-term  tok(correct)   env_done  cap  no_tool  max_turns
+   e27bs4  E1 base    0.670    0.140       930.8         86      5      9        -
+   e28bs4  E2 cosine  0.650    0.220       776.3         78     18      3        1
+   e29bs4  E3 non-tm  0.640    0.090       845.4         91      0      9        -
+
+   shifted            0.800 / 0.820 / 0.790, tok(correct) 478.3 / 510.5 / 472.6
+   ```
+   Accuracy is flat with every Wilson interval overlapping; the arms separate on `stop_reason` in opposite directions — E2 moved off-target mass from `no_tool_call` (9→3) into truncation (5→18) while shortening correct episodes 17%, and E3 removed truncation entirely (5→0) while leaving `no_tool_call` at 9, meaning E3's non-termination drop is a truncation drop rather than the premature-stopping drop the penalty was written for.
+
+   Close-out completed: RUNNING.md set to "Nothing running" and stamped 2026-08-10 00:12 UTC box time; LAB_NOTES "Harvested" entry written with the table and the "Still owed" caveat; commit `32aa1dc`; taskwarrior task 3 closed and the analysis task opened; Monitor `bistckvlr` stopped; cron `c6d82bbf` deleted; PushNotification sent ("Campaign done: all 3 browsergym arms trained+evaluated in 52h39m, GPU released. Accuracy flat across E1/E2/E3; the arms separate on stop_reason instead.").
+
+   The only thing not yet delivered when the summary request arrived: the final closing prose message to the user reporting campaign completion, the three-arm table, and what remains owed.
+
+9. Optional Next Step:
+   Deliver the campaign close-out message: all three arms done in 52h39m with six phases green, the three-arm held-out table, the finding that accuracy is flat while the arms separate on `stop_reason` in opposite directions, the teardown of both monitors, the commits, and the fact that the paired analysis is owed before any of it is quoted — ending with the mandatory "Next steps" section.
+
+   No new work should start without the user's go-ahead. The analysis I flagged repeatedly and offered is explicitly gated on their word: "Say the word and I will run the paired E1-vs-E2 analysis now - it does not need E3, and both arms answered identical question sets", and the LAB_NOTES entry states "**Still owed before any of this is quoted:** the paired statistic on the intersection ... and `frac_reward_zero_std` per arm, since a component that adds within-group variance buys its arm more live gradient than the control got."
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/mheidebrecht/.claude/projects/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/ab988c24-a88e-415d-8dd2-615cc390ae14.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
