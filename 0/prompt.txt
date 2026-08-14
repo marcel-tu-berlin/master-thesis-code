@@ -1,0 +1,6 @@
+<task-notification>
+<task-id>bb9jfo6fz</task-id>
+<summary>Monitor event: "shifted-split candidate probe results"</summary>
+<event>click-link           n= 20 success=0.00 term=0.00 tok=  1473 steps=3.1 {'no_tool_call': 16, 'max_turns': 4}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
