@@ -1,0 +1,3 @@
+explain to me the following:
+- whats countdown?
+- whats the issue with all those queued items: seed 44 (e12/e17), e18-s43, null writeup, non-termination penalty
