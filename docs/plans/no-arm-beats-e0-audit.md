@@ -235,6 +235,10 @@ Phase gates matter: later phases are only interpretable on a fixed trainer.
     the A6 handling first (an engine-kwarg passthrough for
     `logprobs_mode="processed_logprobs"`, or correction off) - a probe
     monkeypatch is not acceptable for a campaign run.
+    Gate PASSED 2026-08-14: e30 held_out 1.000 vs e0m 0.595 (McNemar
+    p=8.3e-25, zero regressions), training reward 0.562 -> 0.912. Numbers
+    and caveats in `pipeline/runs/e30_gate_findings.md`. E2/E3 arms are
+    e31/e32 on the identical recipe (single-knob diffs verified).
 
 ## Bookkeeping owed alongside
 

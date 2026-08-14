@@ -1,0 +1,90 @@
+experiment_id: e32-browsergym-e3-nontermination-menu-qwen3-1_7b
+description: "E3 on the fixed trainer: e30's recipe with the non-termination penalty added and nothing else changed - the expose's R_lambda = R_task - lambda * C_target with C_target = 1[not terminated] - so e30 is this run's lambda=0 control. Launched after the e30 gate passed on 2026-08-14 (held_out 1.000 vs e0m's 0.595, McNemar p=8.3e-25). The gate result reframes what this arm can show: e30's env-only recipe already drove held-out non-termination from the base model's 0.295 to 0.000, so the penalty is not needed to remove the behaviour at the endpoint on the trained family. What remains measurable, in order of interest: (1) training dynamics - whether pricing non-termination directly moves the policy off no_tool_call stopping earlier in the run than task reward alone does, read from the two training logs' termination-linked signals; (2) the shifted split - e30 paid a suggestive substitution cost on click-dialog-2 (0.780 to 0.600, paired McNemar p=0.064, terminated 1.000 to 0.740, n=50), and the penalty prices exactly the stop-without-acting failure that drop is made of, so E3 may transfer differently than E1 even where held_out saturates; (3) RQ2's token-side prediction - if the agent buys termination with tokens, completion length rises relative to e30. Weight 1.0 is lambda=1: failing to act costs exactly what failing the task costs. The sign lives in the component, so the weight stays positive. naive_sum is required rather than preferred - the penalty is binary, and advantage_weighted z-scores a zero-variance component to exactly 0, silencing it in every all-terminated prompt-group, precisely where behaviour is already good. Read this arm against e30's report only; the e27bs4/e29bs4 pair trained under the sequence_mask ISR filter and a two-task mix, and neither number carries over."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  # Initial prompt is small (lead-in, goal, first page: about 700 tokens), and
+  # the whole trajectory is capped at 4096 below, so 8192 leaves slack.
+  max_seq_length: 8192
+  lora_r: 16
+  gpu_memory_utilization: 0.30
+
+training:
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    # Menu-only (C4): every seed maps to click-menu-2, so the whole batch is
+    # the one family with headroom. Even seeds produce the same questions the
+    # mixed e27bs4 campaign drew for menu, odd seeds are new menu questions.
+    tasks: [click-menu-2]
+    # MiniWoB HTML is not shipped with browsergym-miniwob. This must point at a
+    # served clone of miniwob-plusplus or the env raises "core is not defined"
+    # at the first reset, and it does not survive a box restart. Start it first:
+    #   cd /workspace/miniwob-plusplus/miniwob/html && python3 -m http.server 8080
+    miniwob_url: http://localhost:8080/miniwob/
+    # The one turn cap. Menu-2 needs 2.6 steps, so 8 is headroom.
+    max_turns: 8
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  # Sets TRL's max_completion_length to 8192 - 4096 = 4096, the budget for the
+  # WHOLE trajectory. Menu-2's worst case lands near 4124 tokens (45-token
+  # pages measured through the adapter), so truncation stays rare.
+  max_prompt_length: 4096
+  # Geometry stated explicitly so the frozen config records it. This arm must
+  # differ from e30 in exactly the rewards.non_termination block and nothing
+  # else; the diff of the two frozen configs is the proof.
+  batch_size: 4
+  n_rollouts: 8
+  micro_batch_size: 1
+  max_steps: 150
+  # 10x the e27bs4 campaign's 5e-6: top of the probe ladder's monotone
+  # dose-response, stable at 50 steps. e30 ran it to 150 steps clean
+  # (grad_norm flat, KL settling near 0.10 under kl_beta 0.001).
+  learning_rate: 5e-5
+  kl_beta: 0.001
+  # The trainer fix (commit a975c40). The TRL 1.6 default, sequence_mask,
+  # zeroes or collapses the per-sequence weight of long completions and starved
+  # menu-2 of gradient in every earlier browsergym run.
+  vllm_importance_sampling_mode: token_truncate
+
+rewards:
+  # Required, not chosen - a binary component contributes exactly 0 under
+  # advantage_weighted in any all-terminated group. Matches e30, so e30 is the
+  # lambda=0 point of the same code path.
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+  non_termination:
+    enabled: true
+    weight: 1.0
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  # Pinned, not derived. Budget for the WHOLE trajectory, matching TRL's
+  # max_completion_length in training. Every arm of the campaign must state the
+  # same value or the comparison is measured under two different budgets.
+  max_new_tokens: 4096
+  # Thinking rates are measured against the paired base model's token
+  # distribution, not this run's own percentiles, so every arm of the campaign
+  # is scored on one ruler.
+  reference_report: runs/e0m-browsergym-base-menu-qwen3-1_7b/eval_report.json
+  agentic:
+    splits:
+      # Held-out: menu-2 questions from this seed's block, disjoint from the
+      # training seeds via the offset. n=200 per the campaign power plan.
+      - name: held_out
+        n_episodes: 200
+      # Shifted: three families never trained on. click-dialog-2 (base 0.80)
+      # detects substitution in both directions; navigate-tree and
+      # click-checkboxes-transfer (at ceiling) detect degradation. 50 episodes
+      # per family via seed % 3.
+      - name: shifted
+        n_episodes: 150
+        env_config:
+          tasks: [click-dialog-2, navigate-tree, click-checkboxes-transfer]
+        seed_offset: 200000
