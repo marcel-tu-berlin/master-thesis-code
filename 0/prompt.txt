@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>b2mhqchs8</task-id>
+<tool-use-id>toolu_01Y2kJBkB69xBhC1N6hqTroJ</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/25f68f83-6041-4412-8b24-5cd51640c84a/tasks/b2mhqchs8.output</output-file>
+<status>killed</status>
+<summary>Background command "Monitor e30 train phase" was stopped</summary>
+</task-notification>
