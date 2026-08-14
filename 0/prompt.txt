@@ -1,0 +1,12 @@
+our thesis states the following contribution:
+2. A controlled comparison of efficiency rewards under GRPO in OpenEnv. A
+length-aware and a non-termination-aware shaped reward are trained against the same
+task-success-only baseline, across a sweep of penalty strengths, and compared as paired
+evaluations on identical task instances. Every policy is evaluated both on held-out instances
+of the training task families and on task families withheld from training, so costs that only
+appear off the training distribution are visible.
+
+are we actually training against the task-success only baseline or rather training always on the same raw base model and just evaluating against this task-success-only baseline? 
+am I not understanding the wording correctly or is the thesisi formulating this wrongly? 
+
+check quickly against our code and help me understand and decide for a better formulation if even needed
