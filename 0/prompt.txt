@@ -1,0 +1,1 @@
+run the smoke and when everything looks good continue with the real run - monitor it and fetch the results when done
