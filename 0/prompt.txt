@@ -1,0 +1,20 @@
+Review this change for security vulnerabilities.
+
+Changed files (you may Read these and any other file in the repo):
+  - pipeline/training/rewards/utils.py
+
+Unified diff (only + lines are new):
+
+=== DIFF: pipeline/training/rewards/utils.py ===
+@@ -33,7 +33,7 @@ def model_token_count(completion, tokenizer) -> int:
+     leaving `content` empty; only the final tool-less message keeps its `<think>`
+     inline. Counting `content` alone measured 18 tokens of a 1024-token
+     completion in e28 - about 2% - which made the cosine length reward a near
+-    constant. See RUNNING.md.
++    constant. See LAB_NOTES.md.
+ 
+     Re-encoding assistant content is a documented approximation of the exact
+     generated-token count (chat-template framing differs slightly); it counts the
+
+
+Investigate per the method in your instructions, then return the findings list.
