@@ -1,0 +1,1 @@
+check if the box is free, if yes go
