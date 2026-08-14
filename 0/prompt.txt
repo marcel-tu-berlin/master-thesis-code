@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bq3yv455f</task-id>
+<tool-use-id>toolu_018oSP6DYTVgJVnHkxQa8WDQ</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/25f68f83-6041-4412-8b24-5cd51640c84a/tasks/bq3yv455f.output</output-file>
+<status>completed</status>
+<summary>Monitor "Tunnel recovery + verification completion (deduped)" stream ended</summary>
+</task-notification>
