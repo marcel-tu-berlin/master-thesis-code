@@ -1,0 +1,4 @@
+questions:
+- what does "null" mean here? just that it doesnt do anything the signal?
+- are +20 accuracy points good or not so much? how is the scale here?
+- what files do i need to update my exposes preliminary results section and maybe also the timeline if not already upto date as well
