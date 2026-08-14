@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bvzto6a82</task-id>
+<summary>Monitor event: "TIS probe on gpu-l4 (pid 470735): completion or crash"</summary>
+<event>PROBE-DONE: process gone, dump_records=96, last_signals: Training log saved to runs/probe-tis-filter/train_log.json
+LoRA saved to runs/probe-tis-filter/checkpoint-final</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
