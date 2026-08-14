@@ -1,0 +1,472 @@
+before we run new experiments please adapt our setup. we switched to reward bias substitution and need to make our setup work for that. please first make a thorough analysis of which parts of our pipeline need adaption (if any) and then make a plan for this. here our current expose such that you know exactly the current thesis direction: // Master Thesis Exposé, Draft v0.9 (2026-07-31)
+// v0.9: review pass. Title softened to "Safer". RLVR-vs-RLHF scope
+// caveat added (§3). Protocol extended with an out-of-distribution
+// split (§4). Contaminated-success row added to the outcome table
+// (§7). Preliminary-results claims tightened to match the run
+// records (§8). The dropped reference-policy prescription is now
+// recorded as a limitation (§9).
+// v0.8: reframed around reward bias substitution (Lamparth et al.
+// 2026). Three research questions: effectiveness, side effects, safer
+// evaluation. Title block consolidated back to the v0.7 format (one
+// title, one subtitle, no separate research-focus block) and the
+// citation set restored to the full v0.7 bibliography.
+// v0.7: timeline section removed (planning lives in
+// thesis/outline.md).
+// v0.6: math pilot results removed from the expose; preliminary
+// results are agentic-only (OpenEnv is the setting of record).
+// Compile with:  typst compile expose.typ   (or ./compile-expose.sh)
+//
+// Bibliography: refs.yml (Hayagriva format). IEEE style by default.
+
+#set page(
+  paper: "a4",
+  margin: (x: 2.5cm, y: 2.5cm),
+  numbering: "1",
+)
+#set text(font: "New Computer Modern", size: 11pt, lang: "en")
+#set par(justify: true, leading: 0.65em)
+#set heading(numbering: "1.")
+#show heading.where(level: 1): set text(size: 13pt)
+#show heading.where(level: 2): set text(size: 11.5pt)
+#set table(stroke: 0.5pt)
+
+// ---------- Title block ----------
+#align(center)[
+  #text(size: 16pt, weight: "bold")[
+    Safer Reward Shaping for Efficient LLM Agents
+  ]
+
+  #text(size: 13pt)[
+    Detecting Reward Bias Substitution during On-Demand \
+    Specialization with GRPO in OpenEnv
+  ]
+
+  #v(0.4cm)
+  _Master's Thesis Exposé_ \
+  #v(0.2cm)
+
+  #grid(
+    columns: (auto, auto),
+    column-gutter: 1.5cm,
+    row-gutter: 0.3em,
+    align: (right, left),
+    [*Author:*], [Marcel Heidebrecht],
+    [*University:*], [Technische Universität Berlin],
+    [*Date:*], [2026-07-31],
+  )
+]
+
+#v(0.5cm)
+#line(length: 100%)
+
+// ---------- 1 Motivation ----------
+= Motivation
+
+Reasoning language models often generate more reasoning than a task
+requires, a behavior documented across models and benchmarks
+@sui2025survey. In an agentic system this cost becomes especially
+large, because the model reasons repeatedly across the steps of an
+episode. Work on agentic tasks shows that curbing overthinking can cut
+compute and raise task success at the same time @cuadron2025agentic,
+so reducing unnecessary reasoning could make agents cheaper and, in
+some cases, more reliable.
+
+This thesis studies on-demand specialization. When a new recurring
+task becomes available, a small language model is fine-tuned with
+reinforcement learning to become an expert for that task. The
+specialized model should solve the task at least as reliably as the
+original model while using less computation. Producing the expert must
+itself be cheap, so training cost is a constraint of the method and is
+reported alongside what the expert saves at inference.
+
+The main challenge is the reward used during fine-tuning. A simple
+reward for shorter reasoning may reduce token usage, but it can also
+produce unwanted side effects. For example, an agent may stop too
+early, skip necessary reasoning, or claim that a task is complete even
+when it is not. The target is not zero tokens either: accuracy does not
+keep rising with reasoning length but peaks at a task-dependent
+optimum @wu2025length, and pushing thinking past that point can stop
+paying off entirely @ghosal2025mirage. Aggregate length is also a
+coarse handle, since what makes a trajectory wasteful is which
+reasoning segments it spends on rather than how many tokens it
+contains @an2025dto.
+
+This problem is related to reward bias substitution
+@lamparth2026substitution. Reward bias substitution means that
+reducing one unwanted behavior does not necessarily improve the agent
+overall. Instead, the agent may shift toward another unwanted
+behavior. For example, penalizing long episodes may reduce
+non-termination but increase premature termination.
+
+For this reason, it is not sufficient to measure only the behavior
+directly targeted by the reward. A reward should be considered
+successful only when it reduces computational cost without lowering
+task success or creating new undesirable behaviors.
+
+The thesis investigates this problem empirically in a small and
+controlled setting using GRPO @shao2024grpo, LoRA, small open language
+models, and OpenEnv environments @openenv2025.
+
+// ---------- 2 Research questions ----------
+= Research Questions and Objectives
+
+The research questions follow a simple sequence: effectiveness, side
+effects, and safer evaluation.
+
+== RQ1 --- Effectiveness of efficiency-oriented reward shaping
+
+*How effectively can reward shaping reduce the reasoning and
+interaction cost of a specialized LLM agent while preserving task
+success?*
+
+*Objective:* Evaluate whether efficiency-oriented rewards reduce
+reasoning tokens, environment interactions, or episode length compared
+with task-success-only GRPO, without reducing correct task completion.
+
+== RQ2 --- Reward bias substitution in agentic behavior
+
+*Does reducing one inefficient behavior cause the agent to shift
+toward other undesirable behaviors?*
+
+*Objective:* Identify whether improvements in the targeted behavior
+are accompanied by off-target changes such as premature disengagement,
+insufficient verification, lower task performance, incorrect
+completion claims, or other environment-specific behavioral changes.
+The agentic overthinking literature supplies the candidate axes
+@cuadron2025agentic.
+
+== RQ3 --- Evaluation of safer reward designs
+
+*How can reward formulations be evaluated to distinguish genuine
+efficiency improvements from reward bias substitution?*
+
+*Objective:* Develop and apply a practical evaluation protocol that
+jointly considers the targeted efficiency change, overall task
+performance, and relevant off-target changes on trajectories generated
+by the trained policy. The protocol earns its cost only if it changes
+a verdict, so the concrete success criterion is that it identifies at
+least one reward setting that a conventional evaluation of targeted
+efficiency plus task success would have accepted. If no setting
+produces such a case, the thesis reports that no substitution was
+found within the measured panel, which is a weaker but still
+informative outcome.
+
+// ---------- 3 Reward bias substitution ----------
+= Reward Bias Substitution in the Agentic Setting
+
+Lamparth et al. define reward bias substitution as a failure mode in
+which suppressing one reward-relevant feature redirects optimization
+pressure toward another correlated feature rather than removing the
+underlying bias @lamparth2026substitution. Their GRPO example targets
+response length and observes a shift toward overconfidence together
+with lower free-form factual accuracy. The effect requires only that
+the candidate features are mutually correlated and each partially
+informative about quality, which is the ordinary case rather than an
+edge case.
+
+In OpenEnv, the relevant object is not only a final response but a
+complete trajectory containing observations, reasoning, actions, tool
+calls, and stopping decisions. Reward bias substitution is therefore
+defined operationally as follows:
+
+#block(inset: (left: 1cm, right: 1cm))[
+  *A shaped reward reduces its targeted inefficiency, but the trained
+  agent shows a systematic deterioration in another relevant behavior
+  or in independently measured task quality.*
+]
+
+Examples include a reduction in non-termination accompanied by more
+premature stopping, or shorter reasoning accompanied by fewer
+verification steps and worse performance on difficult tasks. A
+mechanism for the second case is already documented: a small minority
+of high-entropy tokens carries the branching decisions of a reasoning
+trace @wang2025entropy, so pressure against length can remove exactly
+the exploration that hard instances need. The thesis will not attempt
+to enumerate every possible failure in advance. Instead, it will select
+a small set of plausible off-target outcomes for the chosen
+environment and interpret them together with task success.
+
+One difference between the two settings has to be stated explicitly,
+because it determines how much of the paper transfers. The paper
+studies a learned proxy reward model, where the optimized reward and
+the true objective diverge by construction and the correlated features
+are artifacts of preference learning. This thesis uses a verifiable
+environment reward, so on the training task distribution the optimized
+reward and the measured objective coincide, and the channel that
+carries the paper's headline result, a reward model that treats
+expressed confidence as a proxy for quality, is absent. What does
+transfer is the shaping term itself: a penalty subtracted from the task
+reward is a single-axis operator regardless of what it is added to, and
+the pressure it frees can still move any correlated behavior the agent
+is able to express. The paper's magnitudes therefore do not carry over,
+and whether comparable substitution occurs under a verifiable reward at
+all is an open question that this thesis is positioned to answer.
+
+// ---------- 4 Evaluation protocol ----------
+= Evaluation Protocol for Safer Reward Design <sec:protocol>
+
+The protocol adapts the paper's central recommendation to agentic RL:
+reward shaping must be evaluated after optimization, on trajectories
+generated by the resulting policy. Audit metrics computed on
+pre-collected data are not sufficient, because the policy itself
+changes the distribution of behavior @lamparth2026substitution.
+
++ *Train a separate policy for each reward condition.* Each reward
+  formulation produces a new GRPO policy rather than being evaluated
+  only on previously collected trajectories.
++ *Evaluate on fresh held-out tasks, on and off the training
+  distribution.* Each trained policy generates new OpenEnv trajectories
+  on a held-out split of the training task distribution and on a
+  shifted split. The second split carries most of the diagnostic
+  weight: because a verifiable reward coincides with the measured
+  objective on the training distribution, any true cost of the shaping
+  term is most likely to surface off it.
++ *Measure three general dimensions.* Report task performance, the
+  targeted efficiency behavior, and a small set of plausible off-target
+  behaviors relevant to the environment.
++ *Vary reward strength.* Use several values of the penalty coefficient
+  to distinguish insufficient pressure, useful shaping, and
+  overcorrection.
++ *Interpret outcomes jointly.* A decrease in tokens or episode length
+  is considered successful only when task quality is preserved and no
+  relevant off-target deterioration is observed.
+
+// ---------- 5 Metrics transfer ----------
+= From the Paper's Metrics to OpenEnv <sec:metrics>
+
+The paper tracks response length, correctness, confidence calibration,
+and sycophancy @lamparth2026substitution. These exact metrics are
+useful for conversational question answering, but they do not all
+transfer directly to every OpenEnv task. The correct transfer is
+functional: preserve the roles of the metrics while adapting them to
+sequential agent behavior, for which the agentic overthinking
+literature provides the behavioral vocabulary @cuadron2025agentic.
+
+#table(
+  columns: (auto, auto, 1fr),
+  table.header(
+    [*Role in the paper*], [*Paper example*], [*OpenEnv counterpart*],
+  ),
+  [Targeted feature],
+  [Response length],
+  [Reasoning tokens, interaction steps, or non-termination],
+
+  [Independent task quality],
+  [MMLU and TriviaQA accuracy],
+  [Verified task completion on held-out environment instances],
+
+  [Off-target behavior],
+  [Confidence calibration],
+  [Premature stopping, reduced verification, or unsupported
+   completion],
+
+  [Additional off-target behavior],
+  [Sycophancy / answer flipping],
+  [Action instability, unnecessary switching, or sensitivity to
+   misleading observations],
+
+  [Optimization diagnostics],
+  [Reward scale and policy change],
+  [Reward components, KL divergence, and training stability],
+)
+
+For the master's thesis, the mandatory evaluation can remain compact:
+
+- Task success: whether the final environment goal is correctly
+  achieved.
+- Efficiency: reasoning tokens, interaction steps, or episode length.
+- Completion behavior: whether the agent terminates successfully, does
+  not terminate, or stops prematurely.
+- One or two environment-specific off-target indicators, chosen after
+  the main OpenEnv task is fixed.
+
+Confidence calibration can be reused directly if the agent can report a
+meaningful confidence estimate. Sycophancy should only be reused when
+the environment contains user correction or misleading feedback.
+Otherwise, agent-specific trajectory measures are more appropriate.
+
+// ---------- 6 Experimental setup ----------
+= Experimental Setup and Plan
+
+The base model is a small open LLM, initially Qwen3-1.7B, adapted with
+LoRA and trained using GRPO @shao2024grpo. Training and evaluation use
+OpenEnv @openenv2025, the open environment-interface library started by
+Meta's PyTorch team and Hugging Face, in which an environment is a
+server with a Gym-style reset/step contract that executes tool calls
+and scores the episode. Classic agentic benchmarks such as ALFWorld
+@shridhar2021alfworld and WebShop @yao2022webshop each ship their own
+harness, whereas OpenEnv puts a growing catalog of environments behind
+one interface. That property is what the on-demand story needs: a new
+task class is a new environment behind an unchanged interface, so
+specializing for it means pointing the same training loop at a
+different environment server. The task-success-only GRPO policy is the
+main baseline, because efficiency rewards must improve on an already
+specialized agent, not only on the raw model.
+
+== Reward conditions
+
+*E0 --- Base model:* No environment-specific RL post-training.
+
+*E1 --- Task-success baseline:* GRPO with the environment task reward
+only.
+
+*E2 --- Length-aware reward:* Task reward minus a penalty for
+reasoning or total generated tokens. Because accuracy peaks at an
+interior, difficulty-dependent length @wu2025length, the
+correctness-coupled variant of this penalty follows DIET
+@chen2025diet, which aims the model at that optimum instead of at zero
+tokens.
+
+*E3 --- Non-termination-aware reward:* Task reward minus a penalty for
+episodes that do not terminate successfully.
+
+*Optional E4 --- Combined reward:* A combination of the strongest
+individual conditions, only if time and compute permit.
+
+A general shaped reward is:
+
+#align(center)[
+  $R_lambda = R_"task" - lambda dot C_"target"$
+]
+
+== Lambda variation
+
+A small sweep is sufficient for the thesis. The exact numerical scale
+depends on the reward magnitudes, but the experiment should include:
+
+- $lambda = 0$: task-success-only baseline
+- $lambda_"low"$: weak efficiency pressure
+- $lambda_"medium"$: moderate efficiency pressure
+- $lambda_"high"$: strong efficiency pressure
+
+The coefficients should be selected so that the efficiency component
+spans a meaningful range relative to the task reward. A short pilot can
+determine concrete values. The key analysis plots task success,
+targeted efficiency, and off-target behavior as functions of $lambda$.
+
+== Experimental phases
+
+*Phase 1:* Consolidate the existing controlled pilot and the
+success-only baseline.
+
+*Phase 2:* Establish the task-success-only policy in one sequential
+OpenEnv environment. The environment is not yet fixed. A
+document-grounded question-answering environment and a Python
+execution environment are already integrated and are the current
+candidates. Two considerations govern the choice. The environment
+reward must be goal-grounded rather than satisfied by any successful
+tool call, since a task-blind reward cannot carry a training signal;
+an environment was already rejected on exactly this ground. And the
+observed failure mode of the pilot is non-termination, so the wider
+off-target panel in @sec:metrics requires an environment in which
+behaviors such as reduced verification or action instability can occur
+at all.
+
+*Phase 3:* Run the length-aware and non-termination-aware lambda
+sweeps.
+
+*Phase 4:* Repeat the baseline and the most informative reward
+settings across at least two seeds.
+
+*Optional Phase 5:* Test the strongest setting on a harder task split
+or a second environment.
+
+// ---------- 7 Interpretation ----------
+= Interpretation of Outcomes
+
+#table(
+  columns: (auto, 1fr),
+  table.header([*Outcome*], [*Interpretation*]),
+
+  [Successful reward shaping],
+  [The targeted inefficiency decreases, task success is preserved, and
+   no relevant off-target deterioration is observed.],
+
+  [Contaminated success],
+  [The targeted inefficiency decreases and task success is preserved or
+   improves, but an off-target behavior shifts alongside it. The gain
+   can mask the shift, which makes this the outcome most easily
+   misreported as a clean result.],
+
+  [No meaningful effect],
+  [The targeted behavior does not change substantially.],
+
+  [Overcorrection],
+  [The targeted inefficiency decreases, but task success deteriorates
+   without a clear substitute behavior.],
+
+  [Possible reward bias substitution],
+  [The targeted inefficiency decreases, but another undesirable
+   behavior increases or independent task quality declines alongside an
+   off-target shift.],
+)
+
+Because the off-target panel is necessarily incomplete, the thesis
+should state that no substitution was detected within the measured
+indicators rather than claiming that a reward is universally safe
+@lamparth2026substitution.
+
+A campaign in which every reward condition lands in the no-effect row
+remains a reportable result rather than a failed thesis. It locates the
+point at which a shaped reward stops having any optimization footprint,
+which is itself a constraint on where efficiency rewards are worth
+applying, and the preliminary results below already contain one such
+case.
+
+// ---------- 8 Preliminary results ----------
+= Preliminary Results
+
+The current pipeline has completed an initial campaign using Qwen3-1.7B
+in an OpenEnv polynomial-equation setting. Task-success-only GRPO
+reaches a task success of 0.84, replicated across two training seeds,
+against a base-model probe of 0.64. Each expert costs approximately six
+hours on one L4 GPU. This is the cost receipt that on-demand
+specialization requires. The size of the lift is not yet precise: the
+base-model probe used a smaller evaluation sample and its confidence
+interval touches that of the trained policy, so a larger base-model
+evaluation is queued before the number is reported as final.
+
+The tested cosine length reward @chen2025diet does not produce
+additional compression and does not substantially change task success,
+at any weight from 1 to 16 and under either composition rule. The logs
+suggest that correct episodes are already close to their required
+reasoning length, while much of the wasted computation occurs in
+incorrect, non-terminating episodes. The targeted axis did not move,
+which points to no meaningful effect rather than reward bias
+substitution. That reading is not yet conclusive. The shaping component
+contributed between fourteen and twenty-seven times more to the
+composed advantage than the environment reward, so optimization
+pressure was applied and produced no visible change, and no off-target
+indicators were logged in that campaign. Separating a genuine
+non-effect from an unobserved shift is precisely what the panel in
+@sec:protocol is for.
+
+The next central experiment applies a non-termination penalty. The
+evaluation will test not only whether non-termination decreases, but
+also whether the agent instead stops prematurely, claims completion
+incorrectly, or produces shorter unsuccessful trajectories.
+
+// ---------- 9 Contribution and scope ----------
+= Expected Contribution and Scope
+
+The thesis contributes an empirical transfer of reward bias
+substitution from single-response reward shaping
+@lamparth2026substitution to sequential LLM-agent trajectories. It
+provides a controlled comparison of efficiency rewards and a practical
+protocol for evaluating whether apparent efficiency improvements are
+genuine or accompanied by off-target behavioral changes.
+
+The scope is intentionally limited to one small model, one main
+sequential OpenEnv environment, the existing controlled pilot, two
+reward interventions, and a small lambda sweep. One of the paper's
+recommendations is not adopted in full: validating a mitigation against
+at least two reference policies of different lineages
+@lamparth2026substitution. At roughly six hours per expert on a single
+GPU, that is affordable only as a one-off check on the strongest
+configuration, and every other result is reported for a single
+reference policy. The thesis does not aim to provide a universal
+detector of all possible off-target behavior or a formal safety
+guarantee.
+
+// ---------- Bibliography ----------
+#bibliography("refs.yml", style: "ieee", title: [References])
