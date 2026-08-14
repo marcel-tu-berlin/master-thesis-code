@@ -1,0 +1,1 @@
+if we collected results and a run is done it makes no sense to keep it in @RUNNING.md . fix this idiot
