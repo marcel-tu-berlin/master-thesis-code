@@ -1,0 +1,1 @@
+explain our length reward system as it currently is. suppose i have good mathemitcal background but in this domain a lot is new to me. so carefully explain to me how the cosine, difficulty dependence and correctness coupling works here. what of all this we use and finally lets tie this back to our actual results and why right now the length reward is a null
