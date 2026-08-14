@@ -1,0 +1,8 @@
+so first I agree that we need to fix the fact that no trained arm bets e0 - at least e1 should oviously bet it and e2 and e3 should then at least achieve
+  the accuracy level of e1 otherwise our whole claim of making models more efficient while keeping accuracy high doesnt make sense. also our whole training
+  setup is obviously flawed if we cant even beat the base model.
+
+  what are our options here? other environment or other tasks from the env? bigger model and therefore needed infrastructure? maybe also our training
+  pipeline isnt correct - we should consider that we might have bugs. make an exhaustive list of possible hypothesis that we can then test step by step. i
+  think we should start with our code, then evaluate if we can align the env to our current model in use and finally think about other models and maybe
+  smarter models. maybe qwen-1.7 is just too dumb and solving the tasks is just by chance?
