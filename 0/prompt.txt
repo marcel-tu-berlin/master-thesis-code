@@ -1,0 +1,21 @@
+ok some stuff i noticed. please evaluate the ideas and see if it effects our work and if we should update our plan @docs/plans/no-arm-beats-e0-audit.md 
+
+The mask is one-sided. Only Δ above the cap is dropped. So you're not just losing long sequences — you're systematically keeping the ones where the training model assigned lower probability than vLLM did. That's a selection effect on top of the length effect, and it biases the surviving gradient in a specific direction rather than just shrinking it.
+
+Temperature scaling. If you sampled at T ≠ 1, check this: vLLM by default returns unprocessed logprobs, so some logprobs are temperature-scaled and some aren't, producing a huge artificial mismatch. The fix is passing logprobs_mode="processed_logprobs" to the vLLM init (vLLM ≥ 0.10.2). If you had this on top of sequence_mask, the 70% figure has a second, cheaper explanation and your "fixed" trainer may not be fully fixed.
+
+And: The zero-slope problem after the fix
+
+This is where I'd push back on your current hypothesis. KL ≈ 0.002 after 50 steps is very small. That's not "policy moving slowly" — that's closer to "policy receiving essentially no gradient." Before spending compute on the LR ladder, rule out these, roughly in order of how cheaply they explain the observation:
+
+1. Group-degenerate advantages. GRPO's advantage is (r − mean(r_group)) / (std(r_group) + ε). If BrowserGym success is near-zero for e0, every group of G rollouts has identical reward, std = 0, advantage = 0 — the gradient is exactly zero, and no learning rate fixes that. Log the fraction of groups with nonzero reward std and mean |Â| per step. If that fraction is low, your bottleneck is task difficulty / reward density, not optimization, and B1 will come back flat at 2e-5 too.
+
+2. beta > 0. If the KL penalty is active (older TRL defaulted to 0.04), it directly pins the policy to the reference. A KL that sits stably at 0.002 across 50 steps is a signature of a KL term winning against a weak reward gradient, not of slow drift. Most modern GRPO recipes run beta=0.0.
+
+3. max_grad_norm. A copy-pasted 0.1 (common in Unsloth-derived configs) will throttle updates hard independent of LR.
+
+4. LoRA LR scale. 5e-6 is a full-finetune learning rate. The rule of thumb from the LoRA-without-regret line of work is that LoRA wants roughly 10× the full-FT LR, so the analog here is ~5e-5. Your B1 at 2e-5 is only 4× — directionally right, possibly still short. Worth planning a 5e-5 rung.
+
+5. LoRA target modules. r16 on q/v only is thin. If you're not hitting the MLP projections, capacity is a real constraint for agentic behavior change.
+
+Also confirm mask_truncated_completions=False — on long agentic rollouts that flag zeroes out entire completions that hit max_completion_length, which is a second length-correlated filter that would reintroduce your original confound under a different name.
