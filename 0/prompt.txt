@@ -1,0 +1,6 @@
+<task-notification>
+<task-id>bi4s52wrs</task-id>
+<summary>Monitor event: "final seed-43 batch on gpu-l4 (e12+e17): GPU-wait, launch, per-run eval reports, completion"</summary>
+<event>2026-07-20T22:05:15Z GPU free (used=0MiB); launching batch</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
