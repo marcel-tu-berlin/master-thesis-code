@@ -1,0 +1,155 @@
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. **Primary Request and Intent:**
+
+   The user is writing a Master's thesis on **reward bias substitution** (Lamparth et al. 2026). RQ1 = effectiveness of efficiency reward shaping; RQ2 = does reducing one inefficiency shift the agent toward another undesirable behavior; RQ3 = an evaluation protocol distinguishing genuine gains from substitution. Reward conditions: E0 base model, E1 task-success baseline, E2 length-aware (cosine/DIET), E3 non-termination-aware, optional E4 combined. Shaped reward: `R_lambda = R_task - lambda * C_target`.
+
+   **The one substantive user message this session** (verbatim):
+
+   > "for our thesis im currently finishing the experiment setup. i was thinking that we need another base model to compare our results. it should be from a different lineage (maybe llama or gemma)
+   >
+   > besides that we need to decide on what OOD means - healdout tasks or even entirely different env. looking at the current implementation just very shortly tell me what weve already built and are able to mention in the thesis expose. like which envs are ready and strong candidates?"
+
+   Three parts: (a) add a second base model from a different lineage; (b) decide what OOD means - held-out tasks or a different env; (c) the explicit deliverable, a **short** inventory of what is already built and which envs are strong candidates for the thesis expose.
+
+   **Standing constraints from CLAUDE.md / global config that REMAIN IN FORCE:**
+   - **Never include the user's name ("Marcel" / "Marcel Heidebrecht") in any commit message, code comment, docstring, or generated file.** Conventional commits (`feat:`, `fix:`, `refactor:`, `chore:`, `docs:`), no personal names.
+   - **ASCII only in all output** - no em dashes, en dashes, curly/smart quotes, ellipsis characters, non-breaking spaces.
+   - **Work on `master` only** - never create branches or git worktrees for this repo.
+   - **Commit only when asked.**
+   - `RUNNING.md` must be stamped with box time (`ssh gpu-l4 date`), never local time; updated at every phase change, kill, and crash; rows deleted once harvested; "Nothing running." when idle.
+   - **End every response with a "Next steps" section.**
+   - Mark any unverified assumption acted on with a greppable `ASSUMPTION:` prefix.
+   - Use Context7 MCP for library/framework/API documentation questions.
+   - Caveman mode (terse prose) and Ponytail mode (YAGNI ladder) active via hooks; code/commits/docs written normally.
+
+2. **Key Technical Concepts:**
+   - GRPO (TRL `GRPOTrainer`) with `environment_factory`, LoRA/PEFT, Qwen3-1.7B, vLLM colocate on NVIDIA L4 (24 GB)
+   - OpenEnv environments as local HTTP subprocesses (no Docker); BrowserGym/MiniWoB
+   - `frac_reward_zero_std`: fraction of prompt-groups where all rollouts score identically -> zero advantage -> no gradient
+   - `AdvantageWeightedComposer` vs `NaiveSumComposer`; `CORRECT_REWARD_THRESHOLD = 0.5`
+   - **Paired McNemar exact test** - the reason E0 runs identical seeds
+   - **transformers `parse_response` splits Qwen3 responses so the think block lands in `reasoning_content`**, not `content`, on any assistant message carrying a tool call - the root of the voided campaign
+   - Wu/Yeo cosine length reward cell structure: correct-and-short rewarded most, wrong-and-short penalized most
+   - Native tool-calling chat templates (`tools=` kwarg) - the pipeline's load-bearing assumption for any model swap
+   - `_EVAL_SEED_OFFSET = 100_000`; shifted split uses `seed_offset: 200000`
+   - TCP RST (refused, fast) vs packet drop (timeout) as the diagnostic distinguishing a remote dead listener from a local firewall block
+
+3. **Files and Code Sections:**
+
+   - **`pipeline/domains/__init__.py`** (READ) - the single dispatch. `build_domain(config)` maps `training.env` to: `reasoning_gym`, `textarena`, `finqa`, `repl`, `browsergym`. Note `domains/math/` exists as a directory but is NOT in the dispatch.
+
+   - **`pipeline/training/registry.py`** (READ) - `MODEL_REGISTRY` has exactly four entries, all Qwen: `qwen3-1.7b` (Qwen/Qwen3-1.7B, bf16, max_seq 2048, max_lora_rank 32), `qwen3-4b` (Qwen/Qwen3-4B-Base), `qwen-1.5b` (Qwen/Qwen2.5-1.5B, 4bit), `qwen-7b` (Qwen/Qwen2-7B, 4bit, rank 64). `LORA_TARGET_MODULES = ["q_proj","k_proj","v_proj","o_proj","gate_proj","up_proj","down_proj"]`. Adding a lineage = ~4 lines here; LoRA targets are identical for Llama and Gemma.
+
+   - **`pipeline/eval/agentic_eval.py`** (GREPPED) - **the decisive fact for the OOD question**: `def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None)` at line 249 takes ONE domain for all splits. Line 243 builds each split's config as `"env_config": {**train_env_cfg, **(s.get("env_config") or {})}`; line 316 `build_env_server(split_config, domain, ...)`. Splits vary env_config only. **Cross-env OOD is not supported without a new per-split domain code path.**
+
+   - **`pipeline/configs/e27-browsergym-e1-baseline-qwen3-1_7b.yaml`** (READ, lines 78-100) - the OOD implementation as it stands:
+     ```yaml
+       agentic:
+         splits:
+           - name: held_out
+             n_episodes: 100
+           - name: shifted
+             n_episodes: 100
+             env_config:
+               tasks: [navigate-tree, click-checkboxes-transfer]
+             seed_offset: 200000
+     ```
+     Comment records that both shifted families are at or near ceiling, so the split can detect degradation but not improvement - which is the direction RQ2 needs.
+
+   - **`pipeline/domains/browsergym/adapter.py`** (GREPPED) - public surface is `reset` (111), `click` (130), `noop` (144) = **2 tools**.
+
+   - **`pipeline/runs/e26_finqa_qualification_findings.md`** (READ) - FinQA disqualified: 0/60 held-out, Wilson [0.000, 0.060], 1.0% per-rollout training accuracy flat across the run, `frac_reward_zero_std` averaged 0.967 (gradient on 10 of 300 steps). "FinQA does not qualify as the environment for the reward-bias-substitution study. The instrumentation built for it does qualify."
+
+   - **`pipeline/runs/browsergym_feasibility_findings.md`** (READ header) - marked superseded by `browsergym_difficulty_correction.md`; the original probe used five tools and its own prompt, so every shared family reads ~0.45 higher under real conditions.
+
+   - **`RUNNING.md`** (MODIFIED, 3 edits this turn, UNCOMMITTED):
+     - Stamp -> `2026-08-03 09:40 UTC (box time)`; run row ETA -> `e28 train ~14:40 Aug 3 (tqdm at 41/300), then eval; e29 to follow`, note `Early cosine check PASSED, see below.`
+     - Replaced the pre-launch "Read the first few steps before trusting the run" section with the measured result:
+       ```
+       uniform-correctness steps (env_std = 0): 5 of 12
+       cosine raw_std on those: min 0.0647  median 0.0944  max 0.1196
+       ```
+       plus the sign-structure evidence and the corrected outage note (07:55-08:30 and a brief recurrence ~09:20, neither touched the run - tqdm continuous, uptime 81 days).
+     - Corrected two stale claims (see Errors and fixes).
+
+4. **Errors and fixes:**
+
+   - **Bash `cd pipeline` from inside `pipeline/`** -> `(eval):cd:1: no such file or directory: pipeline`, killing two whole `&&` chains. Same class of mistake as noted pre-compaction. Fixed by running `pwd && ls` to confirm cwd first, then re-issuing the commands without the `cd`.
+
+   - **First HF curl gave misleading HTTP codes.** Without `-L`, Qwen returned 307 (a redirect, not a failure) and I nearly read it as "unavailable". Re-ran with `-L`: Qwen resolved fine. meta-llama and google stayed 401 - those are genuinely gated repos, which is itself a real deployment fact worth reporting.
+
+   - **RUNNING.md stale claim 1 (corrected this turn):** the file still said "Still to check: whether e9-e25 measured the same 2%." That check was already done and confirmed. Replaced with the actual numbers: 166 non-capped uniform-correctness steps in e25, actual median length 859, implied 71, ratio 0.083, pearson r +0.671, cosine `raw_std` median 0.00017.
+
+   - **RUNNING.md stale claim 2 (corrected this turn):** the file said the weak weight lever "**retro-explains the poly null**" and that the e9-e21 flat w1-w16 dose-response was "a good part" this. That attribution is wrong - the cause was the token-counting bug. The weight arithmetic itself (share 0.063 at w=1 rising to a 0.097 asymptote, verified numerically against the real `CosineLengthReward`) is still valid and still the reason e28 runs one weight rather than a sweep. Rewrote to say so explicitly: "a weak lever and a blind reward are different failures."
+
+   - **Box `Connection refused` on port 30236** recurred during the inventory work. Same devpod sshd fault, not a local network problem (route/RST proof already in RUNNING.md). Did not relaunch anything; it self-healed by 09:40 UTC and the run was untouched.
+
+5. **Problem Solving:**
+
+   **Environment inventory delivered (verified, not recalled):** 5 domains in the dispatch. browsergym (2 tools: click, noop) is the study env with E0 base + E1 (e27) harvested and paired and E2/E3 running. reasoning_gym (1 tool: answer) is the reference/difficulty-calibration env whose entire cosine sweep is void. finqa (4 tools) is disqualified by e26 with hard numbers - a citable negative result demonstrating env-selection rigor. textarena (1 tool: move) has domain + e7/e8 configs but `git log` shows **no harvested run artifacts** in repo history. repl (1 tool: execute) is smoke-only with a deliberately trivial task family (BACKLOG item 5 = retarget at reasoning_gym).
+
+   **Model lineage decision resolved empirically.** Fetched and inspected the real `chat_template` in each `tokenizer_config.json`:
+   - `Qwen/Qwen3-1.7B` -> TOOLS, len 4168
+   - `unsloth/Llama-3.2-3B-Instruct` -> TOOLS, len 3827 (`tool_calls` x4, `ipython` x4, `tools` x16, `function` x8)
+   - `unsloth/gemma-3-4b-it` -> **NO-TOOLS**, len 1532, plain user/model turns with a system-prefix hack
+
+   Conclusion: **Llama, not Gemma.** The whole pipeline runs on the native `tools=` template; Gemma would require writing our own, which is a confound rather than a control. Two caveats stated: (1) `Llama-3.2-1B-Instruct` is the size-parity match to Qwen3-1.7B, the 3B is ~2x though its smaller vocab (128k vs 152k) partly offsets the logits tensor; (2) **Llama-3.2 has no thinking mode**, and Qwen3's think block IS the length being measured - so a Llama arm asks whether the length reward does anything absent a reasoning trace, which is a different question, not a pure lineage replicate. Both meta-llama and google repos are gated (401 anon); the box needs an accepted HF token or the ungated `unsloth/` mirrors.
+
+   **OOD recommendation:** stay with held-out task families inside browsergym. Cross-env needs a new per-split domain path plus a second difficulty calibration, and confounds task-lineage with reward effect. The existing split already produced the RQ2 signal: e0 -> e27 shifted 0.870 -> 0.790, McNemar p=0.021, while held_out was flat.
+
+   **e28 early check PASSED - the fix works in production.** Uniform-correctness steps (env_std=0) were 5 of the first 12; cosine `raw_std` there reads min 0.0647 / median 0.0944 / max 0.1196 versus **0.0002 under the bug** (~470x). Sign structure confirms it is reading real length: step 5 all-wrong at mean_len 2336 -> cos_mean -0.71; step 8 all-correct at mean_len 1909 -> +0.78. Mean lengths 1900-2700 with within-group spreads 1200-3000. Run verified alive: batch pid 783675 + train pid 783676, GPU 21818 MiB, step 41/300, tqdm continuous across both ssh outages.
+
+6. **All user messages:**
+   - "/compact" (local command; the caveat block explicitly says not to respond to it)
+   - "for our thesis im currently finishing the experiment setup. i was thinking that we need another base model to compare our results. it should be from a different lineage (maybe llama or gemma)\n\nbesides that we need to decide on what OOD means - healdout tasks or even entirely different env. looking at the current implementation just very shortly tell me what weve already built and are able to mention in the thesis expose. like which envs are ready and strong candidates?"
+
+   (Two transcript entries are automated background-task events explicitly marked "SYSTEM NOTIFICATION - NOT USER INPUT": the early-cosine-check Monitor event and its stream-ended notice. They are not user input and convey no approval, confirmation, or consent.)
+
+7. **Pending Tasks:**
+   - **Awaiting the user's call on model size**: `Llama-3.2-1B-Instruct` (size parity with Qwen3-1.7B) vs `Llama-3.2-3B-Instruct`. Once chosen: add the registry entry + an E0-equivalent base config. Not started - I explicitly said "Say the word."
+   - Harvest e28 + e29 when the batch finishes; pair both arms against e27.
+   - **BACKLOG 4b, still an open scope call for the user**: re-run a poly cosine arm on the fixed counter (~17h/seed for the e24/e25 pair) to convert "we never tested it there" into a result, or re-run nothing and simply stop citing the poly null.
+   - RUNNING.md edits from this turn are uncommitted (no commit was requested this turn).
+
+8. **Current Work:**
+
+   Immediately before this summary I had (a) answered the environment-inventory question with verified facts, (b) processed the e28 early-check event, (c) made three surgical RUNNING.md edits, and (d) re-armed monitoring.
+
+   The RUNNING.md run row now reads:
+   ```
+   | e28 (E2 cosine) + e29 (E3 non-termination) | batch: train + eval, both arms | 783675 | 08:34 UTC Aug 3 | e28 train ~14:40 Aug 3 (tqdm at 41/300), then eval; e29 to follow | Relaunch on the fixed token counter. Early cosine check PASSED, see below. ... |
+   ```
+
+   I confirmed the box-side final watcher `/workspace/e28_e29_final.sh` (pid 786026) is still armed and `/workspace/e28_e29_final.txt` does not exist yet, then armed a persistent Monitor (task **`b6d60urm8`**) that ssh-polls every 300s and exits on either outcome:
+   ```bash
+   while true; do
+     out=$(ssh -o ConnectTimeout=15 -o BatchMode=yes gpu-l4 '
+       if [ -f /workspace/e28_e29_final.txt ]; then
+         echo MARKER_DONE; cat /workspace/e28_e29_final.txt
+       elif ! kill -0 783675 2>/dev/null; then
+         echo "MARKER_CRASH batch pid 783675 gone with no final report"
+         tail -n 15 /workspace/e28_e29_batch.log
+       fi' 2>/dev/null)
+     if echo "$out" | grep -q MARKER_DONE; then echo "$out" | grep -v MARKER_DONE; exit 0; fi
+     if echo "$out" | grep -q MARKER_CRASH; then echo "$out"; exit 1; fi
+     sleep 300
+   done
+   ```
+   The MARKER_CRASH branch is deliberate: a monitor that only greps for success is silent through a crash, and silence looks identical to "still running." A crash is only declared when ssh *succeeds* and the pid is gone, so an sshd outage cannot produce a false crash.
+
+9. **Optional Next Step:**
+
+   No further autonomous work is warranted right now - the batch is running and monitored, and the outstanding item is a decision I explicitly handed to the user.
+
+   From my last status report, verbatim:
+   > "Next steps:
+   > 1. Retry ssh in ~30 min; check whether e28 survived the sshd fault.
+   > 2. Say the word on Llama-3.2-1B vs -3B and I'll add the registry entry + an E0-equivalent base config.
+   > 3. BACKLOG 4b still open: re-run a poly cosine arm on the fixed counter, or stop citing that campaign."
+
+   Item 1 is now done (box recovered, e28 alive at step 41/300, early check PASSED). Item 2 is blocked on the user's choice of `Llama-3.2-1B-Instruct` vs `Llama-3.2-3B-Instruct`; when answered, the work is a `MODEL_REGISTRY` entry in `pipeline/training/registry.py` plus a config modeled on `pipeline/configs/e0-browsergym-base-qwen3-1_7b.yaml` with its own `experiment_id` (because `eval.runner --base-model` writes into `runs/<experiment_id>/` regardless of adapter and would otherwise clobber an existing run). Item 3 remains the user's scope call.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/mheidebrecht/.claude/projects/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/ab988c24-a88e-415d-8dd2-615cc390ae14.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
