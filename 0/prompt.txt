@@ -1,0 +1,6 @@
+<task-notification>
+<task-id>bh953mmjo</task-id>
+<summary>Monitor event: "gpu-l4 ssh proxy recovery"</summary>
+<event>ssh to gpu-l4 is back</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
