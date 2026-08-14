@@ -1,0 +1,6 @@
+explain to me more: (b) the probe ran only n=50, so its CI is wide [0.50, 0.76] and just touches the trained CI's lower edge [0.76, 0.90]. The effect is safely real (both trained seeds at 0.84, remaining failures are the known length-cap mode), but a 100-200 episode base-model eval would make the comparison airtight - eval-only, ~1h, no training.
+
+i dont get the following:
+- whats CI?
+- whats length-cap mode?
+- why do we need the base model eval here?
