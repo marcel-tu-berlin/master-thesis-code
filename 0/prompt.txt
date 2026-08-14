@@ -1,0 +1,249 @@
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. **Primary Request and Intent:**
+
+   Three user requests this session, in order:
+
+   (a) **German supervisor report** (carried over from before compaction, delivered first): a 2-3 sentence high-level status update in German covering what is missing code-wise and experiment-wise plus next steps. **DELIVERED.**
+
+   (b) **`/code-review` with args:** *"max the entire machine learning pipeline for my thesis. focus on YAGNI and good coding practices and logic issues (the ones that would actually destroy our findings like the length reward counting bug from earlier). first report your review in an analysis document on which we can build a fix plan and then finally can fix everything. if you find nothing thats alright - in this case lets just focus on code cleanup"* **DELIVERED** (16 findings, `pipeline/CODE_REVIEW.md`).
+
+   (c) **"everything that needs fixing should be fixed - create your fix plan including verification steps"** — plan written to `pipeline/FIX_PLAN.md`, then all 16 fixes applied and verified. **CODE COMPLETE.**
+
+   (d) **"check if the box is free, if yes go"** — box was free; e27 post-fix re-eval launched. **DIED when the DevPod workspace went down.**
+
+   **Standing constraints from CLAUDE.md / global config that REMAIN IN FORCE:**
+   - **Never include the user's name ("Marcel" / "Marcel Heidebrecht") in any commit message, code comment, docstring, or generated file.** Conventional commits (`feat:`, `fix:`, `refactor:`, `chore:`, `docs:`), no personal names.
+   - **ASCII only in all output** — no em dashes, en dashes, curly/smart quotes, ellipsis characters, non-breaking spaces. (German umlauts are letters, required for correct German.)
+   - **Work on `master` only** — never create branches or git worktrees for this repo.
+   - **Commit only when asked.** Nothing has been committed this session.
+   - `RUNNING.md` must be stamped with box time (`ssh gpu-l4 date`), never local time; updated at every phase change, kill, and crash; rows deleted once harvested; "Nothing running." when idle.
+   - **End every response with a "Next steps" section.**
+   - Mark any unverified assumption acted on with a greppable `ASSUMPTION:` prefix.
+   - Use Context7 MCP for library/framework/API documentation questions.
+   - Mandatory skills: `humanizer` + `writing-clearly-and-concisely` for human-facing prose; `karpathy-guidelines`; `/ponytail` YAGNI ladder; `i-have-adhd` for decision/action turns.
+   - Caveman mode (terse prose) and Ponytail mode (YAGNI) active via hooks; code/commits/docs written normally.
+   - Do not call the Agent tool unless the user requested it. Do not use workflows or deep-research unless the user requested it.
+
+2. **Key Technical Concepts:**
+   - GRPO (TRL `GRPOTrainer`) with `environment_factory`, LoRA/PEFT, Qwen3-1.7B, vLLM colocate, NVIDIA L4 (24 GB)
+   - OpenEnv envs as local HTTP subprocesses; BrowserGym/MiniWoB++ (static server on :8080)
+   - **`trl.chat_template_utils.parse_response(tokenizer, ids) -> dict`** — the function TRL uses in training; requires `add_response_schema(tokenizer)` first or raises `AttributeError: This tokenizer does not have a response_schema`
+   - Two tool-call wire formats: Qwen/Hermes `<tool_call>{...}</tool_call>` vs Llama 3.x bare `{"name":..., "parameters":...}`
+   - `AdvantageWeightedComposer` (per-prompt-group z-scoring) vs `NaiveSumComposer`; `CORRECT_REWARD_THRESHOLD = 0.5`
+   - Wilson CI (binary proportions) vs bootstrap CI (continuous); `N_BOOTSTRAP = 10_000`
+   - Off-target panel (RQ2): `terminated`, `stop_reason` (`env_done`/`no_tool_call`/`max_turns`/`hit_generation_cap`), `tool_calls`
+   - The voiding precedent: cosine reward counted only `content`, never `reasoning_content` — scored ~8% of true length, voided e9-e25
+
+3. **Files and Code Sections:**
+
+   **CREATED — `pipeline/CODE_REVIEW.md`**: The analysis document. 16 findings in three tiers (Tier 1 = affects numbers on disk; Tier 2 = will corrupt next run; Tier 3 = operational), plus 8 refuted candidates recorded so they are not re-litigated, plus a suggested fix order. Finding 3.7 (`--smoke` overwrites a harvested run) was added later, found by hitting it.
+
+   **CREATED — `pipeline/FIX_PLAN.md`**: The fix plan with per-fix design + verification, ordering gates, the two resolved decisions, and a "Verification results (2026-08-03)" section appended after execution. Header states: *"Status: all 16 fixes applied and verified, 2026-08-03. 236 tests locally (was 195), 246 on the box."*
+
+   **`pipeline/eval/agentic_eval.py` — the most heavily changed file.**
+   - Deleted `import re`, `_TOOL_CALL_RE`, `_iter_tool_payloads`, `_call_args` (the entire uncommitted hand-rolled parser from the prior session).
+   - Added, replacing them:
+     ```python
+     def _first_tool_call(msg: dict) -> tuple | None:
+         for call in (msg.get("tool_calls") or []):
+             fn = (call or {}).get("function") or {}
+             name = fn.get("name")
+             if name is None:
+                 continue
+             args = fn.get("arguments")
+             return str(name), (args if isinstance(args, dict) else {})
+         return None
+
+     def _answer_from(msg: dict) -> str | None:
+         for call in (msg.get("tool_calls") or []):
+             fn = (call or {}).get("function") or {}
+             if fn.get("name") != "answer":
+                 continue
+             args = fn.get("arguments")
+             ans = args.get("answer") if isinstance(args, dict) else None
+             if ans is not None:
+                 return str(ans)
+         return None
+     ```
+   - Seed blocks:
+     ```python
+     _EVAL_SEED_OFFSET = 100_000
+     _SEED_BLOCK = 1_000_000
+
+     def seed_block(seed: int) -> int:
+         """Base of the question block belonging to `seed`."""
+         return int(seed) * _SEED_BLOCK
+     ```
+     and `seed_base = seed_block(seed) + split["seed_offset"]`
+   - Trajectory budget in `_run_multiturn_episodes`:
+     ```python
+     budget = gen_cap
+     stop_reason = "max_turns"
+     for _ in range(max_turns):
+         if budget is not None and budget <= 0:
+             stop_reason = "hit_generation_cap"
+             break
+         msg, name, args, n_tok = turn_fn(messages, budget)
+         total_tokens += int(n_tok)
+         turn_cap, budget = budget, (None if budget is None else budget - int(n_tok))
+         if name not in tool_names:
+             stop_reason = _no_call_reason(n_tok, turn_cap)
+             break
+     ```
+   - Broad exception + step counting:
+     ```python
+     try:
+         feedback = getattr(env, name)(**(args or {}))
+     except Exception as e:
+         feedback = f"Tool call error: {type(e).__name__}: {e}"
+     else:
+         calls.append(name)
+     messages.append(msg)   # the parsed message, NOT {"content": "", "tool_calls": [...]}
+     messages.append({"role": "tool", "content": str(feedback)})
+     ```
+   - `_write_episodes` replaced by `_episode_line(index, seed, r) -> str`; both episode loops gained `on_result=None` and call `on_result(i, results[-1])`; `run_agentic_eval` opens `ep_file` **before** the `try:` (so `finally: ep_file.close()` cannot NameError) with:
+     ```python
+     ep_file = open(os.path.join(run_dir, f"episodes_{split['name']}.jsonl"), "w")
+     def on_result(i, r, _f=ep_file, _base=seed_base):
+         _f.write(_episode_line(i, _base + i, r))
+         _f.flush()
+     ```
+   - Generation refactored to one helper using `parse_response`:
+     ```python
+     def _generate(messages, budget):
+         enc = tokenizer.apply_chat_template(messages, tools=tools, add_generation_prompt=True,
+                                             return_tensors="pt", return_dict=True).to(model.device)
+         plen = enc["input_ids"].shape[1]
+         with torch.no_grad():
+             out = model.generate(**enc, max_new_tokens=budget, do_sample=do_sample)
+         comp_ids = out[0][plen:]
+         msg = parse_response(tokenizer, comp_ids.tolist())
+         return msg, int(comp_ids.shape[0])
+
+     def gen_fn(question): ...        # returns (_answer_from(msg), n_tok)
+     def gen_turn(messages, budget):  # returns (msg, name, call_args, n_tok)
+     ```
+   - `add_response_schema(tokenizer)` added right after `AutoTokenizer.from_pretrained`; import `from trl.chat_template_utils import add_response_schema, parse_response`
+   - New `_reference_thresholds(eval_cfg)` reading `eval.reference_report` via `load_reference_thresholds`; `compute_metrics(results, **thresholds.get(split["name"], {}))`
+   - New `_build_report(config, checkpoint_dir, split_metrics)` extracted so the `"smoke": bool(config.get("_smoke"))` marker is testable without a GPU
+   - `_metrics_to_dict` gained `mean_token_count_correct` (+ CIs) and `underthinking_threshold` / `overthinking_threshold`
+   - `_report_md` now prints "mean tokens on CORRECT episodes" **above** "mean completion tokens (all episodes)"
+
+   **`pipeline/eval/metrics.py`**: `EvalMetrics` gained `mean_token_count_correct`, `_ci_low`, `_ci_high` (all `float | None = None`); `compute_metrics` computes them from `correct_results` with `_bootstrap_ci`.
+
+   **`pipeline/eval/plots.py`**: added `_report_splits(path)`; `make_figures(report_paths, out_dir, dpi=130, split=None)` now enumerates splits, suffixes filenames only when `len(splits) > 1`, wraps each plot in `try/except (KeyError, TypeError, ValueError)`, and draws training curves once outside the split loop; `--split` added to `main()`. `load_report` still refuses to guess between splits (unchanged, by design).
+
+   **`pipeline/eval/runner.py`**: added `validate_config(config)` call (eval-only invocations previously skipped validation entirely); added `smoke_conflict(run_dir)` and `base_model_conflict(run_dir)`, both returning `str | None` and wired via `parser.error(...)`; `run_dir` moved above the smoke block; `--smoke` help text corrected from "10 episodes" to "4 episodes per split".
+
+   **`pipeline/training/config_schema.py`**: added `_KNOWN_TRAINING_KEYS` (`mode, env, env_config, env_server, max_prompt_length, max_steps, save_steps, n_rollouts, batch_size, micro_batch_size, learning_rate, kl_beta, temperature, weight_decay, warmup_ratio`) and `_KNOWN_ENV_SERVER_KEYS = {"repo_path", "port"}`, both enforced in `validate_config`; removed `training.gradient_accumulation_steps` and `training.dataset_size_limit` from `_NUMERIC_COERCIONS` (validated but read nowhere); added `reference_report` to `_KNOWN_EVAL_KEYS`; removed `token_entropy` from `_KNOWN_REWARD_KEYS` / `_KNOWN_REWARD_SUBKEYS`; simplified `warn_inert_scalars` (dropped the entropy branch and the now-unused `lever` variable).
+
+   **`pipeline/training/train.py`**: `seed_base=seed_block(seed)` for `build_seed_dataset`; `mark_smoke_checkpoint(checkpoint_dir, bool(config.get("_smoke")))`; removed dead `dataset_size_limit` smoke override; docstring/print corrected 10 → 4 episodes; imports `from eval.agentic_eval import seed_block` and `from training.batch import mark_smoke_checkpoint`.
+
+   **`pipeline/training/batch.py`**: added `mark_smoke_checkpoint(checkpoint_dir, smoke)` next to its reader `_is_real_checkpoint` (placed here because `.venv-test` has no transformers and `training.train` pulls in the GPU stack).
+
+   **`pipeline/training/grpo_runner.py`**:
+   ```python
+   max_turns = int((t.get("env_config") or {}).get("max_turns", 0))
+   kwargs["max_tool_calling_iterations"] = max_turns if max_turns > 0 else 1
+   ```
+   (was conditional, leaving TRL at its `sys.maxsize` default for single-step domains)
+
+   **`pipeline/training/rewards/cosine_length.py`**: `_is_multiturn` and `_n_tokens` deleted; `__call__` now ends with a single ruler:
+   ```python
+   return [
+       self._reward(model_token_count(c, self.tokenizer), correct_flags[i])
+       for i, c in enumerate(completions)
+   ]
+   ```
+
+   **`pipeline/domains/reasoning_gym/adapter.py`**: `answer()` gained the re-entry guard:
+   ```python
+   if self.done:
+       return "Episode already finished; your recorded answer stands."
+   ```
+
+   **DELETED**: `pipeline/training/rewards/token_entropy.py`, `pipeline/configs/e19-agentic-poly-entropy-w1-qwen3-1_7b.yaml` (both via `git rm`).
+
+   **Configs**: `e27`/`e28`/`e29` gained `reference_report: runs/e0-browsergym-base-qwen3-1_7b/eval_report.json` and had their now-false "max_new_tokens is PER TURN" comments rewritten; `_template.yaml` lost its `token_entropy` block.
+
+   **Tests** (195 → 236 local, 246 on box): `test_response_parsing.py` **created** (8 box-only tests using `pytest.importorskip`); `test_multiturn_eval.py` **rewritten wholesale**; `test_cosine_length_ids.py`, `test_guardrail.py`, `test_agentic_episode_eval.py` rewritten in part; tests appended to `test_validate_config.py`, `test_batch_skips.py`, `test_agentic_eval.py`, `test_plots.py`, `test_stats_ci.py`, `test_batch_seeds.py`, `test_env_adapter.py`; `test_offtarget_metrics.py` updated for the new `turn_fn` signature.
+
+4. **Errors and fixes:**
+
+   - **Workflow did not write `pipeline/CODE_REVIEW.md`** despite being asked. Fixed by writing it myself from the returned findings.
+   - **`grep --include=*.py` failed under zsh** (`no matches found`). Fixed by quoting: `--include='*.py'`.
+   - **Tests imported deleted names** (`_parse_answer`, `_parse_tool_call`) after the parser rewrite → `ImportError` at collection. Fixed by rewriting the parser test blocks around `_answer_from` / `_first_tool_call` over message dicts, and moving real wire-format coverage to the box-only `test_response_parsing.py`.
+   - **`turn_fn` signature change broke `test_offtarget_metrics.py`** (3 failures: `<lambda>() takes 1 positional argument but 2 were given`). Fixed by adding a `_turn(name, args, n_tok)` helper producing the 4-tuple and changing the lambda to `lambda m, budget: next(turns)`.
+   - **Two `test_cosine_length_ids.py` tests encoded the removed behaviour** (preferring `completion_ids`). Rewrote them; added `test_same_ruler_for_answered_and_unanswered_rollouts` as the regression guard.
+   - **`mark_smoke_checkpoint` initially placed in `train.py`** → `ModuleNotFoundError: No module named 'transformers'` in `.venv-test`. Fixed by moving it to `batch.py` next to `_is_real_checkpoint`.
+   - **`ep_file` opened inside `try` but closed in `finally`** — would have raised `NameError` masking any earlier failure. Caught by reading my own diff; moved the `open()` above the `try:`.
+   - **`parse_response` raised `AttributeError`** on first box test. Root cause: `add_response_schema(tokenizer)` must be called first. Fixed and re-verified.
+   - **No pip in the box venv** (`No module named pip`). Fixed with `uv pip install -q pytest`.
+   - **SELF-INFLICTED DATA LOSS:** I ran `eval.runner --config configs/e27-... --smoke` for the layer-2 check, which overwrote e27's `eval_report.json`, `eval_report.md`, and **both** `episodes_*.jsonl` with 4-episode output. I had snapshotted only the report. Recovered by restoring `eval_report.json` byte-exactly from `eval_report_pre_fix.json` and reconstructing both episode files from its `samples` array (seeds derived as `42 + 100000` / `42 + 200000` under the old scheme); deleted the stale smoke `.md` rather than regenerate it. This became **finding C7** and the `smoke_conflict()` guard, which now refuses exactly that command. I reported this plainly to the user rather than burying it.
+   - **`ssh gpu-l4 date '+%Y-%m-%d %H:%M UTC'`** → `date: extra operand`. Fixed by quoting the whole remote command with double quotes.
+   - **Two stale watcher loops on the box** (pids 273631, 297350) polling forever because `pgrep -f "eval.runner --config configs/e27probe"` self-matched their own command line. Killed them. Hit the same self-match artifact again in my own verification command and correctly identified it rather than chasing it.
+   - **Background tasks killed / exit 255**: two local watchers were stopped and a third failed with exit 255. Diagnosed as ssh drops, **not** eval failure — confirmed the `nohup`-detached eval (pid 900489) was still alive and progressing.
+   - **Box went down mid-eval.** Diagnosed precisely: host pings fine (31 ms, 0% loss), port 22 open, but the DevPod NodePort 30236 refuses. Explicitly ruled out the known NordVPN/pf issue (that presents as unreachable, not a refused connection on one port while another answers). Declined to probe port 22 — not a host I was given access to.
+
+5. **Problem Solving:**
+
+   **The parser fix was a deletion, not a patch.** Before designing anything I measured three things on the box: `parse_response(tokenizer, ids) -> dict` exists and works after `add_response_schema`; it behaves correctly on all five cases (Qwen complete call → `tool_calls` + `reasoning_content`; **Qwen truncated before `</tool_call>` → NO `tool_calls`**; **JSON quoted inside `<think>` → NO `tool_calls`**; Llama untagged → parsed with `parameters` normalised to `arguments`; Llama prose → no call); and Qwen3's template preserves `reasoning_content` when re-rendering a prior assistant turn (verified `"LONG REASONING HERE" in rendered` → True). That collapsed findings 2.1 and 1.3 into one deletion and made eval score by literally the same function training uses.
+
+   **Verified every finding firsthand** by reading source rather than trusting the review agents — explicitly stated as "plan built on secondhand claims is the same failure mode."
+
+   **`validate_config` swept clean:** ran the new whitelist over every `configs/*.yaml` and every frozen `runs/*/config.yaml` → 0 failures, then ran negative controls (5 must-reject, 2 must-accept) to prove the validator wasn't vacuously passing. Conclusion: no existing run has a mis-recorded geometry from that class.
+
+   **Live smoke verification on the box** confirmed every fix: correct-only mean 745.7 vs pooled 883.2 (held_out) and 239.0 vs 423.2 (shifted); thresholds pinned per split from e0 (P10=243.9/261.7, P75=2484/2017.5); no episode above the 4096 trajectory budget; `seed_base=42100000`/`42200000`; `"smoke": true`; and a 368-token 0-step episode correctly labelled `no_tool_call` rather than `hit_generation_cap`.
+
+6. **All user messages:**
+   - `/compact` (local command) followed by `/code-review` with args: *"max the entire machine learning pipeline for my thesis. focus on YAGNI and good coding practices and logic issues (the ones that would actually destroy our findings like the length reward counting bug from earlier). first report your review in an analysis document on which we can build a fix plan and then finally can fix everything. if you find nothing thats alright - in this case lets just focus on code cleanup"*
+   - *"everything that needs fixing should be fixed - create your fix plan including verification steps"*
+   - (AskUserQuestion response) Seed fix: **"Now, and retrain e27"**; Entropy reward: **"Delete it (Recommended)"**
+   - *"check if the box is free, if yes go"*
+
+   (Several transcript entries are automated background-task notifications explicitly marked "SYSTEM NOTIFICATION - NOT USER INPUT"; they are not user input and carry no approval.)
+
+7. **Pending Tasks:**
+   - **Restart the exalsius DevPod workspace** (user action required — I cannot). The NodePort may change on restart; check against `Port 30236` in `~/.ssh/config`.
+   - **Re-run the e27 post-fix re-eval from scratch** (~3.5h) once the box is back, then diff against the pre-fix snapshots.
+   - **Retrain e27 + eval** (~12h) — required because the seed-block fix changes which questions seed 42 trains on.
+   - **Launch e28/e29** (~20h).
+   - **36 files uncommitted** on master. Suggested split: `fix(eval):`, `fix(training):`, `chore(schema):`.
+
+8. **Current Work:**
+
+   Immediately before the summary request I was handling the loss of the box mid-eval.
+
+   The e27 post-fix re-eval (pid 900489, launched 2026-08-03 19:46 UTC) was confirmed healthy at 20:42 UTC with held_out at 50/100 (accuracy 0.70, `stop_reasons` `{env_done: 44, no_tool_call: 3, max_turns: 3}`, max tokens 4046, newest seed 42100049). Measured rate ~1.06 min/episode → ~3.5h total, so I revised the ETA from ~21:45 to ~23:20 UTC.
+
+   Then the watcher failed with exit 255 and `ssh gpu-l4` returned `Connection refused`. I diagnosed: host pings fine (31 ms, 0% loss), port 22 open, NodePort 30236 closed → the DevPod workspace is down, not a VPN issue.
+
+   I rewrote `RUNNING.md` to record the crash, including the exact diagnosis, the restart instruction, and the expected state on the persistent volume:
+   - `eval_report_pre_fix.json`, `episodes_held_out_pre_fix.jsonl`, `episodes_shifted_pre_fix.jsonl` — authoritative pre-fix reference
+   - `eval_report.json` — still the RESTORED pre-fix content (the report is only written at the very end, so it was never overwritten)
+   - `episodes_held_out.jsonl` — PARTIAL post-fix run, ~50-100 lines, not usable as a result
+   - `episodes_shifted.jsonl` — still pre-fix; the eval never reached that split
+
+   My final action was verifying local work survived: **236 passed, 4 skipped**; **36 files changed**; branch **master**.
+
+9. **Optional Next Step:**
+
+   None that I can take unilaterally — the box is down and only the user can restart the DevPod workspace.
+
+   The user's most recent instruction was *"check if the box is free, if yes go"*, which I acted on; the launched job then died with the box. The next step in direct line with that instruction is to **re-launch the e27 post-fix re-eval once the workspace is back**, using the same command:
+
+   ```
+   cd /workspace/master-thesis-code/pipeline && \
+     nohup ../.venv/bin/python -m eval.runner \
+       --config configs/e27-browsergym-e1-baseline-qwen3-1_7b.yaml \
+       > runs/e27-browsergym-e1-baseline-qwen3-1_7b/reeval_postfix.log 2>&1 &
+   ```
+
+   with the four predictions still standing as the falsifiable check, quoted from my earlier message: *"accuracy **down slightly** on held_out — the 4 episodes that were getting up to 1.8x the trained budget lose it; `hit_generation_cap` **appears** in `stop_reasons`, where it was previously unreachable; `mean_token_count_correct` is a **new** field; `underthinking_threshold` / `overthinking_threshold` now pinned to e0's (held_out P10=243.9, P75=2484). Anything moving the other way means a fix is wrong."*
+
+   I should report the box outage to the user and wait for them to restart it rather than proceeding.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/mheidebrecht/.claude/projects/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/ab988c24-a88e-415d-8dd2-615cc390ae14.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
