@@ -1,0 +1,3 @@
+ok please checkout my master thesis wiki. here i try to collect all knowledge and also meaningful experiment results: '/Users/mheidebrecht/Library/Mobile Documents/iCloud~md~obsidian/Documents/master-thesis'
+
+there in the experiments folder you find how i already put experiments there. add our current run to it such that i have it saved as current state for the thesis and can use it to update my expose
