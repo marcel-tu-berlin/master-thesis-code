@@ -1,0 +1,1 @@
+ok launch e28 and e29 and schedule the monitoring for it
