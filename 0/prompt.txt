@@ -1,0 +1,6 @@
+<task-notification>
+<task-id>b6ojkb646</task-id>
+<summary>Monitor event: "e0 browsergym base-model re-eval progress on gpu-l4"</summary>
+<event>e0 eval episodes &gt;= 50 / 200</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
