@@ -1,0 +1,1 @@
+[structured-output-enforce] You MUST call the StructuredOutput tool to complete this request. Call this tool now.
