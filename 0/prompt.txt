@@ -1,0 +1,6 @@
+<task-notification>
+<task-id>bsho2n0jf</task-id>
+<summary>Monitor event: "e25 train/eval progress and completion on gpu-l4"</summary>
+<event>e25: LAUNCHER_ALIVE ckpts=2 err=0</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
