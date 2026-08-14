@@ -1,0 +1,6 @@
+<task-notification>
+<task-id>bvnlxij10</task-id>
+<summary>Monitor event: "e27retrain-oldseeds probe progress and failures"</summary>
+<event>probe pid 1408788 exited. held_out=100 shifted=100</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
