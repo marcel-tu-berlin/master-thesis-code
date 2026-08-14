@@ -1,0 +1,1 @@
+wait the gpu box isnt reachable even though im using the correct vpn. remember the firewall issue we had with fucking nordvpn? give me the commands again to fix our networking
