@@ -1,0 +1,3 @@
+ok first of all remove old and done entries from @BACKLOG.md - the document shouldnt contain items which are already finished. record this rule also in @CLAUDE.md 
+
+then yes - always align. I actually dont understand the issue with max_steps right now but if you analyzed it to be an issue then what the fuck: align it
