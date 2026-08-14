@@ -1,0 +1,1 @@
+create the three new configs and run them right away. i allow you to start the next run. no need to wait here. i really want to get a clearer picture on cosine length reward and entropy signals
