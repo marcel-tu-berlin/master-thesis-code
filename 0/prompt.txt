@@ -1,0 +1,1149 @@
+Review this change for security vulnerabilities.
+
+Changed files (you may Read these and any other file in the repo):
+  - pipeline/configs/e15-agentic-repl-env-only-qwen3-1_7b.yaml
+  - pipeline/configs/e7-agentic-textarena-wordle-qwen3-1_7b.yaml
+  - pipeline/configs/e8-agentic-textarena-env-only-qwen3-1_7b.yaml
+  - pipeline/domains/__init__.py
+  - pipeline/domains/browsergym/adapter.py
+  - pipeline/domains/env_base.py
+  - pipeline/domains/reasoning_gym/adapter.py
+  - pipeline/domains/repl/__init__.py
+  - pipeline/domains/repl/adapter.py
+  - pipeline/domains/repl/domain.py
+  - pipeline/domains/repl/tasks.py
+  - pipeline/domains/textarena/__init__.py
+  - pipeline/domains/textarena/adapter.py
+  - pipeline/domains/textarena/domain.py
+  - pipeline/eval/agentic_eval.py
+  - pipeline/probes/env_check.py
+  - pipeline/tests/test_agentic_schema.py
+  - pipeline/tests/test_env_adapter.py
+  - pipeline/tests/test_env_domain.py
+  - pipeline/tests/test_env_server.py
+  - pipeline/tests/test_textarena_adapter.py
+  - pipeline/tests/test_textarena_domain.py
+  - pipeline/tests/test_validate_config.py
+  - pipeline/training/config_schema.py
+  - pipeline/training/env_server.py
+  - pipeline/training/rewards/non_termination.py
+  - setup.sh
+
+Unified diff (only + lines are new):
+
+=== DIFF: pipeline/configs/e15-agentic-repl-env-only-qwen3-1_7b.yaml ===
+@@ -1,44 +0,0 @@
+-experiment_id: e15-agentic-repl-env-only-qwen3-1_7b
+-description: "E15: agentic GRPO on a Python REPL via OpenEnv (multi-turn code execution), env reward only (cosine length OFF). repl ships no task corpus, so the domain mints a deterministic arithmetic-over-a-list task per seed with a binary exact-match reward. Establishes the env-only baseline for a code-execution env; cosine-length ablation is a later config. Task family is intentionally simple - the point is a real automatic reward + real token slack."
+-seed: 42
+-
+-model:
+-  slug: qwen3-1.7b
+-  lora_r: 16
+-  # Multi-turn code-execution episodes (several execute() calls plus stdout
+-  # feedback) run longer than single-step reasoning_gym; 4096 gives the loop
+-  # room. Smoke-calibrate against observed stream length.
+-  max_seq_length: 4096
+-
+-training:
+-  mode: agentic
+-  env: repl
+-  env_config:
+-    # The one turn cap: TRL's max_tool_calling_iterations, the eval loop, and the
+-    # server's REPL_MAX_ITERATIONS all read this.
+-    max_turns: 12
+-  env_server:
+-    repo_path: /workspace/OpenEnv/envs   # clone of meta-pytorch/OpenEnv
+-    # repl_env's server.app main() binds 8000 with no --port argparse (like
+-    # textarena), so target 8000 for the readiness probe + client.
+-    port: 8000
+-  max_prompt_length: 1024
+-  n_rollouts: 8
+-  max_steps: 300
+-  learning_rate: 5e-6
+-  kl_beta: 0.001
+-
+-rewards:
+-  compose_method: advantage_weighted
+-  env_reward:
+-    enabled: true
+-    weight: 1.0
+-  token_length:
+-    # Env-only baseline: cosine length reward OFF. A later config enables it.
+-    enabled: false
+-
+-eval:
+-  temperature: 0.0
+-  do_sample: false
+-  agentic:
+-    n_episodes: 100
+
+
+=== DIFF: pipeline/configs/e7-agentic-textarena-wordle-qwen3-1_7b.yaml ===
+@@ -1,51 +0,0 @@
+-experiment_id: e7-agentic-textarena-wordle-qwen3-1_7b
+-description: "E7: agentic GRPO on TextArena Wordle via OpenEnv (env reward + cosine length), multi-turn, Qwen3-1.7B, vLLM colocate."
+-seed: 42
+-
+-model:
+-  slug: qwen3-1.7b
+-  lora_r: 16
+-  # Multi-turn episodes accumulate several model turns plus injected feedback, so
+-  # the rollout stream is longer than single-step reasoning_gym. 4096 gives the
+-  # turn loop room; smoke-calibrate (Task 12) - drop if vLLM KV cache pressures
+-  # 24 GB, raise max_turns/seq together if streams truncate.
+-  max_seq_length: 4096
+-
+-training:
+-  mode: agentic
+-  env: textarena
+-  env_config:
+-    env_id: Wordle-v0
+-    num_players: 1
+-    max_turns: 6          # Wordle is 6 guesses; also the tool-calling iteration cap
+-    size: 500             # distinct training prompts (one seed each)
+-  env_server:
+-    repo_path: /workspace/OpenEnv/envs   # clone of meta-pytorch/OpenEnv
+-    # textarena_env's server.app __main__ is bare main() with no argparse, so it
+-    # ignores --port and always binds 8000 (unlike reasoning_gym, which parses
+-    # --port). Target 8000 so the readiness probe + client hit the right port.
+-    port: 8000
+-  n_rollouts: 8
+-  max_steps: 300
+-  learning_rate: 5e-6
+-  kl_beta: 0.001
+-
+-rewards:
+-  compose_method: advantage_weighted
+-  env_reward:
+-    enabled: true
+-    weight: 1.0
+-  token_length:
+-    enabled: true
+-    weight: 1.0
+-    # Cosine bound over the model's TOTAL assistant tokens across all turns of an
+-    # episode (the multi-turn analogue of e5). Must sit above the operating
+-    # assistant-token length so the cosine stays on its live slope, not clamped
+-    # to the flat floor. Smoke-calibrate against the observed per-episode length.
+-    max_len: 1024
+-
+-eval:
+-  temperature: 0.0
+-  do_sample: false
+-  agentic:
+-    n_episodes: 100
+
+
+=== DIFF: pipeline/configs/e8-agentic-textarena-env-only-qwen3-1_7b.yaml ===
+@@ -1,43 +0,0 @@
+-experiment_id: e8-agentic-textarena-env-only-qwen3-1_7b
+-description: "E8: ablation baseline - TextArena Wordle, env reward only (cosine length OFF), multi-turn, Qwen3-1.7B. Pairs with e7 to isolate the cosine length reward's effect on total model tokens."
+-seed: 42
+-
+-model:
+-  slug: qwen3-1.7b
+-  lora_r: 16
+-  max_seq_length: 4096
+-
+-training:
+-  mode: agentic
+-  env: textarena
+-  env_config:
+-    env_id: Wordle-v0
+-    num_players: 1
+-    max_turns: 6
+-    size: 500
+-  env_server:
+-    repo_path: /workspace/OpenEnv/envs
+-    # textarena_env's server.app ignores --port and always binds 8000 (no argparse
+-    # in its __main__, unlike reasoning_gym). Target 8000 to match.
+-    port: 8000
+-  n_rollouts: 8
+-  max_steps: 300
+-  learning_rate: 5e-6
+-  kl_beta: 0.001
+-
+-rewards:
+-  compose_method: advantage_weighted
+-  env_reward:
+-    enabled: true
+-    weight: 1.0
+-  token_length:
+-    # Ablation arm: cosine length reward OFF. e7 enables it (env+cosine); this run
+-    # is env-only, so any per-episode model-token difference between the two is the
+-    # cosine reward's causal effect, not a task or capacity artifact.
+-    enabled: false
+-
+-eval:
+-  temperature: 0.0
+-  do_sample: false
+-  agentic:
+-    n_episodes: 100
+
+
+=== DIFF: pipeline/domains/__init__.py ===
+@@ -13,15 +13,9 @@ def build_domain(config: dict):
+     if env == "reasoning_gym":
+         from domains.reasoning_gym import ReasoningGymDomain
+         return ReasoningGymDomain()
+-    if env == "textarena":
+-        from domains.textarena import TextArenaDomain
+-        return TextArenaDomain()
+-    if env == "repl":
+-        from domains.repl import REPLDomain
+-        return REPLDomain()
+     if env == "browsergym":
+         from domains.browsergym import BrowserGymDomain
+         return BrowserGymDomain()
+     raise NotImplementedError(
+-        f"Env: {env!r} (known: reasoning_gym, textarena, repl, browsergym)"
++        f"Env: {env!r} (known: reasoning_gym, browsergym)"
+     )
+
+
+=== DIFF: pipeline/domains/browsergym/adapter.py ===
+@@ -73,7 +73,7 @@ class BrowserGymEnvAdapter:
+     def _connect(base_url):
+         # Lazy: the browsergym client lives in the cloned OpenEnv repo's envs/
+         # package (not on PyPI). .sync() wraps it for TRL, which rejects async
+-        # tools, matching the reasoning_gym/textarena pattern.
++        # tools, matching the reasoning_gym pattern.
+         from browsergym_env import BrowserGymEnv
+ 
+         return BrowserGymEnv(base_url).sync()
+
+
+=== DIFF: pipeline/domains/env_base.py ===
+@@ -19,7 +19,7 @@ class EnvDomain:
+     tool-calling chat template, so there is no reasoning-tag template here.
+     """
+ 
+-    # Single-step by default; multi-turn domains (e.g. textarena) set True so the
++    # Single-step by default; multi-turn domains (browsergym) set True so the
+     # eval loop runs the turn loop instead of a single tool call.
+     multi_turn = False
+ 
+@@ -47,14 +47,15 @@ class EnvDomain:
+ 
+         Default none: reasoning_gym takes dataset/seed via request kwargs, so it
+         needs no server-side env. Domains whose server is configured by env vars
+-        (textarena: TEXTARENA_ENV_ID, ...) override this.
++        (browsergym: BROWSERGYM_BENCHMARK, ...) override this.
+         """
+         return {}
+ 
+     def eval_tools(self, env):
+         """The bound tool method(s) to expose to the model during eval.
+ 
+-        Concrete domains override (reasoning_gym -> [env.answer]; textarena ->
+-        [env.move]). The eval loop passes these to apply_chat_template(tools=...).
++        Concrete domains override (reasoning_gym -> [env.answer]; browsergym ->
++        [env.click, env.noop]). The eval loop passes these to
++        apply_chat_template(tools=...).
+         """
+         raise NotImplementedError
+
+
+=== DIFF: pipeline/domains/reasoning_gym/adapter.py ===
+@@ -74,9 +74,8 @@ class ReasoningGymEnvAdapter:
+         Args:
+             answer: The final answer to submit for the current question.
+         """
+-        # Re-entry guard, matching every sibling adapter (textarena.move,
+-        # repl.execute, browsergym._act). Without it a
+-        # second call re-stepped the env and overwrote self.reward, so a rollout
++        # Re-entry guard, matching the sibling adapter (browsergym._act). Without
++        # it a second call re-stepped the env and overwrote self.reward, so a rollout
+         # that answered correctly and then answered again trained as WRONG while
+         # eval - which reads the first call - scored it correct. Training and
+         # eval disagreeing about the same trajectory is the worst kind of bug
+
+
+=== DIFF: pipeline/domains/repl/__init__.py ===
+@@ -1,4 +0,0 @@
+-from domains.repl.adapter import REPLEnvAdapter
+-from domains.repl.domain import REPLDomain
+-
+-__all__ = ["REPLDomain", "REPLEnvAdapter"]
+
+
+=== DIFF: pipeline/domains/repl/adapter.py ===
+@@ -1,104 +0,0 @@
+-class REPLEnvAdapter:
+-    """TRL environment_factory adapter for the OpenEnv repl env (multi-turn).
+-
+-    TRL's GRPOTrainer creates one instance per rollout slot, calls reset(**row)
+-    (whose return becomes the prompt), exposes every *other* public method as a
+-    tool the model may call, and reads the task reward off `self.reward`. The
+-    public surface is exactly {reset, execute}: one tool, `execute(code)`, since
+-    repl is a Python REPL the model drives until it prints its final answer.
+-
+-    repl is a bare execution sandbox with no task source of its own, so unlike
+-    reasoning_gym the TASK is supplied by us: reset(**row) forwards `context`,
+-    `task_prompt`, and `expected_answer` (the ground truth) from the dataset row
+-    into the server, which sets them on its exact-match rubric. The reward is
+-    binary (1.0 if the model's FINAL(answer) matches expected_answer, else 0.0;
+-    a small negative on a no-answer timeout), populated as the episode ends.
+-
+-    Multi-turn: the model calls execute() repeatedly under stdout feedback until
+-    it prints FINAL(answer) (or the iteration cap), so the adapter keeps
+-    `self.done` like textarena and refreshes `self.reward` every step (non-final
+-    steps carry process reward, the final step carries the outcome).
+-
+-    The client is injectable so the unit tests exercise the adapter logic without
+-    the OpenEnv install or a running server.
+-    """
+-
+-    def __init__(self, base_url, env_config=None, client=None):
+-        self._env_config = dict(env_config or {})
+-        self._client = client if client is not None else self._connect(base_url)
+-        self.reward = 0.0
+-        self.done = False
+-
+-    @staticmethod
+-    def _connect(base_url):
+-        # Lazy: the repl client lives in the cloned OpenEnv repo's envs/ package
+-        # (not on PyPI). REPLEnv is an EnvClient; .sync() wraps it for TRL (which
+-        # rejects async tools), matching the textarena/reasoning_gym pattern.
+-        from repl_env import REPLEnv
+-
+-        return REPLEnv(base_url).sync()
+-
+-    def reset(self, *, seed=None, prompt=None, **_row):
+-        """Derive this seed's task, send it to the server, return the task text.
+-
+-        TRL appends the returned string to the prompt's last user message, then
+-        applies the tool-calling chat template. Only `seed` matters: the task is
+-        a pure function of the seed (make_task), so training and eval both call
+-        reset(seed=N) and get the identical task - no extra dataset columns, and
+-        the server-side exact-match rubric is armed with the seed's
+-        expected_answer. `prompt` and other columns arrive as kwargs and are
+-        ignored.
+-        """
+-        from domains.repl.tasks import make_task
+-
+-        context, task_prompt, expected_answer = make_task(seed if seed is not None else 0)
+-        self._client.reset(
+-            context=context, task_prompt=task_prompt, expected_answer=expected_answer,
+-            seed=seed,
+-        )
+-        self.reward = 0.0
+-        self.done = False
+-        return task_prompt
+-
+-    def execute(self, code: str) -> str:
+-        """Run Python in the REPL and read stdout. Finish by printing FINAL(answer).
+-
+-        State persists across calls (variables stay defined). To submit your
+-        final answer, print it as FINAL(<answer>) - e.g. print("FINAL(42)") -
+-        which ends the episode.
+-
+-        TRL renders this method into the tool spec the model sees, so this
+-        summary and the Args description below are the tool's model-facing
+-        documentation. transformers' get_json_schema requires a Google-style Args
+-        entry for every parameter.
+-
+-        Args:
+-            code: A snippet of Python to execute in the persistent REPL.
+-        """
+-        if self.done:
+-            # Done-guard: once a final answer is recorded, further code cannot
+-            # corrupt the terminal reward.
+-            return "The task is already answered; no further code is accepted."
+-        # step(REPLAction) is the canonical path (matches textarena); the
+-        # client's execute() convenience wraps the same call.
+-        from repl_env import REPLAction
+-
+-        result = self._client.step(REPLAction(code=code))
+-        self.reward = float(getattr(result, "reward", 0.0) or 0.0)
+-        self.done = bool(getattr(result, "done", False))
+-        return self._feedback_text(result)
+-
+-    @staticmethod
+-    def _feedback_text(result) -> str:
+-        # Return the REPL's stdout for the model's next turn, plus the error if
+-        # the snippet raised. The observation carries a CodeBlockResult (stdout /
+-        # stderr / exception); fall back gracefully if shapes differ.
+-        obs = getattr(result, "observation", None)
+-        block = getattr(obs, "result", None)
+-        if block is None:
+-            return str(getattr(result, "observation", "") or "")
+-        out = str(getattr(block, "stdout", "") or "")
+-        exc = getattr(block, "exception", None)
+-        err = str(getattr(block, "stderr", "") or "")
+-        parts = [p for p in (out, exc or err) if p]
+-        return "\n".join(parts) if parts else "(no output)"
+
+
+=== DIFF: pipeline/domains/repl/domain.py ===
+@@ -1,73 +0,0 @@
+-from domains.env_base import EnvDomain
+-from domains.repl.adapter import REPLEnvAdapter
+-
+-# Brief task framing prepended to each prompt's user message. The tool spec is
+-# injected by the model's native tool-calling template (tools=...); this nudges
+-# the model to use the REPL and end with FINAL(...). reset() appends the specific
+-# task after this lead-in (TRL appends to the last user message).
+-_LEAD_IN = (
+-    "You solve the task by writing and running Python with the execute tool. "
+-    "Variables persist across calls. When you have the answer, print it as "
+-    "FINAL(<answer>) - for example print(\"FINAL(42)\") - to finish.\n\n"
+-)
+-
+-class REPLDomain(EnvDomain):
+-    """Fourth agentic domain: a Python REPL served through OpenEnv.
+-
+-    Multi-turn code execution: the model writes Python, reads stdout, iterates,
+-    and prints FINAL(answer) to finish. The efficiency reward counts the model's
+-    assistant tokens across all turns; the env reward is binary exact-match on
+-    the final answer.
+-
+-    repl is a bare sandbox with no built-in tasks, so this domain owns the task
+-    distribution: build_seed_dataset mints a deterministic (context, task_prompt,
+-    expected_answer) per seed, and the adapter threads expected_answer into the
+-    server's rubric at reset. The smoke task family is arithmetic-over-a-list;
+-    it is intentionally simple - the point is a real automatic reward and real
+-    length slack, not task difficulty.
+-    """
+-
+-    # `python -m <server_module>` launches the OpenEnv env server (no Docker).
+-    server_module = "repl_env.server.app"
+-    multi_turn = True
+-
+-    def make_env_factory(self, base_url, env_config=None, client_factory=None):
+-        env_config = dict(env_config or {})
+-        if client_factory is None:
+-            return lambda: REPLEnvAdapter(base_url, env_config)
+-        # Test/injection path: build the adapter around a supplied client.
+-        return lambda: REPLEnvAdapter(base_url, env_config, client=client_factory())
+-
+-    def build_seed_dataset(self, env_config=None, n=500, seed_base=0):
+-        # Each row is one training prompt: the lead-in plus a distinct seed. The
+-        # adapter derives (and arms) the seed's task at reset. TRL repeats each
+-        # row num_generations times to form a GRPO group; the task is a pure
+-        # function of `seed`, so every rollout in a group solves the same task.
+-        from datasets import Dataset
+-
+-        rows = [
+-            {"prompt": [{"role": "user", "content": _LEAD_IN}], "seed": seed_base + i}
+-            for i in range(int(n))
+-        ]
+-        return Dataset.from_list(rows)
+-
+-    def episode_messages(self, task_prompt):
+-        """Eval-time prompt for one episode. Mirrors the training framing: the
+-        same lead-in the seed rows carry, with the task text appended (in
+-        training, TRL appends the task to the row's lead-in via reset)."""
+-        return [{"role": "user", "content": _LEAD_IN + task_prompt}]
+-
+-    def eval_tools(self, env):
+-        """Single tool for the REPL: run code."""
+-        return [env.execute]
+-
+-    def server_env(self, env_config=None):
+-        # The repl server reads its iteration cap from a process env var. It comes
+-        # from `max_turns` - the one turn-cap key across domains, also read by
+-        # training (max_tool_calling_iterations) and eval, so the server cannot
+-        # cap at one number while the tool loop runs to another.
+-        cfg = dict(env_config or {})
+-        env = {}
+-        if cfg.get("max_turns") is not None:
+-            env["REPL_MAX_ITERATIONS"] = str(int(cfg["max_turns"]))
+-        return env
+
+
+=== DIFF: pipeline/domains/repl/tasks.py ===
+@@ -1,31 +0,0 @@
+-"""Deterministic task generation for the repl env.
+-
+-repl ships no task corpus, so we mint one. Kept in its own module so both the
+-domain (build_seed_dataset) and the adapter (reset) derive the SAME task from a
+-seed without a circular import - training and eval both call reset(seed=N), so
+-the task must be a pure function of the seed, identical across rollout slots.
+-
+-The smoke family is arithmetic-over-a-list: the model must write code to compute
+-a reduction and print FINAL(<number>). Intentionally simple - the point is a real
+-automatic exact-match reward and real token slack (terse vs verbose solutions),
+-not task difficulty. Upgrade target: a richer task source (e.g. reasoning_gym).
+-"""
+-import random as _random
+-
+-_OPS = {"sum": sum, "maximum": max, "minimum": min}
+-_OP_NAMES = ["sum", "maximum", "minimum"]
+-
+-
+-def make_task(seed: int):
+-    """seed -> (context, task_prompt, expected_answer). Pure function of seed."""
+-    s = int(seed)
+-    rng = _random.Random(s)
+-    op = _OP_NAMES[s % len(_OP_NAMES)]
+-    k = 4 + (s % 5)
+-    nums = [rng.randint(1, 99) for _ in range(k)]
+-    answer = _OPS[op](nums)
+-    task = (
+-        f"Compute the {op} of these integers: {nums}. "
+-        f"Then print the result as FINAL(<number>)."
+-    )
+-    return "", task, str(answer)
+
+
+=== DIFF: pipeline/domains/textarena/__init__.py ===
+@@ -1,4 +0,0 @@
+-from domains.textarena.adapter import TextArenaEnvAdapter
+-from domains.textarena.domain import TextArenaDomain
+-
+-__all__ = ["TextArenaDomain", "TextArenaEnvAdapter"]
+
+
+=== DIFF: pipeline/domains/textarena/adapter.py ===
+@@ -1,99 +0,0 @@
+-class TextArenaEnvAdapter:
+-    """TRL environment_factory adapter for the OpenEnv textarena env (multi-turn).
+-
+-    TRL's GRPOTrainer creates one instance per rollout slot, calls reset(**row)
+-    (whose return becomes the prompt), exposes every *other* public method as a
+-    tool the model may call, and reads the task reward off `self.reward`. The
+-    public surface is therefore exactly {reset, move}: any extra public method
+-    would be registered as a tool. `reward` and `done` are public *attributes*
+-    (a float and a bool, not methods), so TRL does not turn them into tools; the
+-    eval loop reads `done` to end an episode.
+-
+-    Multi-turn by construction: the model calls move() repeatedly under env
+-    feedback until the game ends (done) or the iteration cap. The env reward is
+-    terminal, so self.reward after the final step is the episode outcome that
+-    EnvReward reads via [e.reward for e in environments].
+-
+-    The adapter wraps a *synchronous* OpenEnv client (EnvClient.sync()). The
+-    client and action class are injectable so unit tests exercise the adapter
+-    logic without the OpenEnv install or a running server.
+-    """
+-
+-    def __init__(self, base_url, env_config=None, client=None, action_cls=None):
+-        self._env_config = dict(env_config or {})
+-        self._client = client if client is not None else self._connect(base_url)
+-        self._action_cls = action_cls
+-        self.reward = 0.0
+-        self.done = False
+-
+-    @staticmethod
+-    def _connect(base_url):
+-        # Lazy: the textarena client lives in the cloned OpenEnv repo's envs/
+-        # package (not on PyPI). EnvClient is async by default; .sync() is
+-        # required because TRL rejects async tools.
+-        from textarena_env import TextArenaEnv
+-
+-        return TextArenaEnv(base_url).sync()
+-
+-    def _action(self, message):
+-        if self._action_cls is None:
+-            from textarena_env import TextArenaAction
+-
+-            self._action_cls = TextArenaAction
+-        return self._action_cls(message=message)
+-
+-    def reset(self, *, seed=None, **_row):
+-        """Reset to a fresh game instance; return the opening prompt text.
+-
+-        TRL appends the returned string to the prompt's last user message, then
+-        applies the tool-calling chat template. Only `seed` selects the instance
+-        (deterministic); other dataset columns arrive as kwargs and are ignored.
+-        """
+-        result = self._client.reset(seed=seed) if seed is not None else self._client.reset()
+-        self.reward = 0.0
+-        self.done = False
+-        return self._prompt_text(result.observation)
+-
+-    def move(self, message: str) -> str:
+-        """Make one move in the current text game and read the result.
+-
+-        TRL renders this method into the tool spec the model sees, so this
+-        summary and the Args description below are the tool's model-facing
+-        documentation. transformers' get_json_schema requires a Google-style
+-        Args entry for every parameter.
+-
+-        Args:
+-            message: The move to play, in the game's expected format (for Wordle,
+-                a single five-letter word guess).
+-        """
+-        if self.done:
+-            # Done-guard: once the game is over, further moves change nothing, so
+-            # a model that keeps calling move cannot corrupt the terminal reward.
+-            return "The game is already over; no further moves are accepted."
+-        result = self._client.step(self._action(message))
+-        obs = result.observation
+-        self.reward = float(getattr(obs, "reward", 0.0) or 0.0)
+-        self.done = bool(getattr(obs, "done", False))
+-        return self._feedback_text(obs)
+-
+-    @staticmethod
+-    def _prompt_text(obs) -> str:
+-        return str(getattr(obs, "prompt", "") or "")
+-
+-    @staticmethod
+-    def _feedback_text(obs) -> str:
+-        # The game's feedback for the move just played, for the model to read on
+-        # its next turn. Verified against the live env: the textarena observation
+-        # carries `messages`, a list of TextArenaMessage (pydantic) objects whose
+-        # `.content` holds the text. Read that attribute; fall back to a dict's
+-        # ["content"] or the running prompt.
+-        msgs = getattr(obs, "messages", None)
+-        if msgs:
+-            last = msgs[-1]
+-            content = getattr(last, "content", None)        # TextArenaMessage.content
+-            if content is None and isinstance(last, dict):
+-                content = last.get("content")
+-            if content is not None:
+-                return str(content)
+-            return str(last)
+-        return str(getattr(obs, "prompt", "") or "")
+
+
+=== DIFF: pipeline/domains/textarena/domain.py ===
+@@ -1,67 +0,0 @@
+-from domains.env_base import EnvDomain
+-from domains.textarena.adapter import TextArenaEnvAdapter
+-
+-# Brief task framing prepended to each prompt's user message. The tool spec is
+-# injected by the model's native tool-calling template (tools=...); this only
+-# nudges the model to read the game state and call move. reset() appends the
+-# game's opening prompt after this lead-in (TRL appends to the last user message).
+-_LEAD_IN = (
+-    "You are playing a text game. Read the latest game state, then call the move "
+-    "tool with your next move. Think briefly before moving.\n\n"
+-)
+-
+-
+-class TextArenaDomain(EnvDomain):
+-    """Second agentic domain: TextArena text games served through OpenEnv.
+-
+-    Multi-turn (a sequence of moves under feedback per episode), so the efficiency
+-    reward counts the model's assistant tokens across all turns, excluding the
+-    game feedback TRL injects between them. The model is driven through its native
+-    tool-calling template; the adapter exposes exactly one tool (move).
+-    """
+-
+-    # `python -m <server_module>` launches the OpenEnv env server (no Docker).
+-    server_module = "textarena_env.server.app"
+-    multi_turn = True
+-
+-    def make_env_factory(self, base_url, env_config=None, client_factory=None):
+-        env_config = dict(env_config or {})
+-        if client_factory is None:
+-            return lambda: TextArenaEnvAdapter(base_url, env_config)
+-        # Test/injection path: build the adapter around a supplied client.
+-        return lambda: TextArenaEnvAdapter(
+-            base_url, env_config, client=client_factory()
+-        )
+-
+-    def build_seed_dataset(self, env_config=None, n=500, seed_base=0):
+-        # Each row is one training prompt: a fixed lead-in plus a distinct seed.
+-        # TRL repeats each row num_generations times to form a GRPO group, and
+-        # reset(seed=...) turns the seed into a deterministic game instance.
+-        from datasets import Dataset
+-
+-        rows = [
+-            {"prompt": [{"role": "user", "content": _LEAD_IN}], "seed": seed_base + i}
+-            for i in range(int(n))
+-        ]
+-        return Dataset.from_list(rows)
+-
+-    def episode_messages(self, observation):
+-        """Eval-time prompt for the first turn of an episode. Mirrors the training
+-        framing: the same lead-in the seed rows carry, with the game's opening
+-        prompt appended."""
+-        return [{"role": "user", "content": _LEAD_IN + str(observation)}]
+-
+-    def eval_tools(self, env):
+-        """Single tool for the multi-turn move env."""
+-        return [env.move]
+-
+-    def server_env(self, env_config=None):
+-        # The textarena server reads its game and settings from process env vars.
+-        cfg = dict(env_config or {})
+-        env = {
+-            "TEXTARENA_ENV_ID": str(cfg.get("env_id", "Wordle-v0")),
+-            "TEXTARENA_NUM_PLAYERS": str(int(cfg.get("num_players", 1))),
+-        }
+-        if cfg.get("max_turns") is not None:
+-            env["TEXTARENA_MAX_TURNS"] = str(int(cfg["max_turns"]))
+-        return env
+
+
+=== DIFF: pipeline/eval/agentic_eval.py ===
+@@ -169,8 +169,8 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
+     feedback, so ending the episode here would score a recoverable
+     hallucination as no_tool_call. The episode ends when the model emits no
+     call at all, the env reports done, or the budget runs out. This one loop
+-    drives every multi-turn domain - textarena (move), repl (execute),
+-    browsergym (the action tools) - via the parsed tool name. n_tokens is the
++    drives every multi-turn domain - browsergym (click, noop) today - via the
++    parsed tool name rather than a hardcoded one. n_tokens is the
+     trajectory total (model-only, exact); n_steps is the count of calls that
+     reached the env, so a turn issuing several calls counts several steps.
+ 
+
+
+=== DIFF: pipeline/probes/env_check.py ===
+@@ -16,8 +16,9 @@ sys.path.insert(0, "/workspace/OpenEnv/envs")
+ CASES = [
+     ("reasoning_gym", "reasoning_gym_env.server.app", 8201,
+      {"REASONING_GYM_DATASET": "polynomial_equations"}),
+-    ("textarena", "textarena_env.server.app", 8202, {"TEXTARENA_ENV_ID": "Wordle-v0"}),
+-    ("repl", "repl_env.server.app", 8203, {}),
++    ("browsergym", "browsergym_env.server.app", 8202,
++     {"BROWSERGYM_BENCHMARK": "miniwob", "BROWSERGYM_TASK_NAME": "click-option",
++      "BROWSERGYM_HEADLESS": "true"}),
+ ]
+ 
+ 
+
+
+=== DIFF: pipeline/tests/test_agentic_schema.py ===
+@@ -46,24 +46,19 @@ def test_bad_mode_rejected():
+ from domains import build_domain
+ 
+ 
+-def test_build_domain_dispatches_textarena():
+-    from domains.textarena import TextArenaDomain
+-    d = build_domain({"training": {"env": "textarena"}})
+-    assert isinstance(d, TextArenaDomain)
+-
+-
+ def test_build_domain_dispatches_reasoning_gym():
+     from domains.reasoning_gym import ReasoningGymDomain
+     d = build_domain({"training": {"env": "reasoning_gym"}})
+     assert isinstance(d, ReasoningGymDomain)
+ 
+ 
+-def test_build_domain_dispatches_repl():
+-    # A domain added after the dispatch was duplicated: the stale copy in
+-    # eval/runner.py never learned the later ones.
+-    from domains.repl import REPLDomain
+-    d = build_domain({"training": {"env": "repl"}})
+-    assert isinstance(d, REPLDomain)
++def test_build_domain_dispatches_browsergym():
++    # The domain added last, which is the case the duplicated dispatch used to
++    # break on: the stale copy in eval/runner.py never learned the later ones,
++    # so `python -m eval.runner` raised NotImplementedError on exactly this one.
++    from domains.browsergym import BrowserGymDomain
++    d = build_domain({"training": {"env": "browsergym"}})
++    assert isinstance(d, BrowserGymDomain)
+ 
+ 
+ def test_build_domain_rejects_unknown_env():
+
+
+=== DIFF: pipeline/tests/test_env_adapter.py ===
+@@ -119,8 +119,8 @@ def test_answer_tool_schema_is_generatable():
+ # Without it a second `answer` call re-stepped the env and overwrote self.reward,
+ # so a rollout that answered correctly and then answered again trained as WRONG
+ # while eval - which reads the first call - scored it correct. Two plausible
+-# numbers, disagreeing about the same trajectory. Every sibling adapter
+-# (textarena.move, repl.execute, browsergym._act) guards.
++# numbers, disagreeing about the same trajectory. The sibling adapter
++# (browsergym._act) guards too.
+ 
+ class _ScoringClient(_FakeClient):
+     """Scores each submitted answer against a map, so order is observable."""
+
+
+=== DIFF: pipeline/tests/test_env_domain.py ===
+@@ -84,17 +84,26 @@ def test_reasoning_gym_eval_tools_is_answer():
+ 
+ # --- one turn cap across training, eval, and each server (max_turns) ---
+ # TRL treats an unset max_tool_calling_iterations as sys.maxsize, so a domain
+-# whose server cap lives under its own key leaves the training tool loop
+-# unbounded. Every multi-turn domain reads the same `max_turns`.
++# whose cap lives under its own key leaves the training tool loop unbounded.
++# Every multi-turn domain reads the same `max_turns`; browsergym has no
++# server-side cap at all, so for it the key is enforced client-side only (TRL's
++# max_tool_calling_iterations and the eval turn loop, both via
++# resolve_max_turns - covered in test_validate_config).
+ 
+-def test_repl_server_env_maps_max_turns_to_its_iteration_cap():
+-    from domains.repl import REPLDomain
++def test_browsergym_server_env_carries_no_turn_cap():
++    # Asserting the absence on purpose: browsergym's server has no step cap, so
++    # a var invented here would read as authoritative while capping nothing.
++    from domains.browsergym import BrowserGymDomain
+ 
+-    env = REPLDomain().server_env({"max_turns": 12})
+-    assert env["REPL_MAX_ITERATIONS"] == "12"
++    env = BrowserGymDomain().server_env({"max_turns": 12})
++    assert not [k for k in env if "TURN" in k or "STEP" in k or "ITERATION" in k]
++    assert env["BROWSERGYM_BENCHMARK"] == "miniwob"
+ 
+ 
+ def test_schema_rejects_the_old_per_domain_cap_aliases():
++    # `max_steps` (finqa) and `max_iterations` (repl) were per-domain aliases for
++    # the same cap; both domains are deleted, but the aliases must stay rejected
++    # rather than silently ignored, or a config carrying one caps nothing.
+     import pytest
+     from training.config_schema import validate_config
+ 
+@@ -102,6 +111,6 @@ def test_schema_rejects_the_old_per_domain_cap_aliases():
+         with pytest.raises(ValueError, match="env_config"):
+             validate_config({
+                 "experiment_id": "x", "model": {"slug": "qwen3-1.7b"},
+-                "training": {"mode": "agentic", "env": "repl",
++                "training": {"mode": "agentic", "env": "browsergym",
+                              "env_config": {stale: 12}},
+             })
+
+
+=== DIFF: pipeline/tests/test_env_server.py ===
+@@ -8,11 +8,13 @@ class _Dom(EnvDomain):
+     server_module = "reasoning_gym_env.server.app"
+ 
+ 
+-class _TextDom(EnvDomain):
+-    server_module = "textarena_env.server.app"
++class _VarDom(EnvDomain):
++    """A domain whose server is configured by process env vars, not request args."""
++
++    server_module = "browsergym_env.server.app"
+ 
+     def server_env(self, env_config=None):
+-        return {"TEXTARENA_ENV_ID": (env_config or {}).get("env_id", "Wordle-v0")}
++        return {"BROWSERGYM_TASK_NAME": (env_config or {}).get("tasks", ["click-option"])[0]}
+ 
+ 
+ def _agentic_cfg(**training):
+@@ -109,19 +111,19 @@ def test_build_env_server_config_overrides():
+ 
+ 
+ def test_env_merges_server_env_vars():
+-    srv = _srv(server_env={"TEXTARENA_ENV_ID": "Wordle-v0", "TEXTARENA_NUM_PLAYERS": "1"})
++    srv = _srv(server_env={"BROWSERGYM_BENCHMARK": "miniwob", "BROWSERGYM_HEADLESS": "true"})
+     env = srv._env()
+-    assert env["TEXTARENA_ENV_ID"] == "Wordle-v0"
+-    assert env["TEXTARENA_NUM_PLAYERS"] == "1"
++    assert env["BROWSERGYM_BENCHMARK"] == "miniwob"
++    assert env["BROWSERGYM_HEADLESS"] == "true"
+     # The reasoning_gym defaults still apply alongside the merged vars.
+     assert env["MAX_CONCURRENT_ENVS"] == "8"
+ 
+ 
+ def test_build_env_server_passes_domain_server_env():
+     cfg = _agentic_cfg(n_rollouts=8, batch_size=1)
+-    cfg["training"]["env_config"] = {"env_id": "Sudoku-v0"}
+-    srv = build_env_server(cfg, _TextDom())
+-    assert srv.server_env["TEXTARENA_ENV_ID"] == "Sudoku-v0"
++    cfg["training"]["env_config"] = {"tasks": ["click-checkboxes"]}
++    srv = build_env_server(cfg, _VarDom())
++    assert srv.server_env["BROWSERGYM_TASK_NAME"] == "click-checkboxes"
+ 
+ 
+ def test_build_env_server_reasoning_gym_server_env_empty():
+
+
+=== DIFF: pipeline/tests/test_textarena_adapter.py ===
+@@ -1,123 +0,0 @@
+-import inspect
+-
+-from domains.textarena.adapter import TextArenaEnvAdapter
+-
+-
+-class _Obs:
+-    def __init__(self, prompt=None, reward=0.0, done=False, messages=None):
+-        self.prompt = prompt
+-        self.reward = reward
+-        self.done = done
+-        self.messages = messages
+-
+-
+-class _Result:
+-    def __init__(self, obs):
+-        self.observation = obs
+-
+-
+-class _FakeAction:
+-    def __init__(self, message):
+-        self.message = message
+-
+-
+-class _FakeClient:
+-    """Scripts a short game: reset -> opening prompt; each step pops a canned obs."""
+-
+-    def __init__(self, open_prompt="Guess a 5-letter word.", steps=None):
+-        self._open = open_prompt
+-        self._steps = list(steps or [])
+-        self.reset_calls = []
+-        self.step_calls = []
+-
+-    def reset(self, **kwargs):
+-        self.reset_calls.append(kwargs)
+-        return _Result(_Obs(prompt=self._open))
+-
+-    def step(self, action):
+-        self.step_calls.append(action)
+-        return _Result(self._steps.pop(0))
+-
+-
+-def _adapter(client=None, env_config=None):
+-    return TextArenaEnvAdapter(
+-        base_url="http://x",
+-        env_config=env_config or {"env_id": "Wordle-v0"},
+-        client=client or _FakeClient(),
+-        action_cls=_FakeAction,
+-    )
+-
+-
+-def test_reset_returns_prompt_and_zeroes_state():
+-    a = _adapter()
+-    out = a.reset(seed=42, prompt=[{"role": "user", "content": ""}])
+-    assert out == "Guess a 5-letter word." and a.reward == 0.0 and a.done is False
+-
+-
+-def test_reset_passes_seed():
+-    c = _FakeClient()
+-    a = _adapter(client=c)
+-    a.reset(seed=7)
+-    assert c.reset_calls[0].get("seed") == 7
+-
+-
+-def test_move_steps_sets_reward_done_and_returns_feedback():
+-    c = _FakeClient(steps=[_Obs(messages=[{"role": "user", "content": "wrong, try again"}],
+-                                reward=0.0, done=False)])
+-    a = _adapter(client=c)
+-    a.reset(seed=1)
+-    fb = a.move("crane")
+-    assert fb == "wrong, try again" and a.reward == 0.0 and a.done is False
+-    assert c.step_calls[0].message == "crane"
+-
+-
+-class _Msg:
+-    """Mimics a TextArenaMessage (pydantic): carries .content, is NOT a dict."""
+-    def __init__(self, content):
+-        self.content = content
+-
+-
+-def test_move_feedback_reads_message_content_attribute():
+-    # The live env returns messages as TextArenaMessage objects (.content attr),
+-    # not dicts - _feedback_text must read the attribute, not str() the object.
+-    c = _FakeClient(steps=[_Obs(messages=[_Msg("guess feedback here")], reward=0.0, done=False)])
+-    a = _adapter(client=c)
+-    a.reset(seed=1)
+-    assert a.move("crane") == "guess feedback here"
+-
+-
+-def test_move_terminal_sets_reward_and_done():
+-    c = _FakeClient(steps=[_Obs(prompt="You win!", reward=1.0, done=True)])
+-    a = _adapter(client=c)
+-    a.reset(seed=1)
+-    a.move("slate")
+-    assert a.reward == 1.0 and a.done is True
+-
+-
+-def test_move_done_guard_blocks_after_terminal():
+-    c = _FakeClient(steps=[_Obs(prompt="You win!", reward=1.0, done=True)])
+-    a = _adapter(client=c)
+-    a.reset(seed=1)
+-    a.move("slate")                       # terminal
+-    assert len(c.step_calls) == 1
+-    msg = a.move("crane")                  # blocked: no further step
+-    assert "over" in msg.lower() and len(c.step_calls) == 1
+-    assert a.reward == 1.0 and a.done is True
+-
+-
+-def test_minimal_public_surface_only_reset_and_move():
+-    a = _adapter()
+-    public = {n for n, _ in inspect.getmembers(a, predicate=inspect.ismethod)
+-              if not n.startswith("_")}
+-    assert public == {"reset", "move"}
+-
+-
+-def test_move_tool_schema_is_generatable():
+-    try:
+-        from transformers.utils.chat_template_utils import get_json_schema
+-    except Exception:
+-        import pytest
+-        pytest.skip("transformers not available in this venv")
+-    fn = get_json_schema(_adapter().move)["function"]
+-    assert fn["name"] == "move"
+-    assert fn["parameters"]["properties"]["message"]["description"]
+
+
+=== DIFF: pipeline/tests/test_textarena_domain.py ===
+@@ -1,70 +0,0 @@
+-import inspect
+-
+-from domains.textarena.domain import TextArenaDomain
+-from domains.textarena.adapter import TextArenaEnvAdapter
+-
+-
+-class _Obs:
+-    def __init__(self, prompt="Guess a word."):
+-        self.prompt = prompt
+-
+-
+-class _Result:
+-    def __init__(self):
+-        self.observation = _Obs()
+-
+-
+-class _FakeClient:
+-    def reset(self, **kwargs):
+-        return _Result()
+-
+-
+-def test_multi_turn_flag_and_server_module():
+-    d = TextArenaDomain()
+-    assert d.multi_turn is True
+-    assert d.server_module == "textarena_env.server.app"
+-
+-
+-def test_make_env_factory_is_zero_arg_and_builds_adapter():
+-    d = TextArenaDomain()
+-    factory = d.make_env_factory("http://x", {"env_id": "Wordle-v0"}, client_factory=_FakeClient)
+-    assert callable(factory) and len(inspect.signature(factory).parameters) == 0
+-    env = factory()
+-    assert isinstance(env, TextArenaEnvAdapter)
+-    assert env.reset(seed=1) == "Guess a word."
+-
+-
+-def test_eval_tools_is_move():
+-    d = TextArenaDomain()
+-    env = d.make_env_factory("http://x", {}, client_factory=_FakeClient)()
+-    assert d.eval_tools(env) == [env.move]
+-
+-
+-def test_build_seed_dataset_distinct_seeds_and_prompt():
+-    d = TextArenaDomain()
+-    ds = d.build_seed_dataset({"env_id": "Wordle-v0"}, n=4, seed_base=10)
+-    assert len(ds) == 4
+-    assert [r["seed"] for r in ds] == [10, 11, 12, 13]
+-    assert all(r["prompt"][0]["role"] == "user" for r in ds)
+-
+-
+-def test_episode_messages_wraps_observation():
+-    d = TextArenaDomain()
+-    msgs = d.episode_messages("BOARD STATE")
+-    assert msgs[0]["role"] == "user" and "BOARD STATE" in msgs[0]["content"]
+-
+-
+-def test_server_env_maps_config_to_textarena_vars():
+-    d = TextArenaDomain()
+-    env = d.server_env({"env_id": "Wordle-v0", "num_players": 1, "max_turns": 6})
+-    assert env["TEXTARENA_ENV_ID"] == "Wordle-v0"
+-    assert env["TEXTARENA_NUM_PLAYERS"] == "1"
+-    assert env["TEXTARENA_MAX_TURNS"] == "6"
+-
+-
+-def test_server_env_defaults_and_omits_unset_max_turns():
+-    d = TextArenaDomain()
+-    env = d.server_env({})
+-    assert env["TEXTARENA_ENV_ID"] == "Wordle-v0"
+-    assert env["TEXTARENA_NUM_PLAYERS"] == "1"
+-    assert "TEXTARENA_MAX_TURNS" not in env
+
+
+=== DIFF: pipeline/tests/test_validate_config.py ===
+@@ -46,11 +46,12 @@ def _agentic_base():
+     }
+ 
+ 
+-def test_accepts_textarena_env_config_keys():
++def test_accepts_browsergym_env_config_keys():
+     cfg = _agentic_base()
+-    cfg["training"]["env"] = "textarena"
+-    cfg["training"]["env_config"] = {"env_id": "Wordle-v0", "num_players": 1,
+-                                     "max_turns": 6, "size": 8}
++    cfg["training"]["env"] = "browsergym"
++    cfg["training"]["env_config"] = {"tasks": ["click-option"], "benchmark": "miniwob",
++                                     "miniwob_url": "http://localhost:8080/miniwob/",
++                                     "max_turns": 6}
+     validate_config(cfg)  # must not raise
+ 
+ 
+
+
+=== DIFF: pipeline/training/config_schema.py ===
+@@ -77,18 +77,18 @@ _KNOWN_ENV_SERVER_KEYS = {"repo_path", "port"}
+ _KNOWN_ENV_CONFIG_KEYS = {
+     # reasoning_gym
+     "dataset", "dataset_name", "dataset_config", "size",
+-    # textarena
+-    "env_id", "num_players",
+     # browsergym: `tasks` is the MiniWoB family list the seed cycles through
+     # (`tasks[seed % len]`), so it also sets the training task mix. `miniwob_url`
+     # points at the served miniwob-plusplus HTML, which browsergym-miniwob does
+     # not ship - without it the env raises "core is not defined" at first reset.
+     "tasks", "benchmark", "miniwob_url",
+     # Every multi-turn domain: the ONE turn cap. Read by training
+-    # (max_tool_calling_iterations), by the eval loop, and mapped to each
+-    # server's own env var (TEXTARENA_MAX_TURNS / REPL_MAX_ITERATIONS).
+-    # repl's `max_iterations` and the deleted finqa's `max_steps` were
+-    # per-domain aliases that let the caps drift apart.
++    # (max_tool_calling_iterations) and by the eval loop, and mapped by
++    # `server_env` to the server's own var for any env that has a server-side
++    # cap (browsergym has none, so its cap is client-side only and the two
++    # readers cannot disagree). The deleted repl and finqa domains each carried
++    # a per-domain alias (`max_iterations`, `max_steps`); those aliases let the
++    # caps drift apart, so the schema rejects them.
+     "max_turns",
+ }
+ 
+
+
+=== DIFF: pipeline/training/env_server.py ===
+@@ -133,12 +133,12 @@ def build_env_server(config, domain, python=None) -> EnvServerProcess:
+               * int(t.get("n_rollouts", DEFAULT_N_ROLLOUTS)))
+     return EnvServerProcess(
+         env_module=domain.server_module,
+-        # 8000 is every OpenEnv server's own default. repl/textarena/
+-        # browsergym bind it unconditionally (their apps ignore the --port argv
+-        # this process passes), and reasoning_gym honors whatever --port it
+-        # gets - so one shared default keeps the readiness probe and the
+-        # server's actual port equal for every domain. start() still refuses a
+-        # port something else already holds.
++        # 8000 is every OpenEnv server's own default. browsergym binds it
++        # unconditionally (its app ignores the --port argv this process passes),
++        # and reasoning_gym honors whatever --port it gets - so one shared
++        # default keeps the readiness probe and the server's actual port equal
++        # for every domain. start() still refuses a port something else already
++        # holds.
+         port=int(es.get("port", 8000)),
+         repo_envs_path=es.get("repo_path", "/workspace/OpenEnv/envs"),
+         max_concurrent=max(8, n_envs),
+
+
+=== DIFF: pipeline/training/rewards/non_termination.py ===
+@@ -13,10 +13,9 @@ class NonTerminationPenalty:
+     not finishing. Weights stay positive across every reward in the registry.
+ 
+     `done` is the adapter's termination flag - set by the terminal tool
+-    (reasoning_gym `answer`, repl's FINAL, textarena's solving move) or, in
+-    browsergym, by whichever action makes the env itself report done. An episode
+-    that ran out of turns, stopped emitting tool calls, or filled the token budget
+-    leaves it False.
++    (reasoning_gym's `answer`) or, in browsergym, by whichever action makes the
++    env itself report done. An episode that ran out of turns, stopped emitting
++    tool calls, or filled the token budget leaves it False.
+ 
+     Caveat, and the reason the E3 sweep runs under `naive_sum`: under
+     `advantage_weighted` each component is z-scored per prompt-group, and a
+
+
+=== DIFF: setup.sh ===
+@@ -16,7 +16,6 @@ uv pip install \
+   "trl>=0.26" peft bitsandbytes accelerate \
+   https://github.com/vllm-project/vllm/releases/download/v0.19.1/vllm-0.19.1+cu130-cp38-abi3-manylinux_2_35_x86_64.whl \
+   reasoning-gym \
+-  "textarena>=0.6.1" nltk \
+   datasets scipy matplotlib ipywidgets \
+   --torch-backend=auto
+ 
+@@ -37,9 +36,3 @@ fi
+ # version, so `openenv-core` must be absent.
+ uv pip uninstall openenv-core 2>/dev/null || true
+ uv pip install -e "$OPENENV_DIR"
+-
+-# TextArena word games (Wordle) need NLTK corpora. Pre-fetch so the first
+-# env-server start does not block on a download mid-training. Best-effort:
+-# textarena also self-downloads on first start if these are missing and the box
+-# has network. Exact corpora confirmed against the env at the first smoke.
+-python -c "import nltk; nltk.download('words'); nltk.download('brown')" || true
+
+
+Investigate per the method in your instructions, then return the findings list.
