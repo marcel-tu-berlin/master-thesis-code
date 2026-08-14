@@ -1,0 +1,3 @@
+hmm ok maybe first lets commit what we have code-wise etc. and also save the repl-with-reasoning_gym-tasks idea to our @../BACKLOG.md 
+
+then go one step back for the envs. there are a lot of envs which are supported by OpenEnv -> consolidate the official repo/docs and check all envs. see if we can just use something off the shelf before we build our own solutions (although i like your idea thats why we should keep it in mind)
