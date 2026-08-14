@@ -1,0 +1,232 @@
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. **Primary Request and Intent:**
+
+   The user is writing a Master's thesis and has pivoted its direction to **reward bias substitution** (Lamparth et al. 2026). They pasted their full Exposé v0.9 (Typst source) as context. Their explicit sequence of requests:
+
+   - **First request:** "before we run new experiments please adapt our setup. we switched to reward bias substitution and need to make our setup work for that. please first make a thorough analysis of which parts of our pipeline need adaption (if any) and then make a plan for this."
+   - The Exposé defines: RQ1 (effectiveness of efficiency reward shaping), RQ2 (does reducing one inefficiency shift the agent toward another undesirable behavior), RQ3 (evaluation protocol distinguishing genuine gains from substitution). Protocol §4 requires: separate policy per reward condition; evaluation on held-out AND shifted (out-of-distribution) splits; three measured dimensions (task performance, targeted efficiency, off-target panel); lambda variation; joint interpretation. Reward conditions: E0 base model, E1 task-success baseline, E2 length-aware (cosine/DIET), E3 non-termination-aware, optional E4 combined. Shaped reward form: `R_lambda = R_task - lambda * C_target`.
+   - **Second request:** "i cant read the decisions where are they?" (my prior message was truncated before asking the two blocking questions).
+   - **Third request:** "go" — begin Phase 1.
+   - **Fourth request:** "ok continue and if everything looks good in phase 2 you can continue right away the turn-cap check and also pahse 3. no need to always await my approval if everything is working and verified dont ask. only ask if you are unsure and need direction or input"
+   - **Fifth request:** "ok do the smoke and when everything looks good continue with phase 4 right away. i will leave the laptop soon so i need you to run phase 4 for me until im back. so we can use the night for the run. possible? if yes please do so. then tomorrow we can talk about the finqa split"
+
+   **Decisions the user made** (via AskUserQuestion): environment for the off-target panel = **finqa**; composer for the E3 lambda sweep = **naive_sum**.
+
+2. **Key Technical Concepts:**
+   - GRPO (TRL `GRPOTrainer`) with `environment_factory`, LoRA/PEFT, Qwen3-1.7B, vLLM colocate on an NVIDIA L4 (24 GB)
+   - OpenEnv environments served as local HTTP subprocesses (no Docker): reasoning_gym, textarena, finqa (MCP), repl
+   - Reward bias substitution: suppressing one reward-relevant feature redirects optimization pressure to a correlated feature
+   - Off-target behavior panel: premature stopping, reduced verification, unsupported completion claims, action instability
+   - Reward composition: `AdvantageWeightedComposer` (per-prompt-group z-scoring, DIET §3.2; a zero-variance component contributes exactly 0) vs `NaiveSumComposer` (plain weighted sum)
+   - `CORRECT_REWARD_THRESHOLD = 0.5` (graded reasoning_gym scorers hand partial credit; finqa is binary 1.0/0.0)
+   - Truncation confound: e9–e21 were invalidated because truncated completions were mislabelled as wrong answers
+   - Wilson score interval for binary proportions (a percentile bootstrap collapses to zero width at p=0 or p=1); bootstrap CI for continuous means
+   - `max_tool_calling_iterations` in TRL: unset means `sys.maxsize` (unbounded tool loop)
+
+3. **Files and Code Sections:**
+
+   - **`pipeline/domains/__init__.py`** (NEW — was empty)
+     - Single source of truth for domain dispatch; the copy in `eval/runner.py` had gone stale and never learned finqa/repl.
+     ```python
+     def build_domain(config: dict):
+         env = (config.get("training") or {}).get("env")
+         if env == "reasoning_gym":
+             from domains.reasoning_gym import ReasoningGymDomain
+             return ReasoningGymDomain()
+         if env == "textarena":
+             from domains.textarena import TextArenaDomain
+             return TextArenaDomain()
+         if env == "finqa":
+             from domains.finqa import FinQADomain
+             return FinQADomain()
+         if env == "repl":
+             from domains.repl import REPLDomain
+             return REPLDomain()
+         raise NotImplementedError(
+             f"Env: {env!r} (known: reasoning_gym, textarena, finqa, repl)"
+         )
+     ```
+
+   - **`pipeline/training/train.py`** — added `from domains import build_domain` (after the `sys.path.insert`), deleted the local `build_domain`.
+
+   - **`pipeline/eval/runner.py`** — replaced the stale two-env dispatch with `from domains import build_domain; domain = build_domain(config)`. Added:
+     ```python
+     parser.add_argument("--base-model", action="store_true",
+                         help="Evaluate the base model with no LoRA adapter (E0)")
+     ...
+     if args.base_model:
+         if args.checkpoint:
+             parser.error("--base-model and --checkpoint are mutually exclusive")
+         checkpoint = None
+     else:
+         checkpoint = args.checkpoint or os.path.join(run_dir, "checkpoint-final")
+     ```
+
+   - **`pipeline/domains/reasoning_gym/adapter.py`** — added `self.done = False` in `__init__` and `reset()`, `self.done = True` in `answer()`. Needed because non-termination and wrong-answer were both reward 0.0.
+
+   - **`pipeline/eval/agentic_eval.py`** — the largest change:
+     ```python
+     def _no_call_reason(n_tokens: int, gen_cap: int | None) -> str:
+         if gen_cap is not None and n_tokens >= gen_cap:
+             return "hit_generation_cap"
+         return "no_tool_call"
+     ```
+     `_run_episodes(env, n, seed_base, gen_fn, gen_cap=None)` now emits:
+     ```python
+     terminated = answer is not None
+     results.append(SampleResult(
+         correct=r >= CORRECT_REWARD_THRESHOLD,
+         n_tokens=n_tokens, n_steps=1, reward=r,
+         terminated=terminated,
+         stop_reason="env_done" if terminated else _no_call_reason(n_tokens, gen_cap),
+         tool_calls=["answer"] if terminated else [],
+     ))
+     ```
+     `_run_multiturn_episodes(..., tool_names, gen_cap=None)` tracks `calls = []` and `stop_reason = "max_turns"` (default), setting `_no_call_reason(n_tok, gen_cap)` on no-tool exit and `"env_done"` on env done; returns `n_steps=len(calls)`, `terminated=stop_reason == "env_done"`.
+     New `_resolve_splits(config, base_n)`:
+     ```python
+     agentic_cfg = ((config.get("eval") or {}).get("agentic") or {})
+     train_env_cfg = (config.get("training") or {}).get("env_config") or {}
+     raw = agentic_cfg.get("splits")
+     if not raw:
+         return [{"name": "agentic", "env_config": dict(train_env_cfg),
+                  "n_episodes": base_n, "seed_offset": _EVAL_SEED_OFFSET}]
+     return [{
+         "name": str(s["name"]),
+         "env_config": {**train_env_cfg, **(s.get("env_config") or {})},
+         "n_episodes": int(s.get("n_episodes", base_n)),
+         "seed_offset": int(s.get("seed_offset", _EVAL_SEED_OFFSET)),
+     } for s in raw]
+     ```
+     New `_write_episodes(results, seed_base, path)` writing one JSON line per episode with index, seed, correct, reward, n_tokens, n_steps, terminated, stop_reason, tool_calls.
+     `run_agentic_eval` now: skips `PeftModel.from_pretrained` when `checkpoint_dir is None` (E0); loops over splits building one env server each via `split_config = {**config, "training": {**config["training"], "env_config": env_config}}`; writes `episodes_<split>.jsonl`; report `"results": {name: _metrics_to_dict(m) for name, m in split_metrics.items()}` plus `"checkpoint": checkpoint_dir`; new `_report_md()` renders one block per split.
+
+   - **`pipeline/eval/metrics.py`** — `SampleResult` gained `terminated: bool | None`, `stop_reason: str | None`, `tool_calls: list[str] | None`. `EvalMetrics` gained `non_termination_rate` (+CI), `unsupported_claim_rate` (+CI), `mean_verification_depth`, `stop_reasons: dict`. New:
+     ```python
+     def _offtarget_panel(results: list[SampleResult]) -> dict:
+         known = [r for r in results if r.terminated is not None]
+         if not known:
+             return {}
+         n = len(known)
+         n_nonterm = sum(1 for r in known if not r.terminated)
+         lo, hi = _wilson_ci(n_nonterm, n)
+         panel = {
+             "non_termination_rate": n_nonterm / n,
+             "non_termination_rate_ci_low": lo,
+             "non_termination_rate_ci_high": hi,
+             "stop_reasons": dict(sorted(Counter(
+                 r.stop_reason for r in known if r.stop_reason is not None).items())),
+         }
+         finished = [r for r in known if r.terminated and r.tool_calls is not None]
+         if finished:
+             depths = [max(len(r.tool_calls) - 1, 0) for r in finished]
+             n_bare = sum(1 for d in depths if d == 0)
+             lo_b, hi_b = _wilson_ci(n_bare, len(finished))
+             panel.update(unsupported_claim_rate=n_bare / len(finished), ...,
+                          mean_verification_depth=float(np.mean(depths)))
+         return panel
+     ```
+     `compute_metrics` returns `EvalMetrics(..., **_offtarget_panel(results))`.
+
+   - **`pipeline/training/rewards/non_termination.py`** (NEW):
+     ```python
+     class NonTerminationPenalty:
+         def __call__(self, prompts, completions, **kwargs) -> list[float]:
+             environments = kwargs.get("environments")
+             if environments is None:
+                 raise ValueError("NonTerminationPenalty requires kwargs['environments'] ...")
+             if len(environments) != len(completions):
+                 raise ValueError(f"environments length {len(environments)} != completions {len(completions)}")
+             return [0.0 if getattr(env, "done", False) else -1.0 for env in environments]
+     ```
+     Sign lives in the component so `weight` is a positive lambda.
+
+   - **`pipeline/training/rewards/__init__.py`** — added import, `_build_non_termination` builder, registry entry `"non_termination": (False, 1.0, _build_non_termination)`.
+
+   - **`pipeline/training/config_schema.py`** — `_KNOWN_REWARD_KEYS` += `"non_termination"`; `_KNOWN_REWARD_SUBKEYS["non_termination"] = _COMMON_REWARD_SUBKEYS`; `_KNOWN_ENV_CONFIG_KEYS` now `{dataset, dataset_name, dataset_config, size, env_id, num_players, data_path, max_turns}` (removed `max_steps`, `max_iterations`); `_KNOWN_EVAL_AGENTIC_KEYS = {"n_episodes", "splits"}`; new `_KNOWN_EVAL_SPLIT_KEYS = {"name", "n_episodes", "env_config", "seed_offset"}`; new `_split_errors(splits)` validator (rejects non-list, non-mapping entries, unknown keys, missing name, duplicate names, unknown split env_config keys); `warn_inert_scalars` warns when `non_termination` is enabled under `advantage_weighted`.
+
+   - **`pipeline/domains/finqa/domain.py`** — `server_env` now maps `max_turns` → `FINQA_MAX_STEPS` (was `max_steps`).
+   - **`pipeline/domains/repl/domain.py`** — `server_env` now maps `max_turns` → `REPL_MAX_ITERATIONS` (was `max_iterations`).
+
+   - **`pipeline/eval/plots.py`** — `load_report(path, split_name=None)` returns `split_name` in the dict; falls back to `_SPLIT` ("agentic") or the sole split; raises when multiple splits and none named.
+
+   - **`pipeline/configs/e26-finqa-e1-baseline-qwen3-1_7b.yaml`** (NEW — the Phase 4 run): naive_sum composer, `env_reward` only; `max_seq_length: 8192`, `gpu_memory_utilization: 0.30`, `max_prompt_length: 6144` (→2048/turn), `max_turns: 8`, `n_rollouts: 8`, `micro_batch_size: 1`, `max_steps: 300`, `lr 5e-6`, `kl_beta 0.001`, `lora_r 16`, port 8000, `data_path /workspace/OpenEnv/envs/finqa_env/data`, `eval.agentic.n_episodes: 60`.
+
+   - **`pipeline/configs/e14-...yaml`** — `max_steps: 50` → `max_turns: 12`. **`e15-...yaml`** — `max_iterations: 12` → `max_turns: 12`.
+
+   - **Tests:** new `tests/test_offtarget_metrics.py` (stop-reason classification, panel rates, split resolution, split schema), new `tests/test_non_termination_reward.py` (sign, registry, schema, warning); modified `test_multiturn_eval.py` (added `tool_names={"move"}`), `test_agentic_episode_eval.py` (sample dict now includes terminated/stop_reason/tool_calls), `test_agentic_schema.py` (build_domain from `domains`, no `importorskip("trl")`, + finqa case), `test_env_domain.py` (turn-cap mapping tests), `test_plots.py` (3 new split tests replacing `test_load_report_no_agentic_split_raises`).
+
+   - **Docs updated:** `pipeline/README.md` (eval splits section, `--base-model`, non_termination row, outputs), `CLAUDE.md` (non_termination reward, protocol splits, off-target panel, one turn cap), `BACKLOG.md` (removed item #5, renumbered), `RUNNING.md` (e26 row, then outage note).
+
+4. **Errors and fixes:**
+   - **My first response was truncated** mid-sentence at "Two decisions gate Phase 1 onward:" — user said "i cant read the decisions where are they?". Fixed by issuing AskUserQuestion with the two decisions.
+   - **`cd pipeline` failed** ("no such file or directory") because the Bash working directory was already `pipeline/`. Fixed by dropping the `cd`.
+   - **Edit failed** on `_run_multiturn_episodes` because my `old_string` started mid-line ("this one loop drives…" vs the file's "This\n    one loop drives"). Fixed by re-reading the exact lines and using a smaller anchored edit.
+   - **Leftover garbage in test helper**: `lambda m: next(iter(scripted)) if False else next(scripted)` — replaced with `lambda m: next(scripted)`.
+   - **`test_load_report_no_agentic_split_raises` failed** after adding the split fallback. Decided the correct contract: fall back only when exactly one split exists; raise on ambiguity. Rewrote into 3 tests.
+   - **`timeout` command not found** on macOS zsh — used `ssh -o ConnectTimeout=20` instead.
+   - **Nested-quote SyntaxError** in an inline remote python one-liner — fixed by writing the script to `/tmp/probe_e26.py` and `scp`-ing it.
+   - **MAJOR: I wrongly declared the overnight run dead.** `ssh` returned `Connection refused` on port 30236; I diagnosed a downed DevPod pod and reported the training "almost certainly dead," updating RUNNING.md accordingly. It was a ~6-minute transient (06:40–06:46 UTC): the box has 79 days uptime and process 171589 was alive the whole time. This correction has NOT yet been communicated in a final report to the user.
+   - **Pre-existing bug found and fixed (BACKLOG #5):** the four `test_multiturn_eval` failures were a missing `tool_names` kwarg.
+   - **Real bug found on the box:** `grpo_trainer.py:552` — `self.max_tool_calling_iterations = args.max_tool_calling_iterations or sys.maxsize`. finqa training had no client-side turn cap; three caps disagreed (training unbounded / eval 8 / server 50). Fixed via the single `max_turns` key.
+
+5. **Problem Solving:**
+   - Established that the pipeline's training loop, GRPO/LoRA, reward registry, batch runner and lambda sweeping all carry over unchanged; the gaps were all on the evaluation/instrumentation side plus one missing reward and one missing env signal.
+   - Verified `max_prompt_length` is never passed to `GRPOConfig` (only used to compute `max_completion_len`), so there is no multi-turn prompt truncation — the binding constraint is the whole conversation fitting `vllm_max_model_length = max_seq`.
+   - Discovered finqa has **no built-in distribution-shift axis**: `finqa_environment.py:59` asserts `task == "finqa"` and the data dir holds only `finqa.csv`. The shifted-split definition therefore has to be derived from baseline trajectories (candidates: held-out companies, questions needing more tables, longer questions).
+   - The smoke immediately validated the instrumentation: all 4 finqa smoke eval episodes recorded `stop_reason: hit_generation_cap` at exactly 256 tokens, which the old code would have written as "4 wrong answers, accuracy 0.000."
+
+6. **All user messages:**
+   - "before we run new experiments please adapt our setup. we switched to reward bias substitution and need to make our setup work for that. please first make a thorough analysis of which parts of our pipeline need adaption (if any) and then make a plan for this. here our current expose such that you know exactly the current thesis direction: [full Typst Exposé v0.9 source pasted]"
+   - "i cant read the decisions where are they?"
+   - "go"
+   - "ok continue and if everything looks good in phase 2 you can continue right away the turn-cap check and also pahse 3. no need to always await my approval if everything is working and verified dont ask. only ask if you are unsure and need direction or input"
+   - "ok do the smoke and when everything looks good continue with phase 4 right away. i will leave the laptop soon so i need you to run phase 4 for me until im back. so we can use the night for the run. possible? if yes please do so. then tomorrow we can talk about the finqa split"
+
+   (The two later messages in the transcript are automated background-task notifications explicitly marked "SYSTEM NOTIFICATION - NOT USER INPUT" and are not user approval of anything.)
+
+   **Standing constraints from CLAUDE.md/global config that remain in force:** Never include the user's name ("Marcel" / "Marcel Heidebrecht") in any commit message, code comment, docstring, or generated file. ASCII only in all output (no em dashes, curly quotes, or ellipsis characters). Work on `master` only — never create branches or git worktrees for this repo. Commit only when asked. `RUNNING.md` must be stamped with box time (`ssh gpu-l4 date`), never local time, and must be updated at every phase change, kill, and crash. End every response with a "Next steps" section.
+
+7. **Pending Tasks:**
+   - Report the corrected e26 status and the training-log findings to the user (not yet done).
+   - Harvest the e26 eval once it finishes and apply the qualification gate: does `episodes_agentic.jsonl` show spread in `stop_reason`, `tool_calls` length, and unsupported-claim rate? If not, RQ2 cannot be answered on finqa.
+   - Decide the finqa **shifted split** axis (user explicitly deferred: "then tomorrow we can talk about the finqa split").
+   - Uncommitted working tree: 24 modified files + 3 new (`tests/test_non_termination_reward.py`, `tests/test_offtarget_metrics.py`, `training/rewards/non_termination.py`) + the new `e26` config. Nothing ties e26's results to a commit.
+   - Update `RUNNING.md` to correct the false outage/dead-run entry.
+
+8. **Current Work:**
+
+   Immediately before this summary request I was investigating the state of the overnight `e26-finqa-e1-baseline-qwen3-1_7b` run after the SSH port returned.
+
+   Confirmed facts: port opened at 06:46 UTC after 2 probes; box uptime 79 days; process `171589 ../.venv/bin/python -m training.train --config configs/e26-finqa-e1-baseline-qwen3-1_7b.yaml --eval --vllm` is **alive**; GPU 16770 MiB at 100% util. Training finished all 300 steps in `8:08:06` (97.62s/it) and the process is now in the eval phase. Run dir contains `checkpoint-100`, `checkpoint-200`, `checkpoint-300`, `checkpoint-final`, `config.yaml`, `launch.log`, `train_log.json`.
+
+   The reward-series probe (`/tmp/probe_e26.py`, run on the box) returned:
+   ```
+   steps logged: 300
+   nonzero-reward steps: 10
+   max reward over run: 0.625
+   steps with within-group variance: 10
+   mean tool calls/rollout: 3.35
+   mean tool failure rate: 0.049
+   steps fully clipped: 49
+   step   0 reward=0.0 tools=3.25 fail=0.1538 clipped=0.625 len=1522.125 term_len=1207.67
+   step   1 reward=0.0 tools=4.875 fail=0.1026 clipped=0.75  len=1324.5   term_len=1332.0
+   step  10 reward=0.0 tools=2.5   fail=0.1000 clipped=0.875 len=1535.0   term_len=1624.0
+   step 100 reward=0.0 tools=4.125 fail=0.1515 clipped=0.625 len=1572.375 term_len=1529.33
+   step 200 reward=0.0 tools=3.5   fail=0.0714 clipped=0.625 len=1286.875 term_len=1021.33
+   step 299 reward=0.0 tools=3.25  fail=0.0    clipped=1.0   len=1523.375 term_len=0.0
+   ```
+   Final logged step also showed `loss: 1.388e-06`, `grad_norm: 0.0001011`, `frac_reward_zero_std: 1`.
+
+   Interpretation not yet delivered to the user: only 10 of 300 steps had any within-group reward variance, so GRPO had a gradient in ~3% of steps — the E1 finqa baseline effectively did not learn. The model does drive the tools (~3.35 calls/rollout, ~5% tool failure) but almost never produces a correct answer. This bears directly on the Phase 4 qualification gate.
+
+9. **Optional Next Step:**
+
+   Report to the user, correcting the earlier false alarm and delivering the findings. Specifically: (a) the run never died — "PORT OPEN at 06:46 UTC after 2 probes", box uptime 79 days, pid 171589 alive, training completed `300/300 [8:08:06<00:00, 97.62s/it]` and is now in eval; (b) the substantive result that `nonzero-reward steps: 10` of 300 and `steps with within-group variance: 10` means the E1 baseline had almost no learning signal; (c) correct `RUNNING.md`, which currently wrongly states "Box unreachable since 2026-08-01 ~06:40 UTC" and "the training process (pid 171589) is almost certainly dead."
+
+   This is directly in line with the user's standing instruction — "i need you to run phase 4 for me until im back" — and with the qualification gate I recorded for this run in `RUNNING.md`: "The gate is whether finqa's off-target panel is non-degenerate ... If every episode calls `submit_answer` only after reading tables, there is nothing for a non-termination penalty to substitute into and RQ2 cannot be answered on this env." The eval must finish before that gate can be evaluated; the finqa shifted-split discussion stays deferred per "then tomorrow we can talk about the finqa split."
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/mheidebrecht/.claude/projects/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/ab988c24-a88e-415d-8dd2-615cc390ae14.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
