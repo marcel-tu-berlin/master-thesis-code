@@ -1,0 +1,1 @@
+add llama-3.2-1b to the registry already. my hf cli is authed if needed here
