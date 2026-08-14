@@ -1,0 +1,31 @@
+Run the workflow-backed code review at high effort instead of reviewing inline.
+
+Invoke: Workflow({ name: "code-review", args: "high ok before we start new experiments i want another code review since we again changed some stuff. check again for logic errors but also if you find technical debt etc. always verify assumptions and be careful to not introduce any regressions. use the gpu box for quick testing if needed and no problem at all if you find nothing. i dont want to change stuff for the sake of changing stuff. please only report and fix bugs if they are actual bugs. anything else just leave for now. we dont need to have perfect code. working code is enough. record this rule maybe also in the @CLAUDE.md" })
+
+Everything after the level in the args string is passed to the workflow as the review target / instructions. If the user gave additional instructions for this review elsewhere in the conversation (a scope restriction, files to focus on, things to skip), append them to the args string so the workflow honors them.
+
+The workflow runs the same finder angles and verify pass as the inline review, in the background; the verified findings arrive as a task notification. When they arrive, call ReportFindings once with {level, findings} from the result payload (most-severe first; empty array if nothing survived). Give each finding a `short_summary`: the claim compressed to ≤60 characters, no rationale or consequence clause. Do not also print the findings as text.
+
+## Applying fixes (--fix)
+
+The `--fix` flag was passed. After producing the findings list, apply the
+findings to the working tree instead of stopping at the report: fix each one
+directly — correctness bugs and reuse/simplification/efficiency cleanups alike.
+Skip any finding whose fix would change intended behavior, require changes well
+outside the reviewed diff, or that you judge to be a false positive — note the
+skip rather than arguing with it. Then call ReportFindings again with the same findings, each
+carrying an `outcome`: `fixed`, `no_change_needed` (the finding was wrong or
+already handled), or `skipped` (real but not applied). Do not repeat the
+findings as text; after the call, give one line per skipped finding saying why.
+
+
+## If findings are fixed later
+
+Whenever reported findings get fixed later in this session - the user asks you
+to fix them, or later work fixes them incidentally - you MUST call ReportFindings again with the same findings, each
+carrying an `outcome`: `fixed`, `no_change_needed` (the finding was wrong or
+already handled), or `skipped` (real but not applied). Do not repeat the
+findings as text.
+Make that call immediately after the fixes land, before any prose summary; the
+host UI's per-finding status updates only from it, and without it the findings
+stay marked unresolved.
