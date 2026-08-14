@@ -1,0 +1,1 @@
+ok first tell me how to make sure that the box being down isnt again an issue with my networking config. i didnt open NordVPN so it should be fine but lets verify the route to the box is healthy and that really the box is down
