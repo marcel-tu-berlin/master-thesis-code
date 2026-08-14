@@ -1,0 +1,3 @@
+for our thesis im currently finishing the experiment setup. i was thinking that we need another base model to compare our results. it should be from a different lineage (maybe llama or gemma)
+
+besides that we need to decide on what OOD means - healdout tasks or even entirely different env. looking at the current implementation just very shortly tell me what weve already built and are able to mention in the thesis expose. like which envs are ready and strong candidates?
