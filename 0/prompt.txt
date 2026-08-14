@@ -1,0 +1,150 @@
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. **Primary Request and Intent:**
+
+   Four real user requests in this segment (in order):
+
+   (a) **"how is the run going?"** — status check on the GPU box.
+
+   (b) **"ok vpn is up again"** — permission/signal to retry the box connection after I diagnosed a dropped TUB VPN.
+
+   (c) **"how is it going? check and then schedule the next needed check"** — status check plus an explicit instruction to set up automated follow-up checks rather than requiring the user to prompt each time. I honored this across the whole pipeline lifecycle with four chained background watchers.
+
+   (d) **"first wtf is going on with the @RUNNING.md . its only and really only a basic list tracking whats running. why the fuck are you putting so much information their? either create a dedicated document holding best practices/decisions or whatever you call it but running should do what it says: contain a list of running experiments on the box - not more, not less"** followed by **"then commit and push after this is fixed"** — strong explicit feedback that RUNNING.md (957 lines) had been misused as a knowledge base. Fix by extracting everything into ONE dedicated document, leaving RUNNING.md as a bare list of running experiments, then commit and push. **This is done and pushed (6aca37c, 2520441).**
+
+   **Standing constraints that REMAIN IN FORCE:**
+   - Never include the user's name ("Marcel" / "Marcel Heidebrecht") in any commit message, code comment, docstring, or generated file. Conventional commits only.
+   - ASCII only in all output — no em dashes, curly quotes, ellipsis characters.
+   - Work on `master` only — never branches or worktrees in this repo.
+   - Commit only when asked.
+   - **NEW (from this segment): `RUNNING.md` contains a list of running experiments and nothing else. All rules, traps, decisions, and history go to `LAB_NOTES.md`; per-run numbers go to `pipeline/runs/*_findings.md`.**
+   - `RUNNING.md`: stamp `Updated:` with box time (`ssh gpu-l4 date`), update at every phase change, delete rows once harvested, write "Nothing running." when idle.
+   - End every response with a "Next steps" section.
+   - Mark unverified assumptions with a greppable `ASSUMPTION:` prefix.
+   - Caveman mode (full) and Ponytail mode (full) active via hooks; code/commits written normally.
+
+2. **Key Technical Concepts:**
+   - **`frac_reward_zero_std`** — TRL metric: fraction of prompt-groups in a step with zero within-group reward variance, hence zero advantage and no gradient. At `batch_size: 4` it takes values {0, 0.25, 0.5, 0.75, 1.0}; a value of 1.0 means the whole step is dead.
+   - **Gradient-coverage arithmetic:** per-group dead probability is a task property that batch size cannot change; raising batch size only makes an all-dead *step* rare (p_dead^batch_size).
+   - **Saturation as the cause of dead groups:** poly at a 4096 budget has `EnvReward/raw_mean` ≈ 0.94, so most groups are all-8-correct → identical reward → zero advantage under `advantage_weighted` z-scoring.
+   - **The gradient-matching asymmetry (new finding):** any reward component with within-group variance (cosine length) makes every group live. e25bs4 trained on 99.5% of groups vs e24bs4's 40.7% — the treatment arm got ~2.4x the live gradient, so the contrast is "cosine + more gradient", not cosine alone.
+   - **Accuracy == termination at the 4k cap:** zero wrong-and-terminated episodes in *both* arms; every wrong episode stops at exactly 4096 tokens with `hit_generation_cap`; `non_termination_rate` equals `1 - accuracy` to the digit.
+   - **Composition confound in unpaired token means:** e25bs4's correct-episode mean *rose* (720.0 → 783.7) while the paired median *fell*, because the treatment arm solves 5 extra (long) questions. Paired-on-common-seeds is the valid contrast.
+   - **Box query pattern:** the exalsius DevPod MOTD banner floods every ssh; solved with `ssh gpu-l4 'echo "===MARK==="; ...' 2>/dev/null | sed -n '/===MARK===/,$p'`, and for multi-line remote scripts `ssh gpu-l4 'bash -s' <<'REMOTE' ... REMOTE` to avoid quoting escapes.
+   - **Background watcher pattern:** Bash `run_in_background` with an until-loop that exits on the first of {success condition, process gone, traceback, deadline} — one notification, and silence never reads as success. Tolerates VPN drops because an unreachable box yields an empty probe string that just re-loops.
+
+3. **Files and Code Sections:**
+
+   **Committed as 6aca37c "docs: split run state out of the lab notebook":**
+
+   - **`RUNNING.md`** — reduced from 957 lines to 9. Full new content:
+     ```markdown
+     # Running
+
+     What is executing on the GPU box (`ssh gpu-l4`), and nothing else. Rows leave the
+     table once the results are harvested. Update rules are in CLAUDE.md; everything that
+     is not a live run belongs in `LAB_NOTES.md`.
+
+     Updated: 2026-08-07 09:39 UTC (box time)
+
+     Nothing running.
+     ```
+
+   - **`LAB_NOTES.md`** — NEW, 974 lines (25-line header/TOC + 946 lines of body moved verbatim). Built mechanically with sed line ranges from the backup so no content could be lost or mistyped:
+     ```bash
+     { sed -n '787,796p' RUNNING.md; sed -n '797,825p' RUNNING.md; sed -n '874,957p' RUNNING.md; \
+       sed -n '12,47p'  RUNNING.md; sed -n '730,786p' RUNNING.md; \
+       sed -n '826,865p' RUNNING.md; sed -n '866,873p'  RUNNING.md; sed -n '48,729p' RUNNING.md; } > body.md
+     ```
+     Reordered to: **Operations** (Before any browsergym launch / Box state / Traps that have each cost real time), **Standing decisions** (Standing rule: batch_size 4 everywhere / Before the E2 / E3 arms), **Run history** (Harvested / Killed), then the narrative block (poly cosine re-run, batch_size root cause, e27 baseline saga, both e28 kills). Header explains the split and carries an anchor-linked TOC.
+
+   - **`CLAUDE.md`** — appended to the `## Run state (RUNNING.md)` section and added a new section:
+     ```markdown
+     **Nothing else goes in this file.** It is a table of live runs, not a notebook. It
+     once grew to 950 lines of rules, traps and run history, which buried the one thing it
+     exists to answer. Findings go to `pipeline/runs/*_findings.md`; everything else -
+     operational rules, launch checklists, traps, standing design decisions, run history -
+     goes to `LAB_NOTES.md`.
+
+     ## Lab notes (`LAB_NOTES.md`)
+
+     `LAB_NOTES.md` at the repo root holds what was learned rather than what is running:
+     box operations, the browsergym launch checklist, traps that have already cost time,
+     standing decisions such as the `batch_size 4` rule, and the narrative history behind
+     them. Read the operations sections before launching anything on the box, and add to
+     it whenever something costs time twice.
+     ```
+
+   **Committed as 2520441 "docs(runs): record the e24bs4/e25bs4 cosine pair at batch_size 4":**
+
+   - **`pipeline/runs/e24bs4_e25bs4_pair_findings.md`** — NEW, modeled on the existing `e24_e25_4k_pair_findings.md`. Sections: Headline table, Paired statistics (86 questions), Quartiles, "Accuracy did not pay for it", "Accuracy and termination are still the same measurement", "The arms are not gradient-matched", "What batch_size 4 changed (e24 -> e24bs4)", Residual limits, Provenance.
+   - **`pipeline/runs/batch_summary_20260807_093614.md`** — rsynced from the box (total wall time 21h42m).
+   - Also rsynced but **gitignored** (`pipeline/runs/.gitignore:1:*`): `pipeline/runs/e24bs4-poly-4k-env-only-qwen3-1_7b/` (504K) and `pipeline/runs/e25bs4-poly-4k-cosine-w16-qwen3-1_7b/` (552K), both `--exclude 'checkpoint*'`.
+
+   **Scratchpad watcher scripts (all in the session scratchpad, all fired successfully):**
+   - `watch_e25_launch.sh` (bh9fid0nk) → "e25bs4 TRAIN LIVE at step 1/150"
+   - `watch_e25_cosine.sh` (bki0ccrrl) → "COSINE LIVE", step 7/150
+   - `watch_e25_train_end.sh` (b2258fk0t) → "e25bs4 TRAIN DONE, checkpoint-final written... step=150/150"
+   - `watch_e25_eval_end.sh` (bx67qwhnh) → "PAIR COMPLETE - e25bs4 eval_report.json written"
+   - `RUNNING.md.bak` — the 957-line backup used to verify the split lost nothing.
+
+4. **Errors and fixes:**
+
+   - **SSH to gpu-l4 timed out** (`Operation timed out` on port 30236) while ICMP to 130.149.248.103 succeeded at 29ms/0% loss. Diagnosed by checking the route (`interface: en0`, gateway 192.168.178.1 — no utun carried it), public IP (80.131.54.190, consumer German), and finally `/opt/cisco/secureclient/bin/vpn state` → `>> state: Verbindung getrennt`. Root cause: TUB VPN disconnected, not the NordVPN pf-rule issue from memory (ICMP passing ruled that out). Fixed by the user reconnecting the VPN.
+
+   - **Wrong field name in the eval-episode analysis:** I used `r.get("is_correct")` and got `acc=0.000`. The actual key is `correct` (keys are `['correct','index','n_steps','n_tokens','reward','seed','stop_reason','terminated','tool_calls']`). Recognized it as my own bug rather than reporting 0.00 as a result, and recomputed immediately.
+
+   - **MOTD banner flooding ssh output** — the exalsius DevPod ASCII art swamped `grep`-based queries. Fixed with the `===MARK===` sentinel + `sed -n '/===MARK===/,$p'` pattern, used for every subsequent box query.
+
+   - **USER FEEDBACK (the significant one):** the user objected strongly to RUNNING.md holding 957 lines of knowledge base. I had been appending status prose and context to it across turns. Fixed by splitting it: RUNNING.md is now 9 lines, everything else moved verbatim to LAB_NOTES.md, and CLAUDE.md now states the scope rule explicitly so it cannot recur. Verified nothing was lost with `diff <(tail -n +12 backup | sort) <(tail -n +25 LAB_NOTES.md | sort)` — only 4 `>` lines (TOC text leaking past my offset), zero `<` deletions.
+
+   - **Guarded against a false claim:** rather than repeat "old e24's 43%" from the conversation summary, I recomputed it from the old run's own `batch_train.log` — 129/300 = 43.0% exactly. Also checked steps 135-142 before declaring the step-143/144 length spike an isolated draw rather than a late-training blow-up.
+
+5. **Problem Solving:**
+   - Diagnosed and localized the ssh failure to a disconnected TUB VPN using route/IP/client-state evidence rather than assuming the known NordVPN issue.
+   - Monitored the 21h42m e24bs4/e25bs4 poly pair end to end with four chained background watchers, each armed at the point where the *next* failure would be most expensive (the train→eval handoff; the cosine-component check that would have caught a void arm before 9h of GPU; train end; eval end).
+   - Established the campaign's headline result: paired on the 86 questions both arms answered correctly, median per-question delta **-47.0 CI [-81.0, -1.0]**, difference of medians **-65.0 CI [-118.5, -3.5]**, sign test **p = 0.0152** — the first intervals in this campaign to exclude zero (the bs=1 pair gave [-232,+3], [-61,0], p=0.066). Accuracy 0.860 → 0.910, McNemar 5 gains / 0 losses, p=0.0625.
+   - Surfaced two limits that constrain how the result can be read: (i) zero wrong-and-terminated episodes in both arms, so accuracy and termination rate are one measurement at 4k; (ii) the arms are not gradient-matched (99.5% vs 40.7% live groups, cosine outweighing env in the advantage by 39x).
+   - Split RUNNING.md mechanically rather than by retyping, eliminating transcription risk, and proved the split lossless by diffing sorted line sets.
+
+6. **All user messages:**
+   - `/compact` (local command caveat: "DO NOT respond to these messages or otherwise consider them in your response unless the user explicitly asks you to")
+   - `/model` → "Set model to Opus 5 (1M context)" and `/effort` → "Set effort level to max" (both local command caveats), followed by: **"how is the run going?"**
+   - **"ok vpn is up again"**
+   - **"how is it going? check and then schedule the next needed check"**
+   - **"first wtf is going on with the @RUNNING.md . its only and really only a basic list tracking whats running. why the fuck are you putting so much information their? either create a dedicated document holding best practices/decisions or whatever you call it but running should do what it says: contain a list of running experiments on the box - not more, not less**
+
+     **then commit and push after this is fixed"**
+
+   (Four `[SYSTEM NOTIFICATION]` task-notification messages delivered background-watcher results — these are explicitly NOT user input and carry no approval.)
+
+7. **Pending Tasks:**
+   - Send the final report for request (d): the split is done and both commits are pushed (`86eb392..2520441  master -> master`); this message was never sent because the summary request interrupted.
+   - Taskwarrior open (4 tasks under `project:thesis`): (1) Review pipeline with fable 5; (2) Review and finish bg chapter; (3) decide cap policy — accuracy at 4k is measuring "finished in budget"; (4) replicate e24bs4/e25bs4 at seeds 43 and 44.
+   - rsync `pipeline/` to the box before any launch — the box copy is stale by 5ebc0a0, 86eb392, and now 6aca37c/2520441. The `build_composer(components, method, num_generations)` signature change makes a full sync mandatory; a partial sync crashes at startup.
+   - Align e27/e28/e29 `max_steps` (300 vs poly's 150) before any browsergym relaunch.
+   - Re-derive "+247 median tokens" in `pipeline/runs/e27_e1_baseline_findings.md` (pre-multi-call-fix numbers overstate tokens/steps).
+   - e0 re-eval on the new seed scheme.
+   - Six low-stakes cleanup findings from the earlier code review remain unaddressed (stale docs, plots `_short()` filename collision, dead `extract_content`, non-ASCII output glyphs, wrong metrics docstring, undrained env-server stdout pipe).
+   - e9-e25 poly campaign conclusions remain void (token-count bug + batch-size confound) — must not be cited.
+
+8. **Current Work:**
+
+   Executing the user's most recent request: fix RUNNING.md's scope, then commit and push. Completed in order:
+   1. Enumerated all 20 `##` sections (`grep -n "^## " RUNNING.md`) and confirmed 957 lines with `wc -l`; backed the file up to the scratchpad.
+   2. Extracted and reordered every non-status section into `body.md` via sed line ranges (946 lines, 20 sections — exactly 957 minus the 11 header lines).
+   3. Wrote a 25-line header with an anchor-linked TOC and concatenated → `LAB_NOTES.md` (974 lines).
+   4. Overwrote `RUNNING.md` with 9 lines: title, one-paragraph scope statement pointing at `LAB_NOTES.md`, `Updated: 2026-08-07 09:39 UTC (box time)`, `Nothing running.`
+   5. Updated `CLAUDE.md` with the "Nothing else goes in this file" rule plus a new `## Lab notes (LAB_NOTES.md)` section.
+   6. Verified losslessness: `diff <(tail -n +12 backup | sort) <(tail -n +25 LAB_NOTES.md | sort)` produced only 4 `>` additions (TOC lines), zero deletions.
+   7. Confirmed run dirs are gitignored so only the intended `.md` files were untracked.
+   8. Committed `6aca37c docs: split run state out of the lab notebook` (RUNNING.md, LAB_NOTES.md, CLAUDE.md) and `2520441 docs(runs): record the e24bs4/e25bs4 cosine pair at batch_size 4` (findings + batch summary).
+   9. Pushed: `86eb392..2520441  master -> master`. `git status --short` clean afterward.
+
+9. **Optional Next Step:**
+
+   Report completion of the user's request — quoting it verbatim: *"either create a dedicated document holding best practices/decisions or whatever you call it but running should do what it says: contain a list of running experiments on the box - not more, not less / then commit and push after this is fixed"*. The message should state: `RUNNING.md` is now 9 lines and says "Nothing running."; the 946 lines moved verbatim to `LAB_NOTES.md`, reordered operations-first, verified lossless by diff; `CLAUDE.md` now carries the scope rule for both files so it cannot regrow; two commits pushed (`6aca37c`, `2520441`), working tree clean. Close with the required "Next steps" block: (1) launch seeds 43/44 for both arms — the one thing that turns the paired result into a claim; (2) rsync `pipeline/` to the box first, since the `build_composer` signature change makes a partial sync fatal; (3) decide the cap policy before any of this reaches the thesis, because at 4096 accuracy and termination rate are one measurement. Caveman-terse prose, ASCII only.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/mheidebrecht/.claude/projects/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/ab988c24-a88e-415d-8dd2-615cc390ae14.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
