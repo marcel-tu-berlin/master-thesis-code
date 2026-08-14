@@ -1,0 +1,298 @@
+Review this change for security vulnerabilities.
+
+Changed files (you may Read these and any other file in the repo):
+  - pipeline/eval/agentic_eval.py
+  - pipeline/tests/test_multiturn_eval.py
+  - pipeline/tests/test_validate_config.py
+  - pipeline/training/config_schema.py
+  - pipeline/training/rewards/cosine_length.py
+
+Unified diff (only + lines are new):
+
+=== DIFF: pipeline/eval/agentic_eval.py ===
+@@ -4,6 +4,7 @@ Runs the trained policy against the live OpenEnv environment for N held-out
+ episodes (seeds disjoint from training), parses each tool call, scores it via
+ the env, and reports success rate + token-efficiency metrics.
+ """
++import inspect
+ import json
+ import os
+ import sys
+@@ -182,12 +183,15 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
+     trajectories than the cap it claims to mirror. None (unit tests) charges
+     nothing.
+ 
+-    An exception from a tool dispatch that is not a TypeError propagates and
+-    aborts the split. Every finished episode is already flushed via on_result,
+-    and scoring episodes against dead infrastructure (a crashed env server, a
+-    reset connection) fabricates a policy regression - reward 0.0 and a
+-    non-termination spike - that reads exactly like the mislabelled-truncation
+-    confound this eval was rebuilt to eliminate.
++    Arguments that do not fit the tool's signature (checked by binding them
++    before the call) are agent behavior and become error feedback. Any
++    exception raised by the call itself - including a TypeError from inside
++    the tool body or the env client - propagates and aborts the split. Every
++    finished episode is already flushed via on_result, and scoring episodes
++    against dead infrastructure (a crashed env server, a reset connection)
++    fabricates a policy regression - reward 0.0 and a non-termination spike -
++    that reads exactly like the mislabelled-truncation confound this eval was
++    rebuilt to eliminate.
+ 
+     Each episode also records why it ended and which tools it called, in order.
+     The off-target panel (RQ2) is computed from those two fields, and neither is
+@@ -234,15 +238,22 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
+                     # TRL's training dispatch feeds back for an unknown name.
+                     feedback = str({"error": f"Tool {name} not found."})
+                 else:
++                    fn = getattr(env, name)
+                     try:
+-                        feedback = getattr(env, name)(**(args or {}))
++                        inspect.signature(fn).bind(**(args or {}))
+                     except TypeError as e:
+                         # Malformed model arguments are agent behavior; training
+                         # turns the exception into error feedback, so eval does
+-                        # too. Any other exception is infrastructure and
+-                        # propagates - see the docstring.
++                        # too. Binding against the signature keeps that
++                        # classification to the arguments alone: catching the
++                        # call's own TypeError also swallowed TypeErrors raised
++                        # inside the tool body (infrastructure, e.g. an openenv
++                        # version skew), scoring episodes against broken infra.
++                        # Every exception the call raises propagates - see the
++                        # docstring.
+                         feedback = str({"error": str(e)})
+                     else:
++                        feedback = fn(**(args or {}))
+                         # Only a call that actually reached the env counts as a
+                         # step. Counting a failed dispatch inflated n_steps and,
+                         # through it, mean_verification_depth in the RQ2 panel.
+
+
+=== DIFF: pipeline/tests/test_multiturn_eval.py ===
+@@ -398,6 +398,20 @@ def test_bad_model_arguments_become_feedback_not_a_crash():
+     assert rs[0].tool_calls == []
+ 
+ 
++def test_typeerror_from_inside_the_tool_body_aborts_the_split():
++    # The dispatch classifies TypeError by binding the arguments first, so only
++    # argument-shape errors count as agent behavior. A TypeError raised by the
++    # tool body itself - the documented openenv-skew signature, an older core
++    # rejecting `metadata=` - is infrastructure and propagates like any other
++    # exception. Catching it used to feed it back as {'error': ...} and score
++    # every following episode against broken infra.
++    env = _ExplodingEnv(TypeError("StepResult() got an unexpected keyword argument 'metadata'"))
++    with pytest.raises(TypeError, match="metadata"):
++        _run_multiturn_episodes(
++            env, 1, 0, _scripted(_turn("move", {"action": "x"}, 5)),
++            max_turns=2, make_messages=_msgs, tool_names={"move"})
++
++
+ def test_on_result_fires_per_episode():
+     # The durability hook: records are written as they are produced, so a crash
+     # part-way through a split keeps what came before it.
+
+
+=== DIFF: pipeline/tests/test_validate_config.py ===
+@@ -152,6 +152,63 @@ def test_rejects_non_int_split_seed_offset():
+         validate_config(_cfg_with_offset("far"))
+ 
+ 
++# --- the whole split range must dodge training questions and the block edge ---
++# Bounding only the offset let two contaminations validate: an offset below
++# env_config.size replays this seed's own training questions, and an offset
++# near SEED_BLOCK runs its last episodes in the next seed's block, whose
++# bottom is that seed's training range. Both inflate "held-out" accuracy.
++
++def test_rejects_split_range_crossing_the_next_seed_block():
++    # 999_950 < SEED_BLOCK, but the default 100 episodes run through 1_000_049.
++    with pytest.raises(ValueError, match="crosses SEED_BLOCK"):
++        validate_config(_cfg_with_offset(999_950))
++
++
++def test_accepts_split_range_ending_exactly_at_the_block_edge():
++    cfg = _agentic_base()
++    cfg["eval"] = {"agentic": {"splits": [
++        {"name": "s", "seed_offset": 999_950, "n_episodes": 50}]}}
++    validate_config(cfg)  # 999_950 + 50 == SEED_BLOCK: last episode is 999_999
++
++
++def test_rejects_split_offset_inside_the_training_range():
++    # _agentic_base trains on env_config.size == 8 questions, offsets [0, 8).
++    with pytest.raises(ValueError, match="training questions"):
++        validate_config(_cfg_with_offset(4))
++
++
++def test_accepts_split_offset_at_the_training_range_end():
++    validate_config(_cfg_with_offset(8))  # first offset past the trained ones
++
++
++# --- an explicit max_turns the resolver would silently rewrite is rejected ---
++# resolve_max_turns coerces 0 and negatives to 1, so a config stating
++# max_turns: 0 used to train and eval as a 1-turn episode while its frozen
++# config recorded 0 - the recorded cap and the executed cap disagreed.
++
++def test_rejects_explicit_zero_or_negative_max_turns():
++    for bad in (0, -3):
++        cfg = _agentic_base()
++        cfg["training"]["env_config"]["max_turns"] = bad
++        with pytest.raises(ValueError, match="max_turns"):
++            validate_config(cfg)
++
++
++def test_rejects_non_int_max_turns():
++    cfg = _agentic_base()
++    cfg["training"]["env_config"]["max_turns"] = "six"
++    with pytest.raises(ValueError, match="max_turns"):
++        validate_config(cfg)
++
++
++def test_rejects_zero_max_turns_in_a_split_env_config():
++    cfg = _agentic_base()
++    cfg["eval"] = {"agentic": {"splits": [
++        {"name": "s", "env_config": {"max_turns": 0}}]}}
++    with pytest.raises(ValueError, match="max_turns"):
++        validate_config(cfg)
++
++
+ # --- one turn-cap resolution for training and eval ---
+ 
+ def test_resolve_max_turns_defaults_to_one_on_both_sides():
+
+
+=== DIFF: pipeline/training/config_schema.py ===
+@@ -162,12 +162,39 @@ def warn_inert_scalars(rewards_cfg: dict, compose_method: str) -> list[str]:
+     return warnings
+ 
+ 
+-def _split_errors(splits) -> list[str]:
++def _max_turns_error(env_cfg: dict, label: str):
++    """Reject an explicit max_turns that resolve_max_turns would silently rewrite.
++
++    resolve_max_turns coerces 0 and negatives to 1, so without this check a
++    config stating max_turns: 0 trains and evals as a 1-turn episode while its
++    frozen config records the 0 - the recorded cap and the executed cap disagree.
++    """
++    mt = env_cfg.get("max_turns")
++    if mt is None:
++        return None
++    try:
++        mt_i = int(mt)
++    except (TypeError, ValueError):
++        return f"{label}.max_turns={mt!r} is not an int"
++    if mt_i < 1:
++        return (f"{label}.max_turns={mt_i} must be >= 1: resolve_max_turns "
++                f"would run 1 turn while the frozen config records {mt_i}")
++    return None
++
++
++def _split_errors(splits, train_size: int = 500,
++                  default_n_episodes: int = 100) -> list[str]:
+     """Validate eval.agentic.splits.
+ 
+     Split names key the report and the per-split episodes file, so a missing or
+     duplicate name silently overwrites another split's results - checked here
+     rather than discovered after a 2h eval.
++
++    An explicit seed_offset is checked at both ends of its episode range
++    [offset, offset + n_episodes): the low end against this seed's own training
++    questions [0, train_size), the high end against SEED_BLOCK. Checking only
++    the offset let a split near the block edge validate and still run its last
++    episodes on the next seed's training questions.
+     """
+     if splits is None:
+         return []
+@@ -200,6 +227,17 @@ def _split_errors(splits) -> list[str]:
+                     f"Unknown eval.agentic.splits[{i}].env_config keys: "
+                     f"{sorted(unknown_ec)}. Known: {sorted(_KNOWN_ENV_CONFIG_KEYS)}"
+                 )
++            mt_err = _max_turns_error(env_cfg, f"eval.agentic.splits[{i}].env_config")
++            if mt_err:
++                errors.append(mt_err)
++        n_eps = s.get("n_episodes", default_n_episodes)
++        try:
++            n_eps = int(n_eps)
++        except (TypeError, ValueError):
++            errors.append(
++                f"eval.agentic.splits[{i}].n_episodes={s.get('n_episodes')!r} is not an int"
++            )
++            n_eps = None
+         offset = s.get("seed_offset")
+         if offset is not None:
+             try:
+@@ -209,11 +247,22 @@ def _split_errors(splits) -> list[str]:
+                     f"eval.agentic.splits[{i}].seed_offset={offset!r} is not an int"
+                 )
+             else:
+-                if not (0 <= off < SEED_BLOCK):
++                if off < 0:
+                     errors.append(
+-                        f"eval.agentic.splits[{i}].seed_offset={off} out of range "
+-                        f"[0, {SEED_BLOCK}): an offset at or above the seed-block "
+-                        f"size evaluates on another seed's training questions"
++                        f"eval.agentic.splits[{i}].seed_offset={off} is negative"
++                    )
++                elif off < train_size:
++                    errors.append(
++                        f"eval.agentic.splits[{i}].seed_offset={off} lands inside "
++                        f"this seed's training questions [0, {train_size}): a "
++                        f"held-out split would replay trained questions"
++                    )
++                if n_eps is not None and off >= 0 and off + n_eps > SEED_BLOCK:
++                    errors.append(
++                        f"eval.agentic.splits[{i}].seed_offset={off} + "
++                        f"n_episodes={n_eps} crosses SEED_BLOCK={SEED_BLOCK}: the "
++                        f"last episodes would run on the next seed's training "
++                        f"questions"
+                     )
+     return errors
+ 
+@@ -338,6 +387,9 @@ def validate_config(config: dict) -> None:
+                 f"Unknown training.env_config keys: {sorted(unknown_ec)}. "
+                 f"Known: {sorted(_KNOWN_ENV_CONFIG_KEYS)}"
+             )
++        mt_err = _max_turns_error(env_config, "training.env_config")
++        if mt_err:
++            errors.append(mt_err)
+ 
+     eval_cfg = config.get("eval")
+     if isinstance(eval_cfg, dict):
+@@ -354,7 +406,22 @@ def validate_config(config: dict) -> None:
+                     f"Unknown eval.agentic keys: {sorted(unknown_ag)}. "
+                     f"Known: {sorted(_KNOWN_EVAL_AGENTIC_KEYS)}"
+                 )
+-            errors.extend(_split_errors(agentic.get("splits")))
++            # Mirror the resolutions the pipeline itself applies: training
++            # questions occupy [0, env_config.size) with train.py's default of
++            # 500, and a split without n_episodes falls back to
++            # eval.agentic.n_episodes (agentic_eval defaults it to 100).
++            size_val = env_config.get("size", 500) if isinstance(env_config, dict) else 500
++            try:
++                train_size = int(size_val)
++            except (TypeError, ValueError):
++                train_size = 500
++            try:
++                default_n = int(agentic.get("n_episodes", 100))
++            except (TypeError, ValueError):
++                default_n = 100
++            errors.extend(_split_errors(agentic.get("splits"),
++                                        train_size=train_size,
++                                        default_n_episodes=default_n))
+ 
+     unknown_top = set(config.keys()) - _KNOWN_TOP_LEVEL_KEYS
+     if unknown_top:
+
+
+=== DIFF: pipeline/training/rewards/cosine_length.py ===
+@@ -65,7 +65,8 @@ class CosineLengthReward:
+ 
+     def __call__(self, prompts, completions, **kwargs) -> list[float]:
+         # Agentic (environment_factory): TRL passes the live env instances as
+-        # kwargs['environments']; correctness is env.reward > 0 (no answer column).
++        # kwargs['environments']; correctness is env.reward >=
++        # CORRECT_REWARD_THRESHOLD (0.5; no answer column).
+         environments = kwargs.get("environments")
+         if environments is None:
+             raise ValueError(
+
+
+Investigate per the method in your instructions, then return the findings list.
