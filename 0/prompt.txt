@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bfoyzq8w8</task-id>
+<tool-use-id>toolu_013tYE6JmygZVqF4u15mFcJN</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/3923fbe3-d75b-4f23-8ca5-c923b75dead0/tasks/bfoyzq8w8.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for smoke to exit, then report" completed (exit code 0)</summary>
+</task-notification>
