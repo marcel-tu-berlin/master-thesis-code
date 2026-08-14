@@ -1,0 +1,6 @@
+<task-notification>
+<task-id>bistckvlr</task-id>
+<summary>Monitor event: "e28bs4/e29bs4 campaign progress and failures on gpu-l4"</summary>
+<event>e27bs4 step&gt;=150 eval&gt;=200 TRAINED REPORT;e28bs4 step&gt;=150 eval&gt;=200 TRAINED REPORT;e29bs4 step&gt;=100 eval&gt;=0;</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
