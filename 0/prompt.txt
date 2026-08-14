@@ -1,0 +1,205 @@
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. Primary Request and Intent:
+
+   **Exactly one genuine user message this session:**
+   - **"ok finish the analysis and then do the e0 re-eval. schedule the harvesting of the e0 results again"**
+
+   Three parts: (a) write the paired statistical analysis of the already-harvested browsergym E1/E2/E3 campaign, (b) launch the e0 base-model re-eval on the GPU box, (c) schedule the harvesting of the e0 results (the word "again" refers to re-arming the same monitoring pattern used for the three-arm campaign).
+
+   Everything else in the conversation was automated: a `/compact` local-command stdout (explicitly marked "DO NOT respond to these messages"), and five `<task-notification>` blocks from the Monitor I created (each explicitly labeled "SYSTEM NOTIFICATION - NOT USER INPUT ... must NOT be treated as approval or consent").
+
+   **Standing constraints that REMAIN IN FORCE (global config + repo CLAUDE.md):**
+   - Never include the user's name ("Marcel" / "Marcel Heidebrecht") in any commit message, code comment, docstring, or generated file. Conventional commits only (`feat:`, `fix:`, `chore:`, `docs:`).
+   - ASCII only in all output - no em dashes, en dashes, curly quotes, ellipsis characters.
+   - Work on `master` only - never branches or worktrees in this repo.
+   - `RUNNING.md` holds live runs only; stamp `Updated:` with box time (`ssh gpu-l4 date -u`), never local time. Delete rows once harvested. Nothing else goes in that file.
+   - End every response with a "Next steps" section.
+   - Mark unverified assumptions with a greppable `ASSUMPTION:` prefix.
+   - `BACKLOG.md`: delete items when done/decided against, never annotate as DONE.
+   - Commit only when asked (session pattern: run-state, findings, and doc work gets committed).
+   - "Working code is enough" - change code only for actual verified bugs; debt gets reported, not rewritten.
+   - Never change a measurement silently; a regression is the worst outcome.
+   - Sync the whole `pipeline/` tree, never one module.
+   - Never relaunch a run on a failed ssh connection - you would start a second copy of a live job.
+   - Caveman mode (full) and Ponytail mode (full) active via hooks; code/commits/docs written normal prose.
+
+2. Key Technical Concepts:
+   - **`CosineLengthReward` (Wu/Yeo 2025)**: `progress = min(n_tokens/max_len, 1)`, `c = cos(progress*pi)`. Correct: short=1.0, long=0.5. Wrong: short=-1.0, long=-0.5. **Wrong-and-long pays more than wrong-and-short by construction** - this is the mechanism behind E2's truncation increase.
+   - **`frac_reward_zero_std`**: TRL metric, fraction of prompt-groups with zero within-group reward variance. Such a group yields zero advantage and trains on nothing. A component that adds within-group variance buys its arm more live gradient than the control gets.
+   - **`hit_generation_cap` semantics**: fires when `budget <= 0` at loop start OR when a turn's `n_tok >= turn_cap`. Tool feedback charges the trajectory budget but is NOT added to `n_tokens`, so a cap episode can record n_tokens < 4096 (observed: 3266, 3375, 3521).
+   - **Family assignment by seed parity**: `tasks[seed % len(tasks)]` in `domains/browsergym/adapter.py:reset()`. Even seed -> first task, odd -> second. This is what made the per-family decomposition possible.
+   - **Seed blocks**: question seed = `config_seed * SEED_BLOCK + offset`, `SEED_BLOCK = 1_000_000`. Eval offset `_EVAL_SEED_OFFSET = 100_000`. New scheme gives 42100000..; the pre-fix scheme gave `seed + offset` = 100042.. - the discriminator for whether a run is paired with the bs4 campaign.
+   - **`unsupported_claim_rate`** = fraction of terminated episodes with `len(tool_calls) == 1` (i.e. `max(len-1,0) == 0`), computed in `eval/metrics.py:~226`. Degenerate on browsergym (only `click` and `noop`, no distinguished terminal call).
+   - **The batch_size confound**: `a19b1ff` changed `grpo_runner`'s default from `t.get("batch_size", 1)` to `4`. Runs before it trained at 1 prompt-group per optimizer step. A config stating `batch_size: 4` does not mean the *run* used it.
+   - **Statistical methodology** (from the e24bs4/e25bs4 precedent): difference-of-medians, median-of-per-question-differences, mean-of-per-question-differences, all with 20k paired bootstrap CIs (RNG seeded at 0), plus exact-binomial sign test and exact-binomial McNemar on discordant pairs.
+   - **Tooling gotchas re-encountered**: `pgrep -f <pattern>` self-matches the checking shell (use `kill -0 <pid>` instead); ssh prints a large banner requiring `| tail`; `cd` persists between Bash calls; `rtk` proxies commands and can truncate output (`head -1` on a jsonl printed "[100 more lines]").
+
+3. Files and Code Sections:
+
+   **`pipeline/runs/e27bs4_e28bs4_e29bs4_findings.md` (CREATED, then extended)** - the primary deliverable. Sections, in order: Headline (held_out table); **E0: training bought no accuracy on this task**; **Training did change length, and it changed it most on the hard family**; E2 compresses correct episodes (paired-significant); E2 pays for it in truncation; E3 removes truncation, not premature stopping; RQ2's substitution prediction did not appear in E3; The gradient is matched for E3 and not for E2; The shifted split shows nothing; Unlike the poly campaign, accuracy here is a real measurement; Residual limits; Provenance.
+
+   Key tables it contains:
+   ```
+   held_out           E0      E1(e27bs4)  E2(e28bs4)  E3(e29bs4)
+   accuracy           0.680     0.670       0.650       0.640
+   non-termination    0.150     0.140       0.220       0.090
+   tok(correct) mean  1035.6    930.8       776.3       845.4
+   tok(correct) med     -        680.0       435.0       630.0
+   env_done / cap / no_tool     86/5/9     78/18/3     91/0/9   (E2 also 1 max_turns)
+   shifted accuracy   0.810     0.800       0.820       0.790
+   shifted tok(corr)  490.5     478.3       510.5       472.6
+   ```
+
+   E1 vs E2 paired, 55 both-correct held-out questions:
+   ```
+   difference of medians       -86.0  CI [-321.0, +29.0]
+   median of per-q differences -60.0  CI [-160.0,  -7.0]
+   mean of per-q differences   -67.9  CI [-130.0,  -0.6]
+   shorter/longer/tied 36/19/0        sign test p = 0.0300
+   quartiles E1 268.5/398.0/1379.0  E2 243.0/312.0/1074.0
+   ```
+
+   Per-family decomposition of that result:
+   ```
+   click-menu-2    n=16  median -254.0  CI [-305.0, +16.0]  12/4   p = 0.077
+   click-dialog-2  n=39  median  -33.0  CI [ -73.0,  +6.0]  24/15  p = 0.200
+   ```
+
+   E1 -> E2 stop_reason transitions (held_out, 100 questions):
+   ```
+   env_done -> env_done            73
+   env_done -> hit_generation_cap  12
+   no_tool_call -> hit_gen_cap      6
+   hit_gen_cap -> env_done          5
+   no_tool_call -> no_tool_call     3
+   env_done -> max_turns            1
+   ```
+
+   E1 -> E3 stop_reason transitions - the whole table, one off-diagonal cell:
+   ```
+   env_done -> env_done            86
+   no_tool_call -> no_tool_call     9   (the SAME 9 questions)
+   hit_generation_cap -> env_done   5
+   ```
+
+   E1 vs E3 paired, 56 both-correct: median of per-q diffs +7.0 CI [-57.0,+27.0], 26/30/0, sign p=0.6889. Flat both ways - no substitution, no compression.
+
+   Gradient panel:
+   ```
+                              e27bs4   e28bs4   e29bs4
+   mean frac_reward_zero_std   0.477    0.000    0.420
+   live prompt-groups          52.3%   100.0%    58.0%
+   fully-dead steps             3.3%     0.0%     2.0%
+   first30 / last30       .508/.442  .000/.000  .417/.492
+   EnvReward raw_mean         0.7081   0.7106   0.7079
+   CosineLengthReward contrib_l1   -   0.8455       -
+   NonTerminationPenalty contrib_l1 -      -    0.1317
+   mean completion length     1464.4   1459.4   1482.6
+   terminated-only, last 30   1371.0   1333.8   1377.2
+   clipped_ratio              0.0208   0.0221   0.0292
+   step_time                  350.4s   351.0s   355.7s
+   ```
+
+   Per-family accuracy/tokens table (added after the E0 harvest):
+   ```
+   click-menu-2 (n=50)     E0     E1     E2     E3
+   accuracy               0.58   0.48   0.42   0.44
+   correct-ep median tok 1963.0 1876.0 1622.0 1463.0
+   env_done/cap/no_tool  36/3/11 36/5/9 28/18/3 41/0/9
+
+   click-dialog-2 (n=50)   E0     E1     E2     E3
+   accuracy               0.78   0.86   0.88   0.84
+   correct-ep median tok  275.0  301.0  271.0  261.5
+   env_done                 49     50     50     50
+   ```
+   E0-vs-E1 on click-menu-2, 24 both-correct: **median -286.0 tokens, 23 shorter / 1 longer, sign test p < 0.0001** - the strongest single effect in the campaign.
+
+   **`pipeline/runs/e27_e1_baseline_findings.md` (EDITED)** - superseded header added at the top:
+   ```markdown
+   > **Superseded as a baseline by `e27bs4`. Do not carry its numbers forward.**
+   > This run trained at an implicit `batch_size: 1` (it predates `a19b1ff`) and was
+   > paired against an e0 run on the pre-fix seed scheme. The bs4 campaign re-ran
+   > both arms on the current geometry and seeds; see
+   > `e27bs4_e28bs4_e29bs4_findings.md`. One conclusion below reverses outright: the
+   > "+247 tokens of training-induced inflation on click-menu-2" is **-286 tokens of
+   > compression** under the bs4 geometry (24 both-correct questions, 23 shorter
+   > against 1 longer, sign test p < 0.0001), so E2 has no inflation to undo. The
+   > qualitative findings about *what* is measured here - the off-target panel, the
+   > per-family reporting rule, why pooled medians are meaningless on a two-cluster
+   > split - all still hold and are why this file is kept.
+   ```
+
+   **`RUNNING.md` (EDITED twice)** - during the run it carried a live row (pid 422924, started 10:58, ETA ~14:00, log `/workspace/e0_reeval.log`); final state:
+   ```markdown
+   Updated: 2026-08-10 12:31 UTC (box time)
+
+   Nothing running. The e0 re-eval finished at 12:29 UTC after 1h31m and is harvested
+   into `pipeline/runs/e0-browsergym-base-qwen3-1_7b/`. GPU idle, port 8000 free.
+   ```
+
+   **`LAB_NOTES.md` (EDITED twice)** - (a) the "Still owed before any of this is quoted" block was replaced with a "Paired analysis done 2026-08-10" block summarizing E2's compression + gradient asymmetry, E3's one-cell transition table, and the null shifted split; (b) the e0 entry was rewritten with the new numbers, the "no trained arm beats it" finding, the two per-family structural facts (click-dialog-2 degenerate for RQ2; training trades hard family for easy), and the archived location of the old run.
+
+   **`pipeline/configs/e0-browsergym-base-qwen3-1_7b.yaml` (READ, unchanged)** - already correct: seed 42, held_out 100 episodes at default offset, shifted 100 at seed_offset 200000, `max_new_tokens: 4096`, tasks `[click-menu-2, click-dialog-2]` / shifted `[navigate-tree, click-checkboxes-transfer]`, `max_turns: 8`. Run with `python -m eval.runner --config <this> --base-model`.
+
+   **Scratchpad scripts (both under `/private/tmp/claude-501/.../scratchpad/`)**:
+   - `analyze_e27_e29.py` - three-arm pairwise analysis, `rng = np.random.default_rng(0)`, B=20000, McNemar via `binomtest`, plus the training-log panel.
+   - `analyze_e0_vs_arms.py` - written as a SEPARATE script on purpose: "adding e0 to that script's arm dict would change its bootstrap draw order and move numbers already written into the findings file."
+
+   **Launch command used:**
+   ```
+   cd /workspace/master-thesis-code/pipeline && setsid nohup ../.venv/bin/python -m eval.runner \
+     --config configs/e0-browsergym-base-qwen3-1_7b.yaml --base-model \
+     > /workspace/e0_reeval.log 2>&1 < /dev/null &
+   ```
+
+   **Commits made this session:** `dd4227a` (three-arm findings), `31b7872` (RUNNING.md, e0 launched), `5baa748` (LAB_NOTES paired result + supersede old e0), `2575ebd` (e0 harvest + pairing + per-family reversal).
+
+4. Errors and fixes:
+   - **Self-inflicted factual error in my own draft**: I wrote "three of those five conversions came back correct" for the E1->E3 truncation conversions. Re-checking the flip breakdown (`flips to e29bs4: their stop_reason in e27bs4: {'env_done': 3, 'hit_generation_cap': 5}`) showed ALL FIVE came back correct. Corrected the paragraph to attribute the wrong-and-terminated rise from 19 to 27 to the 11-vs-3 correctness churn inside the already-terminating set instead.
+   - **Imprecise claim about the "terminal tool"**: I wrote that `click` is "both the acting and the terminal call". Verified against `eval/metrics.py` that the rate is actually `len(tool_calls) == 1` among terminated episodes and there is no distinguished terminal tool in browsergym; reworded the bullet.
+   - **Approximate table written by hand**: I put an asterisked, approximate per-family e0 stop-reason split into the findings file. Recomputed it exactly (click-menu-2 36/3/11, click-dialog-2 49 env_done + 1 no_tool_call) and removed the caveat.
+   - **`diff <(...) <(...)` inside a `for p in "a b"; set -- $p` loop failed** - the shell split incorrectly and ugrep reported "No such file or directory". Fixed by writing the two diffs out explicitly instead of looping.
+   - **The launch ssh hung past the 120s Bash timeout** and was moved to background as task `bwy5786l2`. Per the standing rule I did NOT relaunch; a fresh ssh confirmed pid 422924 alive with the model loaded and 4498 MiB on the GPU, then I stopped the hung shell with TaskStop.
+   - **`pgrep -af server.app` self-matched the checking shell** (a documented LAB_NOTES trap), reading as "port 8000 occupied". Re-ran filtered (`| grep -v "pgrep\|bash -c"`) which returned `port-8000-FREE`. For the Monitor I avoided the trap entirely by using `kill -0 422924` instead of pgrep.
+   - **`head -1` on the harvested jsonl printed "[100 more lines]"** (rtk output filtering) instead of the record. Worked around with a Python one-liner that printed the seed range and key list directly.
+
+5. Problem Solving:
+   - **Preserved reproducibility of already-published numbers.** When adding E0 to the analysis I deliberately did not extend the existing script's arm dict, because `combinations()` would change the bootstrap draw order and silently move numbers already written into the committed findings file. A second script with its own `default_rng(0)` was used instead.
+   - **Did not overwrite the old e0 results.** The box held `runs/e0-browsergym-base-qwen3-1_7b/` from 2026-08-03 using pre-fix seeds (100042..) and a report lacking `mean_token_count_correct`. There is no refusal guard for a non-smoke eval over an existing report, so I moved it to `runs/_archive-e0-browsergym-base-oldseeds-20260803/` before launching.
+   - **Verified the sync mechanically, not by inspection.** rsynced the whole `pipeline/` tree, then md5-compared `configs/e0-browsergym-base-qwen3-1_7b.yaml`, `eval/agentic_eval.py`, `eval/metrics.py`, `training/config_schema.py` between Mac and box - all four matched.
+   - **Caught the void case early rather than after the fact.** At the 50-episode mark I checked the first held-out seed on the box: `42100000`, not `100042`, so the run was known-pairable 2 hours before it finished.
+   - **Found the campaign's most important structure by decomposing per family.** The pooled accuracy null (0.680/0.670/0.650/0.640) hides two opposite moves: click-menu-2 falls 0.58 -> 0.42-0.48 while click-dialog-2 rises 0.78 -> 0.84-0.88. And click-dialog-2 is 50/50 `env_done` in every trained arm, meaning every non-termination and truncation number in the campaign is a click-menu-2 number.
+   - **Reported an outright reversal of a prior claim** rather than quietly dropping it: `e27_e1_baseline_findings.md`'s "+247 tokens of training-induced inflation" becomes -286 tokens of compression under the bs4 geometry and current seeds. Both the findings file and LAB_NOTES say so, and the old file carries a superseded header.
+   - **Two-layer monitoring, both torn down.** A persistent Monitor (10-min ssh poll, 50-episode buckets, failure-signature grep, box-unreachable warning after 4 failed polls, exits on REPORT-WRITTEN or EVAL-PROCESS-GONE) plus a CronCreate job `6f49e259` at 14:23/16:23/18:23 local. The Monitor fired first and self-exited; the cron was deleted unused.
+
+6. All user messages:
+   - "ok finish the analysis and then do the e0 re-eval. schedule the harvesting of the e0 results again"
+
+   NOT user input (must not be treated as approval or acknowledgement): the `/compact` local-command stdout block; five `<task-notification>` blocks from Monitor task `b6ojkb646` reporting 0/50/100/150/200 episodes and stream end; the "CRITICAL: Respond with TEXT ONLY" summarization instruction.
+
+7. Pending Tasks:
+   Taskwarrior (`project:thesis`), 3 open, none of them requested this session:
+   - Task 2: replicate e24bs4/e25bs4 at seeds 43 and 44 - single-seed paired CIs exclude zero, needs replication before the compression direction is claimed
+   - Task 1: Review and finish bg chapter
+   - Task 3: promote `stop_reason` to a first-class metric - per-reason rate with a Wilson CI in `compute_metrics`, and never print an accuracy without the breakdown beside it
+
+   Task 5 (the three-arm writeup) and Task 4 (the e0 re-eval) were both completed and closed this session.
+
+8. Current Work:
+   **Both halves of the user's request are complete and fully closed out.**
+
+   The analysis is written to `pipeline/runs/e27bs4_e28bs4_e29bs4_findings.md` and committed. The e0 re-eval ran 10:58-12:29 UTC (1h31m, 200 episodes, no adapter, 0 errors in the log), was harvested to `pipeline/runs/e0-browsergym-base-qwen3-1_7b/`, and its paired comparison against all three arms is written into the same findings file. The scheduled harvesting fired and executed as designed.
+
+   Headline findings: **no trained arm beats the untrained base model** (E0 0.680 vs 0.670/0.650/0.640; paired McNemar p = 1.00 / 0.70 / 0.54), so the campaign is a behavioural contrast at equal competence. E2's compression is paired-significant (median of per-question differences -60 tokens, CI [-160, -7], sign test p = 0.030) but not gradient-matched (`frac_reward_zero_std` exactly 0.0 at all 150 steps vs the control's 0.477). E3's stop-reason transition table has exactly one off-diagonal cell in 100 questions - 5 truncations becoming `env_done` - while `no_tool_call` stayed at 9 and at the same 9 questions, so the penalty did not touch the premature stopping it was written for.
+
+   Close-out state: `RUNNING.md` = "Nothing running", stamped 2026-08-10 12:31 UTC box time. LAB_NOTES updated. `e27_e1_baseline_findings.md` carries its superseded header. Commits `dd4227a`, `31b7872`, `5baa748`, `2575ebd`. Taskwarrior tasks 4 and 5 closed. Cron `6f49e259` deleted. Monitor `b6ojkb646` self-exited. PushNotification was attempted and correctly skipped as redundant (terminal active). GPU idle, port 8000 free.
+
+9. Optional Next Step:
+   None without the user's go-ahead. The requested work is finished; the last outstanding action was the PushNotification, which the harness declined as redundant, so all that remains is delivering the close-out message reporting: the e0 numbers (held_out 0.680, shifted 0.810), that no trained arm beats it, the per-family reversal of the +247 claim to -286 (23 shorter / 1 longer, p < 0.0001), the click-dialog-2 degeneracy for RQ2, the four commits, and the teardown - ending with the mandatory "Next steps" section.
+
+   The three remaining taskwarrior items (seeds 43/44 replication of e24bs4/e25bs4, the bg chapter, promoting `stop_reason` to a first-class metric) are pre-existing open work, not part of this request, and should not be started without asking. In my prior turn I had also flagged, as a suggestion only: "Worth deciding after e0: whether to build the `no_tool_call`-specific penalty that would actually test RQ2's premature-stopping claim" - that is a proposal awaiting the user's word, matching the findings file's own statement that "A version of E3 that penalises `no_tool_call` specifically, leaving truncation to the cap, is the experiment that would actually test the RQ2 claim. That is a reward change, not a knob."
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/mheidebrecht/.claude/projects/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/ab988c24-a88e-415d-8dd2-615cc390ae14.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
