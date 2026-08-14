@@ -1,0 +1,6 @@
+<task-notification>
+<task-id>bbfzvzadj</task-id>
+<summary>Monitor event: "gpu-l4 ssh port coming back up"</summary>
+<event>gpu-l4 ssh port 30236 OPEN - box back</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
