@@ -1,0 +1,8 @@
+<task-notification>
+<task-id>bcvx9g82z</task-id>
+<summary>Monitor event: "e27rep2 replication milestones and failures"</summary>
+<event>e27rep2 training hit 300/300. Eval next.
+e27rep2 eval started, 200 episodes.
+e27rep2 batch pid 1477866 exited. step=300 episodes=200</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
