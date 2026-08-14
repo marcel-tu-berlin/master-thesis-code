@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bk05fgxqt</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/e023ab91-4ec9-4799-ba43-493733af57c7/tasks/bk05fgxqt.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll the box SSH port until it returns" completed (exit code 0)</summary>
+</task-notification>
