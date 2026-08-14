@@ -1,0 +1,2481 @@
+Review this change for security vulnerabilities.
+
+Changed files (you may Read these and any other file in the repo):
+  - pipeline/configs/e0b-browsergym-base-llama3_2-1b.yaml
+  - pipeline/configs/e27-browsergym-e1-baseline-qwen3-1_7b.yaml
+  - pipeline/configs/e28-browsergym-e2-cosine-qwen3-1_7b.yaml
+  - pipeline/configs/e29-browsergym-e3-nontermination-qwen3-1_7b.yaml
+  - pipeline/configs/_template.yaml
+  - pipeline/configs/e19-agentic-poly-entropy-w1-qwen3-1_7b.yaml
+  - pipeline/training/rewards/token_entropy.py
+  - pipeline/eval/agentic_eval.py
+  - pipeline/tests/test_multiturn_eval.py
+  - pipeline/tests/test_response_parsing.py
+  - pipeline/tests/test_stats_ci.py
+  - pipeline/tests/test_env_adapter.py
+  - pipeline/tests/test_agentic_eval.py
+  - pipeline/tests/test_plots.py
+  - pipeline/eval/runner.py
+  - pipeline/tests/test_batch_skips.py
+  - pipeline/eval/plots.py
+  - pipeline/training/config_schema.py
+  - pipeline/tests/test_batch_seeds.py
+  - pipeline/tests/test_validate_config.py
+  - pipeline/tests/test_agentic_episode_eval.py
+  - pipeline/training/registry.py
+  - pipeline/tests/test_cosine_length_ids.py
+  - pipeline/tests/test_guardrail.py
+  - pipeline/eval/metrics.py
+  - pipeline/training/batch.py
+  - pipeline/training/grpo_runner.py
+  - pipeline/training/rewards/cosine_length.py
+  - pipeline/tests/test_registry.py
+  - pipeline/tests/test_offtarget_metrics.py
+
+Unified diff (only + lines are new):
+
+=== DIFF: pipeline/configs/e0b-browsergym-base-llama3_2-1b.yaml ===
+@@ -0,0 +1,49 @@
++experiment_id: e0b-browsergym-base-llama3_2-1b
++description: "E0 on a second lineage: Llama-3.2-1B-Instruct, untrained, through the identical two eval splits, seeds and per-turn budget as e0. Byte-for-byte a copy of e0-browsergym-base-qwen3-1_7b with the model slug swapped, so the two differ in exactly one thing. It answers whether the reward-shaping effects the study reports are properties of the reward or of Qwen3, which is a question the reviewer will ask and which no amount of seed replication inside one lineage can settle. Read the numbers against e0, not against e27 - this is a base-model reference, not a trained condition. Two caveats belong in any writeup that cites it. Llama-3.2 has no thinking mode, so `content` carries the whole generation and there is no reasoning trace for a length reward to compress; a Llama arm therefore asks whether the length reward does anything absent a think block, which is a related question rather than a pure lineage replicate. And 1B against 1.7B is the closest size match available in this family, not an equal one. Llama is not a preference here but the only option: TRL matches chat templates by exact string equality and refuses to train on anything outside its fixed list, of which the Llama 3.x pair are the only non-Qwen entries that fit the card. Run with `python -m eval.runner --config <this> --base-model`."
++seed: 42
++
++model:
++  slug: llama3.2-1b
++  lora_r: 16
++  max_seq_length: 8192
++  gpu_memory_utilization: 0.30
++
++training:
++  # Present for the env geometry only; nothing trains here. Copied from e0 so
++  # the two base-model evals differ in exactly one thing, the model.
++  mode: agentic
++  env: browsergym
++  env_config:
++    benchmark: miniwob
++    tasks: [click-menu-2, click-dialog-2]
++    # Must be up before launch and does not survive a box restart:
++    #   cd /workspace/miniwob-plusplus/miniwob/html && python3 -m http.server 8080
++    miniwob_url: http://localhost:8080/miniwob/
++    max_turns: 8
++  env_server:
++    repo_path: /workspace/OpenEnv/envs
++    port: 8000
++  max_prompt_length: 4096
++
++rewards:
++  compose_method: naive_sum
++  env_reward:
++    enabled: true
++    weight: 1.0
++
++eval:
++  temperature: 0.0
++  do_sample: false
++  # Pinned to e0's value, which is pinned to e27's. Llama will almost certainly
++  # generate far shorter completions than Qwen3 for want of a think block; that
++  # is a result to measure, not a reason to move the budget.
++  max_new_tokens: 4096
++  agentic:
++    splits:
++      - name: held_out
++        n_episodes: 100
++      - name: shifted
++        n_episodes: 100
++        env_config:
++          tasks: [navigate-tree, click-checkboxes-transfer]
++        seed_offset: 200000
+
+
+=== DIFF: pipeline/configs/e27-browsergym-e1-baseline-qwen3-1_7b.yaml ===
+@@ -67,14 +67,19 @@ rewards:
+ eval:
+   temperature: 0.0
+   do_sample: false
+-  # Pinned, not derived. `max_seq - max_prompt_length` feeds two different
+-  # quantities: TRL's whole-trajectory budget above, and max_new_tokens PER TURN
+-  # here (agentic_eval.py:36, with generate called once a turn and no total
+-  # cap). They coincide on a single-turn domain, which is why reasoning_gym
+-  # never exposed it, and differ by a factor of n turns here. 4096 is the
+-  # per-turn budget every probed number was measured at; setting it explicitly
+-  # keeps that true if the training geometry is ever retuned.
++  # Pinned, not derived, so a retune of the training geometry cannot silently
++  # move the eval budget. This is the budget for the WHOLE trajectory, matching
++  # TRL's max_completion_length in training. It used to be applied per turn,
++  # which at max_turns 8 let an episode generate up to 8x what the policy was
++  # trained under and made `hit_generation_cap` unreachable for the cap that
++  # actually bound training.
+   max_new_tokens: 4096
++  # Thinking rates are measured against the E0 base model's token distribution,
++  # not this run's own percentile. A per-run percentile moves with the
++  # distribution, so both rates come out invariant to a uniform change in
++  # length - useless for the compression E2 exists to produce, and not
++  # comparable across arms.
++  reference_report: runs/e0-browsergym-base-qwen3-1_7b/eval_report.json
+   agentic:
+     splits:
+       # Held-out: same task mix as training, seeds disjoint via the offset.
+
+
+=== DIFF: pipeline/configs/e28-browsergym-e2-cosine-qwen3-1_7b.yaml ===
+@@ -45,9 +45,11 @@ rewards:
+ eval:
+   temperature: 0.0
+   do_sample: false
+-  # Pinned, not derived: `max_seq - max_prompt_length` feeds TRL's
+-  # whole-trajectory budget in training and max_new_tokens PER TURN here.
++  # Pinned, not derived. Budget for the WHOLE trajectory, matching TRL's
++  # max_completion_length in training. Must equal e27's or the E1/E2 comparison
++  # is measured under two different budgets.
+   max_new_tokens: 4096
++  reference_report: runs/e0-browsergym-base-qwen3-1_7b/eval_report.json
+   agentic:
+     splits:
+       - name: held_out
+
+
+=== DIFF: pipeline/configs/e29-browsergym-e3-nontermination-qwen3-1_7b.yaml ===
+@@ -42,7 +42,10 @@ rewards:
+ eval:
+   temperature: 0.0
+   do_sample: false
++  # Whole-trajectory budget, matching training and e27. Must equal e27's or the
++  # E1/E3 comparison is measured under two different budgets.
+   max_new_tokens: 4096
++  reference_report: runs/e0-browsergym-base-qwen3-1_7b/eval_report.json
+   agentic:
+     splits:
+       - name: held_out
+
+
+=== DIFF: pipeline/configs/_template.yaml ===
+@@ -49,15 +49,6 @@ rewards:
+     r_wrong_short: -1.0
+     r_wrong_long: -0.5
+ 
+-  # Token-entropy shaping (mask the reward to the top-fraction of tokens by
+-  # entropy). reward_scale is inert under advantage_weighted (z-scoring cancels
+-  # global positive scalars); use `weight` or compose_method: naive_sum.
+-  token_entropy:
+-    enabled: false
+-    weight: 1.0
+-    reward_scale: 0.1
+-    fork_mask_top_frac: 0.0    # 0.0 = all tokens; 0.2 = top-20% by entropy
+-
+ eval:
+   temperature: 0.0
+   do_sample: false
+
+
+=== DIFF: pipeline/configs/e19-agentic-poly-entropy-w1-qwen3-1_7b.yaml ===
+@@ -1,40 +0,0 @@
+-experiment_id: e19-agentic-poly-entropy-w1-qwen3-1_7b
+-description: "E19: first entropy arm (E1). Token-entropy reward on top of env reward on polynomial_equations, weight 1, fork-masked to the top 20% of completion tokens by entropy (Wang 2025 forking-token motivation; note the mask restricts the reward mean, not the policy gradient). Pairs with the e12 env-only baseline (seeds 42/43). Question: does rewarding high-entropy decision points protect exploration (accuracy up, wrong/looping episodes recover) or inflate output length (Ghosal 2025)? reward_scale left at default: inert under advantage_weighted z-scoring; weight is the lever. chunk_size 1 because vLLM colocate leaves little VRAM headroom for the entropy forward pass."
+-seed: 42
+-
+-model:
+-  slug: qwen3-1.7b
+-  lora_r: 16
+-  max_seq_length: 3072
+-
+-training:
+-  mode: agentic
+-  env: reasoning_gym
+-  env_config:
+-    dataset: polynomial_equations
+-    size: 500
+-  env_server:
+-    repo_path: /workspace/OpenEnv/envs
+-    port: 8077
+-  max_prompt_length: 1024
+-  n_rollouts: 8
+-  max_steps: 300
+-  learning_rate: 5e-6
+-  kl_beta: 0.001
+-
+-rewards:
+-  compose_method: advantage_weighted
+-  env_reward:
+-    enabled: true
+-    weight: 1.0
+-  token_entropy:
+-    enabled: true
+-    weight: 1.0
+-    fork_mask_top_frac: 0.2
+-    chunk_size: 1
+-
+-eval:
+-  temperature: 0.0
+-  do_sample: false
+-  agentic:
+-    n_episodes: 100
+
+
+=== DIFF: pipeline/training/rewards/token_entropy.py ===
+@@ -1,173 +0,0 @@
+-import torch
+-import torch.nn.functional as F
+-
+-from training.rewards.utils import extract_content
+-
+-
+-class TokenEntropyReward:
+-    """
+-    Mean per-token Shannon entropy H_t = -sum p log p over the policy's
+-    next-token distribution at each *completion* position, conditioned on
+-    the prompt that produced the rollout.
+-
+-    Implementation:
+-    - Renders each prompt through the tokenizer's chat template (with
+-      add_generation_prompt=True).
+-    - Concatenates prompt + completion ids per row, pads to a common length,
+-      and forwards through the current policy in inference mode.
+-    - Picks the logits at positions [p_len-1 .. p_len+c_len-2] for each row
+-      (logits[t] predict token t+1), so entropy reflects the uncertainty
+-      over the actually emitted completion tokens *given the prompt*, not
+-      the unconditional distribution over re-tokenized completion text.
+-
+-    Approximation note: the forward pass uses the *current* (post-update)
+-    policy rather than the policy that produced the rollout. Subword
+-    boundaries from re-decoding may also differ slightly from
+-    generation-time tokenization. Both effects are small in practice but
+-    the reward should be read as a proxy.
+-
+-    fork_mask_top_frac: if >0, average only over tokens in the top fraction
+-    by entropy (inspired by Wang 2025, high-entropy "forking" tokens). Focuses
+-    reward on actual decision points. Expressed as a fraction in [0, 1] — e.g.
+-    0.25 for "top 25%". Values >1 are rejected to prevent the prior pct/frac
+-    ambiguity that produced silent torch.quantile crashes.
+-
+-    NOTE: this masks the *reward* — it restricts which completion tokens enter
+-    the entropy mean — not the *gradient*. Wang 2025 masks the policy gradient
+-    so only high-entropy forking tokens are updated; that is a different
+-    mechanism operating inside the GRPO loss, not a reward function. Read any
+-    fork-mask result as "reward computed over top-entropy tokens", not as
+-    Wang-style gradient masking.
+-    """
+-
+-    def __init__(
+-        self,
+-        model,
+-        tokenizer,
+-        reward_scale: float = 0.1,
+-        fork_mask_top_frac: float = 0.0,
+-        max_seq_length: int | None = None,
+-        chunk_size: int = 4,
+-    ) -> None:
+-        if not 0.0 <= fork_mask_top_frac <= 1.0:
+-            raise ValueError(
+-                f"fork_mask_top_frac must be in [0, 1] (got {fork_mask_top_frac}). "
+-                "Pass a fraction like 0.25, not a percent like 25."
+-            )
+-        if chunk_size < 1:
+-            raise ValueError(f"chunk_size must be >= 1 (got {chunk_size})")
+-        self.model = model
+-        self.tokenizer = tokenizer
+-        self.reward_scale = reward_scale
+-        self.fork_mask_top_frac = fork_mask_top_frac
+-        # Cap concatenated prompt+completion length to keep the forward pass
+-        # within the model's context window. Defaults to the tokenizer's max
+-        # if available; falls back to 4096.
+-        self.max_seq_length = max_seq_length or getattr(tokenizer, "model_max_length", 4096) or 4096
+-        # Rows per forward pass. Materialising (B, T, V) fp32 entropy
+-        # tensors blows up VRAM (Qwen-7B V≈152k → ~2.4 GB per intermediate
+-        # at B=8, T=500). Builder picks the default: 1 when vLLM is
+-        # co-resident (tight headroom), 4 otherwise. Direct instantiation
+-        # defaults to 4 — drop to 1 if you hit OOM.
+-        self.chunk_size = chunk_size
+-
+-    def _prompt_to_text(self, prompt) -> str:
+-        if isinstance(prompt, str):
+-            return prompt
+-        return self.tokenizer.apply_chat_template(
+-            prompt, add_generation_prompt=True, tokenize=False
+-        )
+-
+-    def __call__(self, prompts, completions, **kwargs) -> list[float]:
+-        if not completions:
+-            return []
+-
+-        prompt_texts = [self._prompt_to_text(p) for p in prompts]
+-
+-        prompt_ids = [
+-            self.tokenizer(pt, add_special_tokens=False).input_ids
+-            for pt in prompt_texts
+-        ]
+-        # Prefer TRL-provided completion_ids (exact ids the policy produced)
+-        # over re-tokenising the decoded text. Re-tokenisation drifts for
+-        # byte-fallback tokens and silently biases entropy on those rows.
+-        provided_ids = kwargs.get("completion_ids")
+-        if provided_ids is not None and len(provided_ids) == len(completions):
+-            comp_ids = [list(c) for c in provided_ids]
+-        else:
+-            comp_texts = [extract_content(c) for c in completions]
+-            comp_ids = [
+-                self.tokenizer(ct, add_special_tokens=False).input_ids
+-                for ct in comp_texts
+-            ]
+-
+-        full_ids: list[list[int]] = []
+-        prompt_lens: list[int] = []
+-        comp_lens: list[int] = []
+-        for p, c in zip(prompt_ids, comp_ids):
+-            seq = (p + c)[: self.max_seq_length]
+-            p_len = min(len(p), len(seq))
+-            c_len = max(len(seq) - p_len, 0)
+-            full_ids.append(seq)
+-            prompt_lens.append(p_len)
+-            comp_lens.append(c_len)
+-
+-        # Bail out cleanly if no completion tokens survived truncation.
+-        if all(c < 1 for c in comp_lens) or all(len(s) < 2 for s in full_ids):
+-            return [0.0] * len(completions)
+-
+-        pad_id = self.tokenizer.pad_token_id
+-        if pad_id is None:
+-            pad_id = self.tokenizer.eos_token_id
+-
+-        device = self.model.device
+-        n = len(completions)
+-        scores: list[float] = [0.0] * n
+-
+-        # Chunked forward + entropy. Keeps peak VRAM bounded by chunk_size
+-        # rather than full batch. Per-chunk we slice [start:end] *before*
+-        # promoting to fp32, so the giant (B, T, V) fp32 intermediates the
+-        # old vectorised path produced never exist.
+-        for chunk_start in range(0, n, self.chunk_size):
+-            chunk_end = min(chunk_start + self.chunk_size, n)
+-            chunk_ids = full_ids[chunk_start:chunk_end]
+-            chunk_max = max(len(s) for s in chunk_ids)
+-
+-            input_ids = torch.tensor(
+-                [s + [pad_id] * (chunk_max - len(s)) for s in chunk_ids],
+-                dtype=torch.long, device=device,
+-            )
+-            attention_mask = torch.tensor(
+-                [[1] * len(s) + [0] * (chunk_max - len(s)) for s in chunk_ids],
+-                dtype=torch.long, device=device,
+-            )
+-
+-            with torch.inference_mode():
+-                logits = self.model(input_ids=input_ids, attention_mask=attention_mask).logits
+-
+-            for j, abs_i in enumerate(range(chunk_start, chunk_end)):
+-                p_len = prompt_lens[abs_i]
+-                c_len = comp_lens[abs_i]
+-                if p_len < 1 or c_len < 1:
+-                    continue
+-                # logits[t] predict token t+1; completion tokens occupy
+-                # positions [p_len .. p_len+c_len-1], so we want entropy at
+-                # [p_len-1 .. p_len+c_len-2].
+-                start = p_len - 1
+-                end = p_len + c_len - 1
+-                # Slice first → only (c_len, V) reaches fp32, not (T, V).
+-                sl = logits[j, start:end].float()
+-                if sl.numel() == 0:
+-                    continue
+-                log_probs = F.log_softmax(sl, dim=-1)
+-                h_i = -(log_probs.exp() * log_probs).sum(dim=-1)
+-                del sl, log_probs
+-                if self.fork_mask_top_frac > 0.0:
+-                    threshold = torch.quantile(h_i, 1.0 - self.fork_mask_top_frac)
+-                    h_i = h_i[h_i >= threshold]
+-                if h_i.numel() > 0:
+-                    scores[abs_i] = self.reward_scale * h_i.mean().item()
+-
+-            del logits, input_ids, attention_mask
+-
+-        return scores
+
+
+=== DIFF: pipeline/eval/agentic_eval.py ===
+@@ -6,20 +6,31 @@ the env, and reports success rate + token-efficiency metrics.
+ """
+ import json
+ import os
+-import re
+ import sys
+ 
+ from domains.env_base import CORRECT_REWARD_THRESHOLD
+-from eval.metrics import SampleResult, compute_metrics
++from eval.metrics import SampleResult, compute_metrics, load_reference_thresholds
+ 
+-# The model answers by emitting a Hermes-style tool call (Qwen3 native format):
+-#   <tool_call>{"name": "answer", "arguments": {"answer": "42"}}</tool_call>
+-_TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
+-
+-# Held-out offset: training seeds are seed..seed+size, so eval at seed+OFFSET
+-# evaluates on questions the model was not trained on.
++# Held-out offset: training takes the bottom of a seed's block, so eval at
++# block + OFFSET evaluates on questions the model was not trained on.
+ _EVAL_SEED_OFFSET = 100_000
+ 
++# Each seed owns a disjoint block of the seed -> question mapping. Passing the
++# raw config seed through as the dataset base made "replicates" overlap almost
++# completely: seeds 42/43/44 at size 500 shared 499 of 500 training questions
++# and, at a 100-episode eval, 99 of 100 eval questions - and eval is greedy, so
++# the shared ones decode identically. Pooling three such runs counts the same
++# questions three times and reports a CI far tighter than the data supports.
++#
++# The multiplier must exceed every split's seed_offset, or one seed's eval block
++# lands inside another seed's. 1e6 against offsets of 100k / 200k leaves room.
++_SEED_BLOCK = 1_000_000
++
++
++def seed_block(seed: int) -> int:
++    """Base of the question block belonging to `seed`."""
++    return int(seed) * _SEED_BLOCK
++
+ 
+ def _completion_budget(config, model_max_seq):
+     """Max new tokens for eval generation. Defaults to the SAME completion
+@@ -36,34 +47,48 @@ def _completion_budget(config, model_max_seq):
+     return max_seq - max_prompt
+ 
+ 
+-def _parse_answer(text: str) -> str | None:
+-    """Return the answer from the first valid `answer` tool call, else None."""
+-    for m in _TOOL_CALL_RE.finditer(text):
+-        try:
+-            payload = json.loads(m.group(1))
+-        except (ValueError, TypeError):
+-            continue
+-        if payload.get("name") == "answer":
+-            ans = (payload.get("arguments") or {}).get("answer")
+-            if ans is not None:
+-                return str(ans)
+-    return None
++def _first_tool_call(msg: dict) -> tuple | None:
++    """(name, arguments) of the first tool call in a parsed assistant message.
+ 
++    The message comes from `trl.chat_template_utils.parse_response`, the same
++    function TRL uses to turn a rollout's token ids into a message during
++    training. Eval used to hand-roll its own regex over the decoded text, which
++    is how eval and training ended up disagreeing about what counts as a call:
+ 
+-def _parse_tool_call(text: str) -> tuple | None:
+-    """Return (name, arguments) from the FIRST valid <tool_call> JSON, else None.
++    - A Qwen3 completion cut off after the tool-call JSON but before the closing
++      `</tool_call>` tag has no tool call. The hand-rolled fallback found the
++      bare JSON and scored the episode `env_done`, relabelling a truncation as a
++      clean termination - the confound that made e9-e21 uninterpretable.
++    - A JSON object quoted inside a `<think>` block is reasoning, not a call.
++      parse_response puts it in `reasoning_content` and leaves `tool_calls`
++      empty.
++    - Llama 3.x emits an untagged object with `parameters` rather than
++      `arguments`. parse_response normalises it, so one rule covers both
++      lineages instead of a per-lineage branch here.
+ 
+-    General form used by the multi-turn loop (any tool name). The single-step
+-    reasoning_gym path keeps its own _parse_answer (first `answer` call only).
++    Arguments that are not a dict (a model emitting them pre-serialised, say)
++    read as no arguments rather than raising.
+     """
+-    for m in _TOOL_CALL_RE.finditer(text):
+-        try:
+-            payload = json.loads(m.group(1))
+-        except (ValueError, TypeError):
++    for call in (msg.get("tool_calls") or []):
++        fn = (call or {}).get("function") or {}
++        name = fn.get("name")
++        if name is None:
++            continue
++        args = fn.get("arguments")
++        return str(name), (args if isinstance(args, dict) else {})
++    return None
++
++
++def _answer_from(msg: dict) -> str | None:
++    """The `answer` argument of the first `answer` tool call, else None."""
++    for call in (msg.get("tool_calls") or []):
++        fn = (call or {}).get("function") or {}
++        if fn.get("name") != "answer":
+             continue
+-        name = payload.get("name")
+-        if name is not None:
+-            return str(name), (payload.get("arguments") or {})
++        args = fn.get("arguments")
++        ans = args.get("answer") if isinstance(args, dict) else None
++        if ans is not None:
++            return str(ans)
+     return None
+ 
+ 
+@@ -81,7 +106,8 @@ def _no_call_reason(n_tokens: int, gen_cap: int | None) -> str:
+     return "no_tool_call"
+ 
+ 
+-def _run_episodes(env, n: int, seed_base: int, gen_fn, gen_cap=None) -> list[SampleResult]:
++def _run_episodes(env, n: int, seed_base: int, gen_fn, gen_cap=None,
++                  on_result=None) -> list[SampleResult]:
+     """Run n single-step episodes. gen_fn(question) -> (answer_str|None, n_tokens).
+ 
+     A None answer (the model never called the tool) is submitted as an empty
+@@ -103,23 +129,30 @@ def _run_episodes(env, n: int, seed_base: int, gen_fn, gen_cap=None) -> list[Sam
+             stop_reason="env_done" if terminated else _no_call_reason(n_tokens, gen_cap),
+             tool_calls=["answer"] if terminated else [],
+         ))
++        if on_result is not None:
++            on_result(i, results[-1])
+     return results
+ 
+ 
+ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messages,
+-                            tool_names, gen_cap=None):
++                            tool_names, gen_cap=None, on_result=None):
+     """Run n multi-turn episodes greedily, tool-agnostic.
+ 
+-    turn_fn(messages) -> (tool_name|None, arguments|None, n_tokens) produces one
+-    greedy model turn given the running message list. Per episode: reset, then up
+-    to max_turns turns; each turn that names one of the domain's tools dispatches
+-    it on the env (the public adapter method of that name) and appends the
+-    assistant + tool-feedback messages; the episode ends when the model stops
+-    calling a known tool or the env reports done. Restricting dispatch to
+-    `tool_names` keeps a hallucinated name (or `reset`) from being invoked. This
+-    one loop drives every multi-turn domain - textarena (move), finqa (the four
+-    data tools), repl (execute) - via the parsed tool name. n_tokens is the
+-    per-turn generated token count (model-only, exact); n_steps is the tool count.
++    turn_fn(messages, budget) -> (message, tool_name|None, arguments|None,
++    n_tokens) produces one greedy model turn given the running message list and
++    the tokens left in the episode's generation budget. Per episode: reset, then
++    up to max_turns turns; each turn that names one of the domain's tools
++    dispatches it on the env (the public adapter method of that name) and
++    appends the model's own message plus the tool feedback; the episode ends when
++    the model stops calling a known tool, the env reports done, or the budget
++    runs out. Restricting dispatch to `tool_names` keeps a hallucinated name (or
++    `reset`) from being invoked. This one loop drives every multi-turn domain -
++    textarena (move), finqa (the four data tools), repl (execute) - via the
++    parsed tool name. n_tokens is the trajectory total (model-only, exact);
++    n_steps is the count of calls that reached the env.
++
++    `gen_cap` is the budget for the whole trajectory, matching training's
++    max_completion_length, not a fresh allowance per turn.
+ 
+     Each episode also records why it ended and which tools it called, in order.
+     The off-target panel (RQ2) is computed from those two fields, and neither is
+@@ -131,27 +164,47 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
+         messages = list(make_messages(obs))
+         total_tokens = 0
+         calls = []
++        # Generation budget for the WHOLE trajectory, not per turn. Training caps
++        # the full completion at max_completion_length, so an eval that renewed
++        # the budget every turn let an episode generate max_turns times what the
++        # policy was trained under - and `hit_generation_cap` could then never
++        # fire for the cap that actually bound training.
++        budget = gen_cap
+         # Default exit: the loop used its whole turn budget without the env ever
+         # reporting done. Overwritten at whichever exit the episode actually took.
+         stop_reason = "max_turns"
+         for _ in range(max_turns):
+-            name, args, n_tok = turn_fn(messages)
++            if budget is not None and budget <= 0:
++                stop_reason = "hit_generation_cap"
++                break
++            msg, name, args, n_tok = turn_fn(messages, budget)
+             total_tokens += int(n_tok)
++            turn_cap, budget = budget, (None if budget is None else budget - int(n_tok))
+             if name not in tool_names:
+-                stop_reason = _no_call_reason(n_tok, gen_cap)
++                stop_reason = _no_call_reason(n_tok, turn_cap)
+                 break
+             try:
+                 feedback = getattr(env, name)(**(args or {}))
+-            except TypeError as e:
+-                # Malformed model arguments (wrong/extra kwargs) become feedback
+-                # rather than crashing the episode.
+-                feedback = f"Tool call error: {e}"
+-            calls.append(name)
+-            messages.append({
+-                "role": "assistant", "content": "",
+-                "tool_calls": [{"type": "function",
+-                                "function": {"name": name, "arguments": args or {}}}],
+-            })
++            except Exception as e:
++                # Malformed model arguments (TypeError) become feedback rather
++                # than crashing the episode. Everything else used to propagate:
++                # an HTTP error from the env server, a reset connection, a bad
++                # observation would kill the process on episode 95 of 100 and
++                # discard all 95 trajectories, since the jsonl was only written
++                # after the whole split returned.
++                feedback = f"Tool call error: {type(e).__name__}: {e}"
++            else:
++                # Only a call that actually reached the env counts as a step.
++                # Counting a failed dispatch inflated n_steps and, through it,
++                # mean_verification_depth in the RQ2 panel.
++                calls.append(name)
++            # The parsed message, not a stub. Rebuilding the turn as
++            # {"content": ""} threw away the model's own reasoning, so turn N+1
++            # ran on a context training never produced - TRL keeps every prior
++            # turn's generated text in the running completion. Qwen3's template
++            # re-renders `reasoning_content` on a prior assistant turn, so
++            # appending the parsed message reproduces that context.
++            messages.append(msg)
+             messages.append({"role": "tool", "content": str(feedback)})
+             if getattr(env, "done", False):
+                 stop_reason = "env_done"
+@@ -163,6 +216,8 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
+             terminated=stop_reason == "env_done",
+             stop_reason=stop_reason, tool_calls=calls,
+         ))
++        if on_result is not None:
++            on_result(i, results[-1])
+     return results
+ 
+ 
+@@ -177,8 +232,18 @@ def _metrics_to_dict(m) -> dict:
+         "mean_token_count": m.mean_token_count,
+         "mean_token_count_ci_low": m.mean_token_count_ci_low,
+         "mean_token_count_ci_high": m.mean_token_count_ci_high,
++        # The efficiency number. `mean_token_count` pools failures, which run to
++        # the generation cap, so it cannot separate "shorter" from "fails more".
++        "mean_token_count_correct": m.mean_token_count_correct,
++        "mean_token_count_correct_ci_low": m.mean_token_count_correct_ci_low,
++        "mean_token_count_correct_ci_high": m.mean_token_count_correct_ci_high,
+         "underthinking_rate": m.underthinking_rate,
+         "overthinking_rate": m.overthinking_rate,
++        # Which yardstick produced those two rates: a pinned reference threshold
++        # or this run's own percentile. Without it, two arms' rates look
++        # comparable when they may not be.
++        "underthinking_threshold": m.underthinking_threshold,
++        "overthinking_threshold": m.overthinking_threshold,
+         "mean_steps": m.mean_steps,
+         # Off-target panel (RQ2). Absent-as-None when the episodes carry no
+         # termination record, so an old report is not read as "zero failures".
+@@ -201,26 +266,73 @@ def _metrics_to_dict(m) -> dict:
+     }
+ 
+ 
+-def _write_episodes(results, seed_base: int, path: str) -> None:
++def _episode_line(index: int, seed: int, r) -> str:
+     """One JSON line per episode: the durable trajectory record.
+ 
+     The aggregate report answers the questions we thought of before the run.
+     This file is what a later off-target question is answered from without
+-    spending another 2h of GPU re-running the eval.
++    spending another 2h of GPU re-running the eval - so it is written and
++    flushed per episode, not once the split finishes. A split that dies on
++    episode 95 keeps 94 trajectories instead of none.
++    """
++    return json.dumps({
++        "index": index,
++        "seed": seed,
++        "correct": r.correct,
++        "reward": r.reward,
++        "n_tokens": r.n_tokens,
++        "n_steps": r.n_steps,
++        "terminated": r.terminated,
++        "stop_reason": r.stop_reason,
++        "tool_calls": r.tool_calls,
++    }) + "\n"
++
++
++def _reference_thresholds(eval_cfg: dict) -> dict:
++    """Per-split over/under-thinking thresholds from `eval.reference_report`.
++
++    Without a reference each run uses its own P10/P75, which makes both rates
++    invariant to a uniform change in completion length: halve every token count
++    and the reported rates do not move, because the threshold moves with them.
++    That is useless for the one thing E2 is supposed to show, and it means two
++    arms' rates are measured against two different yardsticks.
++
++    Returns `{split: {"underthinking_threshold": x, "overthinking_threshold": y}}`,
++    empty when no reference is configured. Splits absent from the reference fall
++    back to the per-run percentile, which is why the resolved threshold is
++    serialized into every report.
+     """
+-    with open(path, "w") as f:
+-        for i, r in enumerate(results):
+-            f.write(json.dumps({
+-                "index": i,
+-                "seed": seed_base + i,
+-                "correct": r.correct,
+-                "reward": r.reward,
+-                "n_tokens": r.n_tokens,
+-                "n_steps": r.n_steps,
+-                "terminated": r.terminated,
+-                "stop_reason": r.stop_reason,
+-                "tool_calls": r.tool_calls,
+-            }) + "\n")
++    path = (eval_cfg or {}).get("reference_report")
++    if not path:
++        return {}
++    thresholds = load_reference_thresholds(path)
++    print(f"Thinking-rate thresholds pinned to {path}: "
++          + ", ".join(f"{s} P10={t['underthinking_threshold']:.0f} "
++                      f"P75={t['overthinking_threshold']:.0f}"
++                      for s, t in thresholds.items()))
++    return thresholds
++
++
++def _build_report(config, checkpoint_dir, split_metrics: dict) -> dict:
++    """The eval_report.json payload.
++
++    Split out of run_agentic_eval so the `smoke` marker is testable without a
++    GPU. That marker is the whole point: batch._is_real_report has always looked
++    for it and nothing ever wrote it, so a 4-episode --smoke report counted as
++    finished work and made the next unattended batch skip the real eval.
++    """
++    return {
++        "experiment_id": config.get("experiment_id"),
++        "model_slug": (config.get("model") or {}).get("slug"),
++        "seed": config.get("seed", 42),
++        "compose_method": (config.get("rewards") or {}).get("compose_method", "advantage_weighted"),
++        "mode": "agentic",
++        # E0 (no adapter) is a first-class condition, so the report says which
++        # policy produced it rather than leaving it to the experiment_id.
++        "checkpoint": checkpoint_dir,
++        "smoke": bool(config.get("_smoke")),
++        "results": {name: _metrics_to_dict(m) for name, m in split_metrics.items()},
++    }
+ 
+ 
+ def _resolve_splits(config, base_n: int) -> list[dict]:
+@@ -261,6 +373,7 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
+     import torch
+     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+     from peft import PeftModel
++    from trl.chat_template_utils import add_response_schema, parse_response
+ 
+     from training.registry import get_model_config
+     from training.env_server import build_env_server
+@@ -277,6 +390,9 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
+ 
+     # Native tool-calling template (do NOT apply the reasoning-tag template).
+     tokenizer = AutoTokenizer.from_pretrained(model_cfg["model_name"])
++    # Attaches the response_schema parse_response needs. Same call TRL makes
++    # before training, so eval and training parse a completion by one rule.
++    add_response_schema(tokenizer)
+     model = AutoModelForCausalLM.from_pretrained(
+         model_cfg["model_name"], quantization_config=quant_config,
+         torch_dtype=dtype, device_map="auto",
+@@ -295,6 +411,7 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
+     do_sample = bool(eval_cfg.get("do_sample", False))
+     seed = int(config.get("seed", 42))
+     splits = _resolve_splits(config, base_n)
++    thresholds = _reference_thresholds(eval_cfg)
+ 
+     # Created up front: each split writes its episode records as it finishes, so
+     # a crash in a later split does not lose the earlier one's trajectories.
+@@ -308,7 +425,7 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
+             # the eval loop runs.
+             n = min(n, 4)
+         env_config = split["env_config"]
+-        seed_base = seed + split["seed_offset"]
++        seed_base = seed_block(seed) + split["seed_offset"]
+         # One server per split: server_env is derived from env_config (task id,
+         # turn cap, data path), so a split that changes it needs its own process.
+         split_config = {**config,
+@@ -318,38 +435,46 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
+         server.wait_until_ready()
+         if server.repo_envs_path not in sys.path:
+             sys.path.insert(0, server.repo_envs_path)
++
++        # Opened before the try so `finally` can always close it: a failure in
++        # make_env_factory would otherwise leave the name unbound and raise
++        # NameError from the cleanup, masking the real error.
++        ep_file = open(os.path.join(run_dir, f"episodes_{split['name']}.jsonl"), "w")
++
++        def on_result(i, r, _f=ep_file, _base=seed_base):
++            _f.write(_episode_line(i, _base + i, r))
++            _f.flush()
++
+         try:
+             env = domain.make_env_factory(server.base_url, env_config)()
+             tools = domain.eval_tools(env)
+ 
+-            def gen_fn(question):
+-                messages = domain.episode_messages(question)
++            def _generate(messages, budget):
+                 enc = tokenizer.apply_chat_template(
+                     messages, tools=tools, add_generation_prompt=True,
+                     return_tensors="pt", return_dict=True,
+                 ).to(model.device)
+                 plen = enc["input_ids"].shape[1]
+                 with torch.no_grad():
+-                    out = model.generate(**enc, max_new_tokens=max_new, do_sample=do_sample)
++                    out = model.generate(**enc, max_new_tokens=budget, do_sample=do_sample)
+                 comp_ids = out[0][plen:]
+-                text = tokenizer.decode(comp_ids, skip_special_tokens=False)
+-                return _parse_answer(text), int(comp_ids.shape[0])
++                # parse_response, not a regex over the decoded text: the same
++                # function TRL applies to a rollout during training.
++                msg = parse_response(tokenizer, comp_ids.tolist())
++                return msg, int(comp_ids.shape[0])
+ 
+-            def gen_turn(messages):
+-                enc = tokenizer.apply_chat_template(
+-                    messages, tools=tools, add_generation_prompt=True,
+-                    return_tensors="pt", return_dict=True,
+-                ).to(model.device)
+-                plen = enc["input_ids"].shape[1]
+-                with torch.no_grad():
+-                    out = model.generate(**enc, max_new_tokens=max_new, do_sample=do_sample)
+-                comp_ids = out[0][plen:]
+-                text = tokenizer.decode(comp_ids, skip_special_tokens=False)
+-                parsed = _parse_tool_call(text)
++            def gen_fn(question):
++                messages = domain.episode_messages(question)
++                msg, n_tok = _generate(messages, max_new)
++                return _answer_from(msg), n_tok
++
++            def gen_turn(messages, budget):
++                msg, n_tok = _generate(messages, budget)
++                parsed = _first_tool_call(msg)
+                 if parsed is None:
+-                    return None, None, int(comp_ids.shape[0])
++                    return msg, None, None, n_tok
+                 name, call_args = parsed
+-                return name, call_args, int(comp_ids.shape[0])
++                return msg, name, call_args, n_tok
+ 
+             print(f"Agentic eval [{split['name']}]: {n} episodes "
+                   f"(seed_base={seed_base}, max_new_tokens={max_new})")
+@@ -363,27 +488,18 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
+                     env, n, seed_base, gen_turn,
+                     max_turns=max_turns, make_messages=domain.episode_messages,
+                     tool_names={t.__name__ for t in tools}, gen_cap=max_new,
++                    on_result=on_result,
+                 )
+             else:
+-                results = _run_episodes(env, n, seed_base, gen_fn, gen_cap=max_new)
++                results = _run_episodes(env, n, seed_base, gen_fn, gen_cap=max_new,
++                                        on_result=on_result)
+         finally:
++            ep_file.close()
+             server.stop()
+ 
+-        split_metrics[split["name"]] = compute_metrics(results)
+-        _write_episodes(results, seed_base,
+-                        os.path.join(run_dir, f"episodes_{split['name']}.jsonl"))
++        split_metrics[split["name"]] = compute_metrics(results, **thresholds.get(split["name"], {}))
+ 
+-    report = {
+-        "experiment_id": config.get("experiment_id"),
+-        "model_slug": (config.get("model") or {}).get("slug"),
+-        "seed": config.get("seed", 42),
+-        "compose_method": (config.get("rewards") or {}).get("compose_method", "advantage_weighted"),
+-        "mode": "agentic",
+-        # E0 (no adapter) is a first-class condition, so the report says which
+-        # policy produced it rather than leaving it to the experiment_id.
+-        "checkpoint": checkpoint_dir,
+-        "results": {name: _metrics_to_dict(m) for name, m in split_metrics.items()},
+-    }
++    report = _build_report(config, checkpoint_dir, split_metrics)
+     json_path = os.path.join(run_dir, "eval_report.json")
+     with open(json_path, "w") as f:
+         json.dump(report, f, indent=2)
+@@ -408,12 +524,19 @@ def _report_md(experiment_id, split_metrics: dict) -> str:
+                    else f"{m.non_termination_rate:.3f} "
+                         f"[{m.non_termination_rate_ci_low:.3f}, "
+                         f"{m.non_termination_rate_ci_high:.3f}]")
++        # Correct-only first: it is the efficiency claim. The pooled mean below
++        # it moves with the failure rate, so the two must be read together.
++        correct_tok = ("n/a" if m.mean_token_count_correct is None
++                       else f"{m.mean_token_count_correct:.1f} "
++                            f"[{m.mean_token_count_correct_ci_low:.1f}, "
++                            f"{m.mean_token_count_correct_ci_high:.1f}]")
+         out.append(
+             f"\n## {name}\n\n"
+             f"- episodes: {m.n_samples}\n"
+             f"- success rate: {m.accuracy:.3f} "
+             f"[{m.accuracy_ci_low:.3f}, {m.accuracy_ci_high:.3f}]\n"
+-            f"- mean completion tokens: {m.mean_token_count:.1f}\n"
++            f"- mean tokens on CORRECT episodes: {correct_tok}\n"
++            f"- mean completion tokens (all episodes): {m.mean_token_count:.1f}\n"
+             f"- mean steps: {m.mean_steps}\n"
+             f"- underthinking rate: {m.underthinking_rate}\n"
+             f"- overthinking rate: {m.overthinking_rate}\n"
+
+
+=== DIFF: pipeline/tests/test_multiturn_eval.py ===
+@@ -1,24 +1,53 @@
+-from eval.agentic_eval import _parse_tool_call, _run_multiturn_episodes
++from eval.agentic_eval import _first_tool_call, _run_multiturn_episodes
+ 
+ 
+-# --- _parse_tool_call: first valid tool call of any name ---
++# --- _first_tool_call: first call of any name, off a parsed assistant message ---
++# The message shape is what trl.chat_template_utils.parse_response returns - the
++# same function TRL applies to a rollout during training. Eval used to re-parse
++# the decoded text with its own regex, which is how the two ended up disagreeing.
+ 
+-def test_parse_tool_call_returns_name_and_args():
+-    t = '<tool_call>{"name": "move", "arguments": {"message": "crane"}}</tool_call>'
+-    assert _parse_tool_call(t) == ("move", {"message": "crane"})
++def _assistant(name=None, args=None, content="", reasoning=None):
++    """A parse_response-shaped assistant message."""
++    msg = {"role": "assistant", "content": content}
++    if reasoning is not None:
++        msg["reasoning_content"] = reasoning
++    if name is not None:
++        msg["tool_calls"] = [{"type": "function",
++                              "function": {"name": name, "arguments": args or {}}}]
++    return msg
+ 
+ 
+-def test_parse_tool_call_with_think_prefix():
+-    t = '<think>hmm</think><tool_call>{"name":"move","arguments":{"message":"slate"}}</tool_call>'
+-    assert _parse_tool_call(t) == ("move", {"message": "slate"})
++def test_first_tool_call_returns_name_and_args():
++    msg = _assistant("move", {"message": "crane"})
++    assert _first_tool_call(msg) == ("move", {"message": "crane"})
+ 
+ 
+-def test_parse_tool_call_none_without_call():
+-    assert _parse_tool_call("no tool call here") is None
++def test_first_tool_call_ignores_reasoning():
++    # A JSON object quoted inside the think block is reasoning, not a call.
++    msg = _assistant("move", {"message": "slate"},
++                     reasoning='maybe {"name": "answer", "arguments": {"answer": "0"}}')
++    assert _first_tool_call(msg) == ("move", {"message": "slate"})
+ 
+ 
+-def test_parse_tool_call_none_on_malformed_json():
+-    assert _parse_tool_call("<tool_call>{not json}</tool_call>") is None
++def test_first_tool_call_none_without_call():
++    assert _first_tool_call(_assistant(content="no tool call here")) is None
++
++
++def test_first_tool_call_none_on_empty_tool_calls():
++    assert _first_tool_call({"role": "assistant", "tool_calls": []}) is None
++
++
++def test_first_tool_call_non_dict_args_read_as_empty():
++    msg = {"role": "assistant", "tool_calls": [
++        {"type": "function", "function": {"name": "move", "arguments": "prestringified"}}]}
++    assert _first_tool_call(msg) == ("move", {})
++
++
++def test_first_tool_call_takes_the_first_of_several():
++    msg = _assistant("move", {"message": "a"})
++    msg["tool_calls"].append(
++        {"type": "function", "function": {"name": "quit", "arguments": {}}})
++    assert _first_tool_call(msg) == ("move", {"message": "a"})
+ 
+ 
+ # --- _run_multiturn_episodes: drive a scripted game with an injected turn fn ---
+@@ -57,32 +86,42 @@ def _msgs(o):
+     return [{"role": "user", "content": o}]
+ 
+ 
++def _turn(name, args, n_tok, **kw):
++    """A scripted turn_fn result: (message, tool name, args, tokens)."""
++    return _assistant(name, args, **kw), name, args, n_tok
++
++
++def _scripted(*turns):
++    """turn_fn that replays `turns`, ignoring messages and budget."""
++    it = iter(turns)
++    return lambda messages, budget: next(it)
++
++
+ def test_multiturn_solves_in_two_turns():
+     env = _FakeGameEnv("slate")
+-    scripted = iter([("move", {"message": "crane"}, 10), ("move", {"message": "slate"}, 8)])
+-    rs = _run_multiturn_episodes(env, 1, 0, lambda m: next(scripted),
+-                                 max_turns=6, make_messages=_msgs,
+-                                 tool_names={"move"})
++    rs = _run_multiturn_episodes(
++        env, 1, 0, _scripted(_turn("move", {"message": "crane"}, 10),
++                             _turn("move", {"message": "slate"}, 8)),
++        max_turns=6, make_messages=_msgs, tool_names={"move"})
+     assert rs[0].correct is True and rs[0].n_steps == 2 and rs[0].n_tokens == 18
+     assert env.resets == [0]
+ 
+ 
+ def test_multiturn_stops_when_model_stops_calling_move():
+     env = _FakeGameEnv("slate")
+-    scripted = iter([("move", {"message": "crane"}, 5), (None, None, 3)])
+-    rs = _run_multiturn_episodes(env, 1, 0, lambda m: next(scripted),
+-                                 max_turns=6, make_messages=_msgs,
+-                                 tool_names={"move"})
++    rs = _run_multiturn_episodes(
++        env, 1, 0, _scripted(_turn("move", {"message": "crane"}, 5),
++                             _turn(None, None, 3)),
++        max_turns=6, make_messages=_msgs, tool_names={"move"})
+     # Turn 1 is a move (counted, stepped); turn 2 is no-move -> counted then stop.
+     assert rs[0].n_steps == 1 and rs[0].n_tokens == 8 and rs[0].correct is False
+ 
+ 
+ def test_multiturn_caps_at_max_turns():
+     env = _FakeGameEnv("zzzzz", fail_after=99)  # never solves, never early-dones
+-    scripted = iter([("move", {"message": "aaaaa"}, 4)] * 10)
+-    rs = _run_multiturn_episodes(env, 1, 0, lambda m: next(scripted),
+-                                 max_turns=3, make_messages=_msgs,
+-                                 tool_names={"move"})
++    rs = _run_multiturn_episodes(
++        env, 1, 0, _scripted(*[_turn("move", {"message": "aaaaa"}, 4)] * 10),
++        max_turns=3, make_messages=_msgs, tool_names={"move"})
+     assert rs[0].n_steps == 3 and rs[0].n_tokens == 12 and rs[0].correct is False
+ 
+ 
+@@ -90,11 +129,136 @@ def test_multiturn_appends_assistant_and_tool_messages():
+     env = _FakeGameEnv("slate")
+     seen = []
+ 
+-    def turn_fn(messages):
++    def turn_fn(messages, budget):
+         seen.append([m["role"] for m in messages])
+-        return ("move", {"message": "slate"}, 7)
++        return _turn("move", {"message": "slate"}, 7)
+ 
+     _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=6,
+                             make_messages=_msgs, tool_names={"move"})
+     # First turn sees just the user lead-in; episode ends on the solving move.
+     assert seen == [["user"]]
++
++
++def test_multiturn_keeps_the_models_own_reasoning_in_context():
++    # The loop used to rebuild the turn as {"content": ""} plus a tool_calls
++    # stub, so turn N+1 ran without the reasoning that produced turn N - a
++    # context training never generates, since TRL keeps every prior turn's text.
++    env = _FakeGameEnv("slate")
++    seen = []
++
++    def turn_fn(messages, budget):
++        seen.append(list(messages))
++        if len(seen) == 1:
++            return _turn("move", {"message": "crane"}, 5, reasoning="crane splits vowels")
++        return _turn("move", {"message": "slate"}, 5)
++
++    _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=6,
++                            make_messages=_msgs, tool_names={"move"})
++    assert len(seen) == 2
++    assistant = [m for m in seen[1] if m.get("role") == "assistant"]
++    assert assistant and assistant[0].get("reasoning_content") == "crane splits vowels"
++
++
++# --- the generation budget covers the whole trajectory, not each turn ---
++# Training caps the full completion at max_completion_length. An eval that
++# renewed the budget every turn let an episode generate max_turns times what the
++# policy trained under, and hit_generation_cap could never fire for the real cap.
++
++def test_budget_is_spent_across_turns_not_renewed():
++    env = _FakeGameEnv("zzzzz", fail_after=99)
++    budgets = []
++
++    def turn_fn(messages, budget):
++        budgets.append(budget)
++        return _turn("move", {"message": "aaaaa"}, 300)
++
++    rs = _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=8,
++                                 make_messages=_msgs, tool_names={"move"},
++                                 gen_cap=1000)
++    assert budgets == [1000, 700, 400, 100]          # never renewed
++    assert rs[0].stop_reason == "hit_generation_cap"
++    assert rs[0].n_tokens == 1200                    # the 4th turn overruns, then stop
++
++
++def test_no_budget_means_no_cap():
++    env = _FakeGameEnv("zzzzz", fail_after=99)
++    budgets = []
++
++    def turn_fn(messages, budget):
++        budgets.append(budget)
++        return _turn("move", {"message": "aaaaa"}, 300)
++
++    rs = _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=3,
++                                 make_messages=_msgs, tool_names={"move"})
++    assert budgets == [None, None, None]
++    assert rs[0].stop_reason == "max_turns"
++
++
++def test_turn_that_exhausts_the_budget_without_a_call_is_a_cap_hit():
++    env = _FakeGameEnv("zzzzz", fail_after=99)
++    rs = _run_multiturn_episodes(
++        env, 1, 0, _scripted(_turn(None, None, 500)),
++        max_turns=4, make_messages=_msgs, tool_names={"move"}, gen_cap=500)
++    assert rs[0].stop_reason == "hit_generation_cap"
++
++
++def test_short_turn_without_a_call_is_not_a_cap_hit():
++    env = _FakeGameEnv("zzzzz", fail_after=99)
++    rs = _run_multiturn_episodes(
++        env, 1, 0, _scripted(_turn(None, None, 3)),
++        max_turns=4, make_messages=_msgs, tool_names={"move"}, gen_cap=500)
++    assert rs[0].stop_reason == "no_tool_call"
++
++
++# --- an env-side error must not discard the split ---
++# Only TypeError used to be caught, so an HTTP error / reset connection /
++# malformed observation propagated out and killed the process before any
++# episode record was written.
++
++class _ExplodingEnv:
++    """Env whose tool raises something that is not a TypeError."""
++
++    def __init__(self, exc=RuntimeError("env server gone")):
++        self.reward = 0.0
++        self.done = False
++        self.exc = exc
++
++    def reset(self, seed=None, **_):
++        self.reward = 0.0
++        self.done = False
++        return "obs"
++
++    def move(self, action):
++        raise self.exc
++
++
++def test_env_error_becomes_feedback_not_a_crash():
++    env = _ExplodingEnv()
++    rs = _run_multiturn_episodes(
++        env, 2, 0, _scripted(*[_turn("move", {"action": "x"}, 5)] * 4),
++        max_turns=2, make_messages=_msgs, tool_names={"move"})
++    assert len(rs) == 2                       # both episodes survived
++    assert all(r.stop_reason == "max_turns" for r in rs)
++
++
++def test_failed_dispatch_is_not_counted_as_a_step():
++    # calls.append used to run even when the call never reached the env, which
++    # inflated n_steps and mean_verification_depth in the RQ2 panel.
++    env = _ExplodingEnv()
++    rs = _run_multiturn_episodes(
++        env, 1, 0, _scripted(*[_turn("move", {"action": "x"}, 5)] * 3),
++        max_turns=3, make_messages=_msgs, tool_names={"move"})
++    assert rs[0].n_steps == 0
++    assert rs[0].tool_calls == []
++
++
++def test_on_result_fires_per_episode():
++    # The durability hook: records are written as they are produced, so a crash
++    # part-way through a split keeps what came before it.
++    env = _ExplodingEnv()
++    seen = []
++    _run_multiturn_episodes(
++        env, 3, 100, _scripted(*[_turn(None, None, 1)] * 3),
++        max_turns=1, make_messages=_msgs, tool_names={"move"},
++        on_result=lambda i, r: seen.append(i))
++    assert seen == [0, 1, 2]
+
+
+=== DIFF: pipeline/tests/test_response_parsing.py ===
+@@ -0,0 +1,104 @@
++"""End-to-end wire-format parsing, against real tokenizers.
++
++Eval scores a completion with `trl.chat_template_utils.parse_response`, the same
++function TRL applies during training. These tests pin the behaviour the fix
++depends on - especially that a TRUNCATED tool call is not a tool call, which is
++what keeps a cap-hit episode labelled `hit_generation_cap` instead of
++`env_done`. Collapsing those two is what made the e9-e21 sweep uninterpretable.
++
++Needs transformers + trl and the tokenizers on disk, so it is skipped on the
++CPU test venv and runs on the GPU box.
++"""
++import pytest
++
++pytest.importorskip("transformers")
++pytest.importorskip("trl")
++
++from transformers import AutoTokenizer                       # noqa: E402
++from trl.chat_template_utils import add_response_schema, parse_response  # noqa: E402
++
++from eval.agentic_eval import _answer_from, _first_tool_call  # noqa: E402
++
++QWEN = "Qwen/Qwen3-1.7B"
++LLAMA = "unsloth/Llama-3.2-1B-Instruct"
++
++
++def _tok(name):
++    tok = AutoTokenizer.from_pretrained(name)
++    add_response_schema(tok)
++    return tok
++
++
++@pytest.fixture(scope="module")
++def qwen():
++    return _tok(QWEN)
++
++
++@pytest.fixture(scope="module")
++def llama():
++    return _tok(LLAMA)
++
++
++def _parse(tok, text):
++    return parse_response(tok, tok.encode(text, add_special_tokens=False))
++
++
++# --- Qwen3 / Hermes ---
++
++def test_qwen_complete_call_is_parsed(qwen):
++    msg = _parse(qwen, '<think>17+25</think>\n<tool_call>\n'
++                       '{"name": "answer", "arguments": {"answer": "42"}}\n</tool_call>')
++    assert _answer_from(msg) == "42"
++    assert msg.get("reasoning_content") == "17+25"
++
++
++def test_qwen_truncated_call_is_not_a_call(qwen):
++    # Cut after the closing brace, before </tool_call>: the episode filled its
++    # generation budget. It must NOT read as a finished answer.
++    msg = _parse(qwen, '<think>17+25</think>\n<tool_call>\n'
++                       '{"name": "answer", "arguments": {"answer": "42"}}')
++    assert _answer_from(msg) is None
++    assert _first_tool_call(msg) is None
++
++
++def test_qwen_json_quoted_in_think_is_not_a_call(qwen):
++    msg = _parse(qwen, '<think>maybe {"name": "answer", "arguments": '
++                       '{"answer": "0"}} hmm</think>\nI give up.')
++    assert _answer_from(msg) is None
++    assert _first_tool_call(msg) is None
++
++
++def test_qwen_prose_only_is_not_a_call(qwen):
++    assert _first_tool_call(_parse(qwen, "I think the answer is 42.")) is None
++
++
++# --- Llama 3.x: untagged, `parameters` rather than `arguments` ---
++
++def test_llama_untagged_call_is_parsed(llama):
++    msg = _parse(llama, '{"name": "answer", "parameters": {"answer": "42"}}')
++    assert _answer_from(msg) == "42"
++
++
++def test_llama_multi_tool_call_is_parsed(llama):
++    msg = _parse(llama, '{"name": "click", "parameters": {"bid": "17"}}')
++    assert _first_tool_call(msg) == ("click", {"bid": "17"})
++
++
++def test_llama_prose_only_is_not_a_call(llama):
++    assert _first_tool_call(_parse(llama, "I think the answer is 42.")) is None
++
++
++# --- the context the multi-turn loop rebuilds must keep the reasoning ---
++
++def test_qwen_template_preserves_reasoning_on_a_prior_turn(qwen):
++    # _run_multiturn_episodes appends the parsed message and re-renders. If the
++    # template dropped reasoning_content here, turn N+1 would run on a context
++    # training never produced and the fix would be cosmetic.
++    rendered = qwen.apply_chat_template([
++        {"role": "user", "content": "Q1"},
++        {"role": "assistant", "content": "", "reasoning_content": "LONG REASONING",
++         "tool_calls": [{"type": "function",
++                         "function": {"name": "answer", "arguments": {"answer": "42"}}}]},
++        {"role": "tool", "content": "Recorded 42"},
++    ], add_generation_prompt=True, tokenize=False)
++    assert "LONG REASONING" in rendered
+
+
+=== DIFF: pipeline/tests/test_stats_ci.py ===
+@@ -86,3 +86,94 @@ def test_thinking_rate_no_correct_returns_none():
+     tokens = np.array([10, 20, 30, 40], dtype=float)
+     corrects = np.zeros(4, dtype=bool)
+     assert _thinking_rate(tokens, corrects, 10, None, "under", 1000, 0.95) == (None, None, None, None)
++
++
++# --- correct-only token mean: the efficiency number ---
++# `mean_token_count` pools failures, which run to the generation cap, so a change
++# in failure rate there is indistinguishable from a change in length. That is the
++# confound that voided e9-e21, and the honest number lived only inside plots.py.
++
++def test_mean_token_count_correct_excludes_failures():
++    m = compute_metrics(
++        [SampleResult(True, 100, n_steps=1), SampleResult(True, 120, n_steps=1),
++         SampleResult(False, 900, n_steps=1), SampleResult(False, 920, n_steps=1)]
++    )
++    assert m.mean_token_count == 510.0            # pooled, dominated by failures
++    assert m.mean_token_count_correct == 110.0    # the efficiency number
++
++
++def test_mean_token_count_correct_is_none_without_correct_episodes():
++    # None, not 0.0 - zero would read as perfectly efficient.
++    m = compute_metrics([SampleResult(False, 900, n_steps=1)])
++    assert m.mean_token_count_correct is None
++    assert m.mean_token_count_correct_ci_low is None
++
++
++def test_mean_token_count_correct_ci_brackets_the_mean():
++    m = compute_metrics([SampleResult(True, t, n_steps=1) for t in (90, 100, 110, 120)])
++    assert m.mean_token_count_correct_ci_low <= m.mean_token_count_correct
++    assert m.mean_token_count_correct <= m.mean_token_count_correct_ci_high
++
++
++def test_correct_only_mean_agrees_with_the_plotting_helper():
++    # Two implementations over different input types (SampleResult vs report
++    # samples). Pin them together so they cannot drift.
++    from eval.agentic_eval import _metrics_to_dict
++    from eval.plots import _mean_ci_on_correct
++    results = [SampleResult(True, 100, n_steps=1), SampleResult(True, 140, n_steps=1),
++               SampleResult(False, 900, n_steps=1)]
++    m = compute_metrics(results)
++    mean_from_plots, _, _ = _mean_ci_on_correct(_metrics_to_dict(m)["samples"])
++    assert mean_from_plots == m.mean_token_count_correct
++
++
++# --- thinking-rate thresholds must be pinnable to a reference run ---
++
++def _halved(results):
++    return [SampleResult(r.correct, r.n_tokens // 2, n_steps=1) for r in results]
++
++
++def _spread():
++    # 20 episodes, wide token spread, half correct.
++    return [SampleResult(i % 2 == 0, 100 + 100 * i, n_steps=1) for i in range(20)]
++
++
++def test_percentile_thresholds_cannot_detect_compression():
++    # Documents the defect: halving every token count leaves both rates
++    # untouched, because the per-run percentile moves with the distribution.
++    base = compute_metrics(_spread())
++    half = compute_metrics(_halved(_spread()))
++    assert base.overthinking_rate == half.overthinking_rate
++    assert base.underthinking_rate == half.underthinking_rate
++
++
++def test_pinned_thresholds_do_detect_compression():
++    base = compute_metrics(_spread())
++    half = compute_metrics(
++        _halved(_spread()),
++        underthinking_threshold=base.underthinking_threshold,
++        overthinking_threshold=base.overthinking_threshold,
++    )
++    assert half.underthinking_rate > base.underthinking_rate   # more short answers
++    assert half.overthinking_rate < base.overthinking_rate     # fewer long ones
++
++
++def test_reference_thresholds_round_trip_through_a_report(tmp_path):
++    import json
++    from eval.agentic_eval import _build_report, _reference_thresholds
++    ref = tmp_path / "eval_report.json"
++    ref.write_text(json.dumps(_build_report(
++        {"experiment_id": "e0"}, None, {"held_out": compute_metrics(_spread())})))
++
++    loaded = _reference_thresholds({"reference_report": str(ref)})
++    assert set(loaded) == {"held_out"}
++
++    pinned = compute_metrics(_spread(), **loaded["held_out"])
++    direct = compute_metrics(_spread())
++    assert pinned.underthinking_threshold == direct.underthinking_threshold
++
++
++def test_no_reference_configured_means_no_override():
++    from eval.agentic_eval import _reference_thresholds
++    assert _reference_thresholds({}) == {}
++    assert _reference_thresholds({"temperature": 0.0}) == {}
+
+
+=== DIFF: pipeline/tests/test_env_adapter.py ===
+@@ -113,3 +113,63 @@ def test_answer_tool_schema_is_generatable():
+     fn = get_json_schema(_adapter().answer)["function"]
+     assert fn["name"] == "answer"
+     assert fn["parameters"]["properties"]["answer"]["description"]
++
++
++# --- done-guard: the reward is the FIRST answer, not the last ---
++# Without it a second `answer` call re-stepped the env and overwrote self.reward,
++# so a rollout that answered correctly and then answered again trained as WRONG
++# while eval - which reads the first call - scored it correct. Two plausible
++# numbers, disagreeing about the same trajectory. Every sibling adapter
++# (textarena.move, finqa.submit_answer, repl.execute, browsergym._act) guards.
++
++class _ScoringClient(_FakeClient):
++    """Scores each submitted answer against a map, so order is observable."""
++
++    def __init__(self, scores):
++        super().__init__()
++        self.scores = scores
++
++    def step(self, action):
++        self.step_calls.append(action)
++        return _Result(_Obs(score=self.scores.get(action.answer, 0.0)))
++
++
++def test_second_answer_does_not_overwrite_the_reward():
++    client = _ScoringClient({"x=3": 1.0, "x=4": 0.0})
++    a = _adapter(client=client)
++    a.reset(seed=1)
++    a.answer("x=3")
++    assert a.reward == 1.0
++    a.answer("x=4")                      # the model second-guesses itself
++    assert a.reward == 1.0               # first answer stands
++    assert len(client.step_calls) == 1   # the env was never re-stepped
++
++
++def test_second_answer_returns_a_terminated_notice():
++    a = _adapter(client=_ScoringClient({"x=3": 1.0}))
++    a.reset(seed=1)
++    a.answer("x=3")
++    assert "already finished" in a.answer("x=4")
++
++
++def test_reset_reopens_the_episode():
++    client = _ScoringClient({"x=3": 1.0, "x=9": 1.0})
++    a = _adapter(client=client)
++    a.reset(seed=1)
++    a.answer("x=3")
++    a.reset(seed=2)                      # next episode
++    assert a.done is False and a.reward == 0.0
++    a.answer("x=9")
++    assert a.reward == 1.0
++    assert len(client.step_calls) == 2
++
++
++def test_wrong_first_answer_also_stands():
++    # The guard must not be a "keep the best score" rule - it keeps the FIRST,
++    # which is what eval scores.
++    client = _ScoringClient({"x=3": 0.0, "x=4": 1.0})
++    a = _adapter(client=client)
++    a.reset(seed=1)
++    a.answer("x=3")
++    a.answer("x=4")
++    assert a.reward == 0.0
+
+
+=== DIFF: pipeline/tests/test_agentic_eval.py ===
+@@ -16,3 +16,59 @@ def test_mean_steps_none_for_dataset_eval():
+         SampleResult(correct=False, n_tokens=20),
+     ]
+     assert compute_metrics(rs).mean_steps is None
++
++
++# --- --base-model must never overwrite a trained run's harvested results ---
++
++def test_base_model_refused_over_a_trained_run(tmp_path):
++    from eval.runner import base_model_conflict
++    run_dir = tmp_path / "runs" / "e27-browsergym-e1-baseline"
++    (run_dir / "checkpoint-final").mkdir(parents=True)
++    msg = base_model_conflict(str(run_dir))
++    assert msg is not None and "checkpoint" in msg
++
++
++def test_base_model_allowed_for_a_dedicated_e0_dir(tmp_path):
++    from eval.runner import base_model_conflict
++    run_dir = tmp_path / "runs" / "e0-browsergym-base"
++    run_dir.mkdir(parents=True)
++    assert base_model_conflict(str(run_dir)) is None
++
++
++def test_base_model_allowed_when_run_dir_absent(tmp_path):
++    from eval.runner import base_model_conflict
++    assert base_model_conflict(str(tmp_path / "runs" / "nope")) is None
++
++
++# --- --smoke must not overwrite harvested results ---
++# A smoke eval writes 4 episodes per split into the same run dir as a real one,
++# destroying eval_report.json and every episodes_*.jsonl. The report can be
++# snapshotted; the trajectory records cannot be recovered from anything else.
++
++def _real_report(run_dir):
++    import json
++    run_dir.mkdir(parents=True, exist_ok=True)
++    (run_dir / "eval_report.json").write_text(
++        json.dumps({"experiment_id": "e27", "results": {"held_out": {"n_samples": 100}}}))
++
++
++def test_smoke_refused_over_a_real_report(tmp_path):
++    from eval.runner import smoke_conflict
++    run_dir = tmp_path / "runs" / "e27"
++    _real_report(run_dir)
++    msg = smoke_conflict(str(run_dir))
++    assert msg is not None and "episodes" in msg
++
++
++def test_smoke_allowed_over_a_previous_smoke_report(tmp_path):
++    import json
++    from eval.runner import smoke_conflict
++    run_dir = tmp_path / "runs" / "e27-throwaway"
++    run_dir.mkdir(parents=True)
++    (run_dir / "eval_report.json").write_text(json.dumps({"smoke": True, "results": {}}))
++    assert smoke_conflict(str(run_dir)) is None
++
++
++def test_smoke_allowed_on_a_fresh_run_dir(tmp_path):
++    from eval.runner import smoke_conflict
++    assert smoke_conflict(str(tmp_path / "runs" / "nope")) is None
+
+
+=== DIFF: pipeline/tests/test_plots.py ===
+@@ -159,3 +159,58 @@ def test_make_figures_training_curves_when_log_present(tmp_path):
+     written = plots.make_figures(runs, str(out))
+     curve_files = [w for w in written if os.path.basename(w).startswith("training_curves_")]
+     assert len(curve_files) == 1 and os.path.exists(curve_files[0])
++
++
++# --- multi-split (protocol) reports: load_report refuses to guess, but
++# --- make_figures must enumerate the splits rather than crash. Before this,
++# --- e27/e28/e29 could produce no figures at all.
++
++def _protocol_report(tmp_path, exp_id, split_names):
++    run = tmp_path / exp_id
++    run.mkdir(parents=True)
++    results = {}
++    for i, name in enumerate(split_names):
++        m = compute_metrics(
++            [SampleResult(correct=True, n_tokens=100 + i, n_steps=1),
++             SampleResult(correct=True, n_tokens=120 + i, n_steps=1),
++             SampleResult(correct=False, n_tokens=900 + i, n_steps=1),
++             SampleResult(correct=False, n_tokens=920 + i, n_steps=1)]
++        )
++        results[name] = _metrics_to_dict(m)
++    (run / "eval_report.json").write_text(
++        json.dumps({"experiment_id": exp_id, "results": results}))
++    return str(run)
++
++
++def test_make_figures_renders_one_set_per_split(tmp_path):
++    run = _protocol_report(tmp_path, "e27-x", ["held_out", "shifted"])
++    written = {os.path.basename(p) for p in
++               plots.make_figures([run], str(tmp_path / "out"))}
++    for split in ("held_out", "shifted"):
++        for kind in ("comparison", "distributions", "efficiency"):
++            assert f"{kind}_{split}.png" in written
++
++
++def test_make_figures_single_split_keeps_unsuffixed_names(tmp_path):
++    run = _protocol_report(tmp_path, "e5-x", ["agentic"])
++    written = {os.path.basename(p) for p in
++               plots.make_figures([run], str(tmp_path / "out"))}
++    assert {"comparison.png", "distributions.png", "efficiency.png"} <= written
++
++
++def test_make_figures_split_override_renders_only_that_split(tmp_path):
++    run = _protocol_report(tmp_path, "e27-x", ["held_out", "shifted"])
++    written = {os.path.basename(p) for p in
++               plots.make_figures([run], str(tmp_path / "out"), split="held_out")}
++    assert "comparison.png" in written              # single split -> no suffix
++    assert not any("shifted" in w for w in written)
++
++
++def test_make_figures_skips_a_run_missing_the_split(tmp_path):
++    both = _protocol_report(tmp_path, "e27-x", ["held_out", "shifted"])
++    only = _protocol_report(tmp_path, "e5-x", ["held_out"])
++    # Must not raise: the run without `shifted` is skipped, the other still draws.
++    written = {os.path.basename(p) for p in
++               plots.make_figures([both, only], str(tmp_path / "out"))}
++    assert "comparison_held_out.png" in written
++    assert "comparison_shifted.png" in written
+
+
+=== DIFF: pipeline/eval/runner.py ===
+@@ -9,6 +9,43 @@ import os
+ import yaml
+ 
+ 
++def smoke_conflict(run_dir: str) -> str | None:
++    """Error message if a smoke eval would overwrite real results, else None.
++
++    A --smoke eval writes 4 episodes per split into the same run dir as a real
++    one, so pointing it at a harvested arm destroys `eval_report.json`,
++    `eval_report.md` and every `episodes_*.jsonl` - the trajectory records the
++    off-target panel is answered from, which no snapshot of the report alone
++    brings back. Same hazard as `--base-model` against a trained run, same
++    answer: refuse, and let a throwaway experiment_id take the write.
++    """
++    from training.batch import _is_real_report
++    if not _is_real_report(os.path.join(run_dir, "eval_report.json")):
++        return None
++    return (
++        f"--smoke would overwrite the real eval results in {run_dir!r} "
++        "(report and episodes_*.jsonl). Copy the config with a throwaway "
++        "experiment_id to smoke-test against this checkpoint."
++    )
++
++
++def base_model_conflict(run_dir: str) -> str | None:
++    """Error message if E0 results would overwrite a trained run, else None.
++
++    run_dir keys on experiment_id alone, so `--base-model` against a trained
++    arm's config used to overwrite its eval_report.json and episodes_*.jsonl
++    with untrained-model numbers - silently, with no backup. E0 gets its own
++    config and its own experiment_id (the e0 / e0b pattern).
++    """
++    if not os.path.isdir(os.path.join(run_dir, "checkpoint-final")):
++        return None
++    return (
++        f"--base-model would write E0 results into {run_dir!r}, which holds a "
++        "trained checkpoint. Use a dedicated E0 config with its own "
++        "experiment_id (see configs/e0-*.yaml)."
++    )
++
++
+ def main() -> None:
+     import argparse
+     import sys
+@@ -22,21 +59,34 @@ def main() -> None:
+                         help="Evaluate the base model with no LoRA adapter (E0)")
+     parser.add_argument("--max_new_tokens", type=int, default=None,
+                         help="Override eval.max_new_tokens (default: the training completion budget)")
+-    parser.add_argument("--smoke", action="store_true", help="Limit eval to 10 episodes")
++    parser.add_argument("--smoke", action="store_true", help="Limit eval to 4 episodes per split")
+     args = parser.parse_args()
+ 
+     with open(args.config) as f:
+         config = yaml.safe_load(f)
+ 
+-    if args.smoke:
+-        config["_smoke"] = True
+-        print("Smoke mode: eval limited to 10 episodes")
++    # Same guard training gets. An eval-only invocation used to skip validation
++    # entirely, so a typo'd key here was caught only if the config had also been
++    # through `training.train` at some point.
++    from training.config_schema import validate_config
++    validate_config(config)
+ 
+     exp_id = config["experiment_id"]
+     run_dir = os.path.join("runs", exp_id)
++
++    if args.smoke:
++        conflict = smoke_conflict(run_dir)
++        if conflict:
++            parser.error(conflict)
++        config["_smoke"] = True
++        print("Smoke mode: eval limited to 4 episodes per split")
++
+     if args.base_model:
+         if args.checkpoint:
+             parser.error("--base-model and --checkpoint are mutually exclusive")
++        conflict = base_model_conflict(run_dir)
++        if conflict:
++            parser.error(conflict)
+         checkpoint = None
+     else:
+         checkpoint = args.checkpoint or os.path.join(run_dir, "checkpoint-final")
+
+
+=== DIFF: pipeline/tests/test_batch_skips.py ===
+@@ -21,3 +21,57 @@ def test_finished_report_is_real(tmp_path):
+ 
+ def test_missing_report_not_real(tmp_path):
+     assert _is_real_report(str(tmp_path / "nope.json")) is False
++
++
++# --- the production writer must emit the key _is_real_report reads ---
++# The existing tests above hand-build {"smoke": True}; nothing in production ever
++# produced it, so a 4-episode --smoke report was classified as finished work and
++# the follow-up unattended batch skipped the real 100-episode eval.
++
++def _written_report(smoke: bool, tmp_path):
++    from eval.agentic_eval import _build_report
++    from eval.metrics import SampleResult, compute_metrics
++    cfg = {"experiment_id": "e27-x", "model": {"slug": "qwen3-1.7b"}, "seed": 42}
++    if smoke:
++        cfg["_smoke"] = True
++    metrics = {"held_out": compute_metrics([SampleResult(True, 10, n_steps=1)])}
++    p = tmp_path / "eval_report.json"
++    p.write_text(json.dumps(_build_report(cfg, "runs/e27-x/checkpoint-final", metrics)))
++    return str(p)
++
++
++def test_production_smoke_report_is_not_real(tmp_path):
++    assert _is_real_report(_written_report(True, tmp_path)) is False
++
++
++def test_production_full_report_is_real(tmp_path):
++    assert _is_real_report(_written_report(False, tmp_path)) is True
++
++
++# --- the .smoke checkpoint marker must be cleared by a later real run ---
++
++def test_smoke_marker_cleared_by_real_train(tmp_path):
++    from training.batch import mark_smoke_checkpoint, _is_real_checkpoint
++    ckpt = tmp_path / "runs" / "e27-x" / "checkpoint-final"
++    ckpt.mkdir(parents=True)
++
++    mark_smoke_checkpoint(str(ckpt), smoke=True)
++    assert (ckpt / ".smoke").exists()
++
++    mark_smoke_checkpoint(str(ckpt), smoke=False)
++    assert not (ckpt / ".smoke").exists()
++
++    import os
++    cwd = os.getcwd()
++    os.chdir(tmp_path)
++    try:
++        assert _is_real_checkpoint("e27-x") is True
++    finally:
++        os.chdir(cwd)
++
++
++def test_clearing_an_absent_marker_is_a_noop(tmp_path):
++    from training.batch import mark_smoke_checkpoint
++    ckpt = tmp_path / "ckpt"; ckpt.mkdir()
++    mark_smoke_checkpoint(str(ckpt), smoke=False)   # must not raise
++    assert not (ckpt / ".smoke").exists()
+
+
+=== DIFF: pipeline/eval/plots.py ===
+@@ -241,13 +241,24 @@ def plot_training_curves(log_history, fig=None):
+     return fig
+ 
+ 
+-def make_figures(report_paths, out_dir, dpi=130):
++def _report_splits(path: str) -> list[str]:
++    """Split names a report carries, in file order."""
++    jp = os.path.join(path, "eval_report.json") if os.path.isdir(path) else path
++    with open(jp) as f:
++        return list((json.load(f).get("results") or {}))
++
++
++def make_figures(report_paths, out_dir, dpi=130, split=None):
+     """Render all figures for the given run dirs / report paths into out_dir.
+ 
++    Without `split`, renders one figure set per split name found across the
++    reports. A protocol report (held_out + shifted) used to raise here, so the
++    browsergym campaign could produce no figures at all; a single-split report
++    still writes the unsuffixed filenames every earlier run used.
++
+     Returns the list of written file paths.
+     """
+     os.makedirs(out_dir, exist_ok=True)
+-    reports = [load_report(p) for p in report_paths]
+     written = []
+ 
+     def _save(fig, name):
+@@ -256,11 +267,42 @@ def make_figures(report_paths, out_dir, dpi=130):
+         plt.close(fig)
+         written.append(path)
+ 
+-    _save(plot_comparison(reports), "comparison.png")
+-    _save(plot_distributions(reports), "distributions.png")
+-    _save(plot_efficiency(reports), "efficiency.png")
+-
+-    for p, r in zip(report_paths, reports):
++    if split is not None:
++        splits = [split]
++    else:
++        splits = []
++        for p in report_paths:
++            for s in _report_splits(p):
++                if s not in splits:
++                    splits.append(s)
++        splits = splits or [_SPLIT]
++
++    for sp in splits:
++        # A run missing this split is skipped, not fatal: a mixed glob of
++        # single-split and protocol runs used to die on the first mismatch and
++        # lose the figures for the runs that would have worked.
++        reports = []
++        for p in report_paths:
++            try:
++                reports.append(load_report(p, sp))
++            except (ValueError, OSError) as exc:
++                print(f"skip {p} [{sp}]: {exc}")
++        if not reports:
++            continue
++        tag = f"_{sp}" if len(splits) > 1 else ""
++        for plot_fn, name in ((plot_comparison, "comparison"),
++                              (plot_distributions, "distributions"),
++                              (plot_efficiency, "efficiency")):
++            # Pre-agentic dataset-mode reports lack the CI fields these read.
++            # One such report in a glob used to abort the whole batch; say what
++            # broke and keep drawing the rest.
++            try:
++                _save(plot_fn(reports), f"{name}{tag}.png")
++            except (KeyError, TypeError, ValueError) as exc:
++                print(f"skip {name}{tag}.png: {type(exc).__name__}: {exc}")
++
++    # Training curves are per-run, not per-split - drawn once, outside the loop.
++    for p in report_paths:
+         run_dir = p if os.path.isdir(p) else os.path.dirname(p)
+         train_log = os.path.join(run_dir, "train_log.json")
+         if not os.path.exists(train_log):
+@@ -268,7 +310,7 @@ def make_figures(report_paths, out_dir, dpi=130):
+         with open(train_log) as f:
+             fig = plot_training_curves(json.load(f))
+         if fig is not None:
+-            _save(fig, f"training_curves_{_short(r['experiment_id'])}.png")
++            _save(fig, f"training_curves_{_short(os.path.basename(run_dir))}.png")
+     return written
+ 
+ 
+@@ -277,6 +319,8 @@ def main():
+     ap.add_argument("runs", nargs="*", help="run dirs or eval_report.json paths")
+     ap.add_argument("--glob", help="glob for run dirs, e.g. 'runs/e*'")
+     ap.add_argument("-o", "--out", default="runs/plots", help="output dir (default runs/plots)")
++    ap.add_argument("--split", default=None,
++                    help="render only this eval split (default: one figure set per split)")
+     args = ap.parse_args()
+ 
+     paths = list(args.runs) + (sorted(globmod.glob(args.glob)) if args.glob else [])
+@@ -290,7 +334,7 @@ def main():
+     if not valid:
+         ap.error("no runs with an eval_report.json (give run dirs or --glob)")
+ 
+-    for w in make_figures(valid, args.out):
++    for w in make_figures(valid, args.out, split=args.split):
+         print(f"wrote {w}")
+ 
+ 
+
+
+=== DIFF: pipeline/training/config_schema.py ===
+@@ -21,11 +21,30 @@ _KNOWN_TOP_LEVEL_KEYS = {
+ _KNOWN_REWARD_KEYS = {
+     "compose_method",
+     "token_length",
+-    "token_entropy",
+     "env_reward",
+     "non_termination",
+ }
+ 
++# Known keys under `training`. This was the last block with no whitelist, and it
++# is the one where a typo is most expensive: every key below has a default in
++# grpo_runner._grpo_config, so `max_prompt_lenght: 6144` validated fine, was
++# ignored, and the run trained at max_seq//2 while its own frozen config claimed
++# otherwise. The same silent fallback applied to n_rollouts (the GRPO group size,
++# hence the advantage denominator), micro_batch_size, kl_beta and save_steps.
++#
++# Deliberately absent: `gradient_accumulation_steps` and `dataset_size_limit`.
++# Both used to be range-checked here, and neither is read anywhere - grad accum
++# is derived from batch_size / micro_batch_size, and the dataset size comes from
++# env_config.size. Setting either now fails loudly instead of doing nothing.
++_KNOWN_TRAINING_KEYS = {
++    "mode", "env", "env_config", "env_server",
++    "max_prompt_length", "max_steps", "save_steps",
++    "n_rollouts", "batch_size", "micro_batch_size",
++    "learning_rate", "kl_beta", "temperature", "weight_decay", "warmup_ratio",
++}
++
++_KNOWN_ENV_SERVER_KEYS = {"repo_path", "port"}
++
+ # Known sub-keys under training.env_config (union across env types - catches
+ # typos like `datsaet` that would otherwise pass through and use the default).
+ _KNOWN_ENV_CONFIG_KEYS = {
+@@ -50,27 +69,27 @@ _KNOWN_ENV_CONFIG_KEYS = {
+ 
+ # Known eval keys. Closes the silent-passthrough gap that let a dead `ood_probes`
+ # block and a mistyped value slip through unnoticed.
+-_KNOWN_EVAL_KEYS = {"temperature", "do_sample", "max_new_tokens", "agentic"}
++# `reference_report` pins the over/under-thinking thresholds to another run's
++# token distribution (normally the E0 base-model report). Without it each run
++# uses its own P10/P75, which makes the rates invariant to a uniform change in
++# length - so they cannot detect the compression E2 exists to produce, and two
++# arms' rates are measured against two different yardsticks.
++_KNOWN_EVAL_KEYS = {"temperature", "do_sample", "max_new_tokens", "agentic",
++                    "reference_report"}
+ _KNOWN_EVAL_AGENTIC_KEYS = {"n_episodes", "splits"}
+ # Per-split keys. `env_config` is merged over training.env_config, so a split
+ # overrides only what shifts; `seed_offset` moves the split to a disjoint region
+ # of the seed -> question mapping.
+ _KNOWN_EVAL_SPLIT_KEYS = {"name", "n_episodes", "env_config", "seed_offset"}
+ 
+-# Whitelist of allowed sub-keys per reward. Catches typos in YAML (e.g.
+-# `fork_mask_top_pct` after the rename to `fork_mask_top_frac`) that would
+-# otherwise pass through silently and use the default.
++# Whitelist of allowed sub-keys per reward. Catches typos in YAML that would
++# otherwise pass through silently and leave the reward on its default.
+ _COMMON_REWARD_SUBKEYS = {"enabled", "weight"}
+ _KNOWN_REWARD_SUBKEYS: dict[str, set[str]] = {
+     "token_length":  _COMMON_REWARD_SUBKEYS | {
+         "max_len",
+         "r_correct_short", "r_correct_long", "r_wrong_short", "r_wrong_long",
+     },
+-    "token_entropy": _COMMON_REWARD_SUBKEYS | {
+-        "reward_scale", "fork_mask_top_frac", "chunk_size",
+-        # Deprecated alias: still accepted, builder warns.
+-        "fork_mask_top_pct",
+-    },
+     "env_reward":    _COMMON_REWARD_SUBKEYS,
+     # E3 has no knobs: lambda is `weight`, the signal is the env's done flag.
+     "non_termination": _COMMON_REWARD_SUBKEYS,
+@@ -86,36 +105,23 @@ _NUMERIC_COERCIONS = {
+     "training.weight_decay": (0.0, 1.0),
+     "training.warmup_ratio": (0.0, 1.0),
+     "training.batch_size": (1, 1024),
+-    "training.gradient_accumulation_steps": (1, 1024),
+     "training.n_rollouts": (1, 256),
+     "training.save_steps": (1, 100_000),
+     "training.max_prompt_length": (1, 131072),
+-    "training.dataset_size_limit": (1, 1_000_000),
+ }
+ 
+ 
+ def warn_inert_scalars(rewards_cfg: dict, compose_method: str) -> list[str]:
+     """Return warnings for reward knobs that do nothing as configured.
+ 
+-    Under `advantage_weighted`, per-group z-scoring is invariant to any global
+-    positive scalar, so `token_entropy.reward_scale` cancels. It is live under
+-    `naive_sum`, so it stays quiet there.
+-
+-    Default-valued scalars are not flagged (boilerplate); we warn only when a
+-    value signals intent to tune (non-default reward_scale). Disabled rewards
+-    are skipped.
++    Under `advantage_weighted` every component is z-scored per prompt-group, so
++    a component with no within-group variance contributes exactly 0 no matter
++    what weight it carries. Disabled rewards are skipped.
+     """
+     rc = rewards_cfg or {}
+     warnings: list[str] = []
+-    lever = "Use `weight`, the signal shape, or compose_method: naive_sum instead."
+ 
+     if compose_method == "advantage_weighted":
+-        te = rc.get("token_entropy") or {}
+-        if te.get("enabled") and "reward_scale" in te and te["reward_scale"] != 0.1:
+-            warnings.append(
+-                f"rewards.token_entropy.reward_scale={te['reward_scale']} is inert under "
+-                f"advantage_weighted (z-scoring cancels global scalars). {lever}"
+-            )
+         # E3 is a binary flag, so it has zero within-group variance in any group
+         # where every rollout terminates - and there it contributes exactly 0.
+         # The penalty then goes silent precisely where behavior is already good,
+@@ -267,6 +273,23 @@ def validate_config(config: dict) -> None:
+                 f"Allowed: {sorted(allowed)}"
+             )
+ 
++    training = config.get("training")
++    if isinstance(training, dict):
++        unknown_tr = set(training) - _KNOWN_TRAINING_KEYS
++        if unknown_tr:
++            errors.append(
++                f"Unknown training keys: {sorted(unknown_tr)}. "
++                f"Known: {sorted(_KNOWN_TRAINING_KEYS)}"
++            )
++        env_server = training.get("env_server")
++        if isinstance(env_server, dict):
++            unknown_es = set(env_server) - _KNOWN_ENV_SERVER_KEYS
++            if unknown_es:
++                errors.append(
++                    f"Unknown training.env_server keys: {sorted(unknown_es)}. "
++                    f"Known: {sorted(_KNOWN_ENV_SERVER_KEYS)}"
++                )
++
+     env_config = (config.get("training") or {}).get("env_config")
+     if isinstance(env_config, dict):
+         unknown_ec = set(env_config) - _KNOWN_ENV_CONFIG_KEYS
+
+
+=== DIFF: pipeline/tests/test_batch_seeds.py ===
+@@ -39,3 +39,51 @@ def test_seed_coerced_to_int(tmp_path, monkeypatch):
+     with open(path) as f:
+         out = yaml.safe_load(f)
+     assert out["seed"] == 43 and isinstance(out["seed"], int)
++
++
++# --- each seed owns a disjoint block of the seed -> question mapping ---
++# Passing the raw config seed through as the dataset base made "replicates"
++# overlap almost completely: at size 500, seeds 42/43/44 shared 499 of 500
++# training questions, and at a 100-episode eval 99 of 100 eval questions. Eval
++# is greedy, so the shared ones decode identically - pooling three such runs
++# counts the same questions three times.
++
++def _blocks(seed, size=500, n_eval=100, offsets=(100_000, 200_000)):
++    from eval.agentic_eval import seed_block
++    base = seed_block(seed)
++    out = {"train": set(range(base, base + size))}
++    for off in offsets:
++        out[f"eval{off}"] = set(range(base + off, base + off + n_eval))
++    return out
++
++
++def test_training_sets_are_disjoint_across_seeds():
++    a, b, c = (_blocks(s)["train"] for s in (42, 43, 44))
++    assert not (a & b) and not (b & c) and not (a & c)
++
++
++def test_eval_sets_are_disjoint_across_seeds():
++    for off in ("eval100000", "eval200000"):
++        a, b, c = (_blocks(s)[off] for s in (42, 43, 44))
++        assert not (a & b) and not (b & c) and not (a & c)
++
++
++def test_eval_splits_stay_disjoint_from_training_and_each_other():
++    b = _blocks(42)
++    assert not (b["train"] & b["eval100000"])
++    assert not (b["train"] & b["eval200000"])
++    assert not (b["eval100000"] & b["eval200000"])
++
++
++def test_block_size_exceeds_every_split_offset():
++    # If a seed's offset reached the next block, seed 42's shifted split would
++    # land inside seed 43's questions.
++    from eval.agentic_eval import _SEED_BLOCK, _EVAL_SEED_OFFSET
++    assert _SEED_BLOCK > 2 * _EVAL_SEED_OFFSET
++
++
++def test_old_scheme_would_have_overlapped():
++    # Documents the defect the block scheme fixes: adjacent seeds under the raw
++    # pass-through shared all but one question.
++    old = [set(range(s, s + 500)) for s in (42, 43)]
++    assert len(old[0] & old[1]) == 499
+
+
+=== DIFF: pipeline/tests/test_validate_config.py ===
+@@ -79,3 +79,43 @@ def test_rejects_unknown_eval_agentic_key():
+     cfg["eval"] = {"agentic": {"n_epsiodes": 100}}  # typo
+     with pytest.raises(ValueError, match="eval.agentic"):
+         validate_config(cfg)
++
++
++# --- training block: the last config section with no key whitelist ---
++# Every training key has a default in grpo_runner._grpo_config, so a typo used to
++# validate fine, be ignored, and leave the run training at a geometry its own
++# frozen config contradicted.
++
++def test_rejects_unknown_training_key():
++    cfg = _agentic_base()
++    cfg["training"]["max_prompt_lenght"] = 6144      # the real typo shape
++    with pytest.raises(ValueError, match="training keys"):
++        validate_config(cfg)
++
++
++def test_rejects_training_key_that_is_read_nowhere():
++    # Both were range-checked but never read: grad accum is derived from
++    # batch_size / micro_batch_size, and dataset size comes from env_config.size.
++    for dead in ("gradient_accumulation_steps", "dataset_size_limit"):
++        cfg = _agentic_base()
++        cfg["training"][dead] = 8
++        with pytest.raises(ValueError, match="training keys"):
++            validate_config(cfg)
++
++
++def test_accepts_every_training_key_the_code_reads():
++    cfg = _agentic_base()
++    cfg["training"].update(
++        max_prompt_length=1024, max_steps=300, save_steps=100,
++        n_rollouts=8, batch_size=1, micro_batch_size=2,
++        learning_rate=5e-6, kl_beta=0.001, temperature=1.0,
++        weight_decay=0.1, warmup_ratio=0.1,
++    )
++    validate_config(cfg)  # must not raise
++
++
++def test_rejects_unknown_env_server_key():
++    cfg = _agentic_base()
++    cfg["training"]["env_server"] = {"repo_pth": "/workspace/OpenEnv/envs"}
++    with pytest.raises(ValueError, match="env_server"):
++        validate_config(cfg)
+
+
+=== DIFF: pipeline/tests/test_agentic_episode_eval.py ===
+@@ -1,4 +1,6 @@
+-from eval.agentic_eval import _parse_answer, _run_episodes, _metrics_to_dict, _completion_budget
++from eval.agentic_eval import (
++    _answer_from, _run_episodes, _metrics_to_dict, _completion_budget,
++)
+ from eval.metrics import SampleResult, compute_metrics
+ 
+ 
+@@ -20,39 +22,52 @@ def test_completion_budget_honors_max_prompt_length():
+     assert _completion_budget(cfg, 2048) == 1792
+ 
+ 
+-# --- _parse_answer: extract the answer from a model tool call ---
++# --- _answer_from: the answer argument of a parsed assistant message ---
++# The message shape is trl.chat_template_utils.parse_response's output, so eval
++# and training agree on what counts as a call by construction. The wire-format
++# handling (Hermes tags vs Llama's untagged `parameters`, truncated calls,
++# JSON quoted inside a think block) lives in that function and is covered
++# end-to-end in test_response_parsing.py, which needs a real tokenizer.
+ 
+-def test_parse_answer_simple():
+-    t = '<tool_call>\n{"name": "answer", "arguments": {"answer": "42"}}\n</tool_call>'
+-    assert _parse_answer(t) == "42"
++def _answer_msg(value, name="answer"):
++    return {"role": "assistant", "content": "",
++            "tool_calls": [{"type": "function",
++                            "function": {"name": name, "arguments": {"answer": value}}}]}
+ 
+ 
+-def test_parse_answer_with_think_prefix():
+-    t = '<think>17+25 is 42</think>\n<tool_call>{"name": "answer", "arguments": {"answer": "42"}}</tool_call>'
+-    assert _parse_answer(t) == "42"
++def test_answer_from_simple():
++    assert _answer_from(_answer_msg("42")) == "42"
+ 
+ 
+-def test_parse_answer_coerces_non_string():
+-    t = '<tool_call>{"name": "answer", "arguments": {"answer": 42}}</tool_call>'
+-    assert _parse_answer(t) == "42"
++def test_answer_from_coerces_non_string():
++    assert _answer_from(_answer_msg(42)) == "42"
+ 
+ 
+-def test_parse_answer_takes_first_answer_call():
+-    t = ('<tool_call>{"name":"answer","arguments":{"answer":"7"}}</tool_call>'
+-         '<tool_call>{"name":"answer","arguments":{"answer":"8"}}</tool_call>')
+-    assert _parse_answer(t) == "7"
++def test_answer_from_takes_first_answer_call():
++    msg = _answer_msg("7")
++    msg["tool_calls"].append({"type": "function",
++                              "function": {"name": "answer", "arguments": {"answer": "8"}}})
++    assert _answer_from(msg) == "7"
+ 
+ 
+-def test_parse_answer_none_without_tool_call():
+-    assert _parse_answer("the answer is 42") is None
++def test_answer_from_none_without_tool_call():
++    assert _answer_from({"role": "assistant", "content": "the answer is 42"}) is None
+ 
+ 
+-def test_parse_answer_none_on_malformed_json():
+-    assert _parse_answer("<tool_call>{not valid json}</tool_call>") is None
++def test_answer_from_ignores_other_tools():
++    assert _answer_from(_answer_msg("42", name="other")) is None
+ 
+ 
+-def test_parse_answer_ignores_other_tools():
+-    assert _parse_answer('<tool_call>{"name":"other","arguments":{"x":1}}</tool_call>') is None
++def test_answer_from_none_when_argument_missing():
++    msg = {"role": "assistant", "tool_calls": [
++        {"type": "function", "function": {"name": "answer", "arguments": {}}}]}
++    assert _answer_from(msg) is None
++
++
++def test_answer_from_none_on_non_dict_arguments():
++    msg = {"role": "assistant", "tool_calls": [
++        {"type": "function", "function": {"name": "answer", "arguments": "42"}}]}
++    assert _answer_from(msg) is None
+ 
+ 
+ # --- _run_episodes: drive env reset/score with an injected generator ---
+
+
+=== DIFF: pipeline/training/registry.py ===
+@@ -24,6 +24,35 @@ MODEL_REGISTRY: dict[str, dict] = {
+         "max_seq_length": 2048,
+         "max_lora_rank": 64,
+     },
++    # Second lineage, for the cross-model check that the reward effects are not
++    # a Qwen artefact. Llama is not a preference, it is the only option: TRL's
++    # `add_response_schema` matches chat templates by exact string equality
++    # against a fixed list (glm4moe, gptoss, llama3_1/3_2, qwen*, nemotron_3)
++    # and `GRPOTrainer` refuses to start on anything else. Of that list the only
++    # non-Qwen entries that fit a 24 GB card are the Llama 3.x pair - gpt-oss is
++    # 21.5B and GLM-4.5-Air 110B. SmolLM3 and Granite render our tools correctly
++    # and TRL still rejects them, so "has a tool-calling template" is not the bar.
++    #
++    # The `unsloth/` mirror rather than `meta-llama/` because the official repo
++    # is gated behind license approval plus an HF token readable on the box, and
++    # that box is shared. The usual objection to a mirror is that a re-upload
++    # could carry a modified template, which for this pipeline would be the one
++    # confound that matters; this mirror's `chat_template` hashes byte-identical
++    # to TRL's `llama3_2_chat_template` (sha256 5816fce10444e03c). Its only
++    # deviations from stock are an `unsloth_fixed` marker in config.json and a
++    # `pad_token` of `<|finetune_right_pad_id|>`, a reserved Llama token that
++    # official ships unset.
++    #
++    # Two differences from Qwen3 matter to a length study: no thinking mode (so
++    # the tool-call JSON is the whole generation and there is no reasoning trace
++    # to compress), and a 128k vocab against Qwen3's 152k (a proportionally
++    # smaller logits tensor in the policy update).
++    "llama3.2-1b": {
++        "model_name": "unsloth/Llama-3.2-1B-Instruct",
++        "load_in_4bit": False,
++        "max_seq_length": 2048,
++        "max_lora_rank": 32,
++    },
+ }
+ 
+ LORA_TARGET_MODULES = [
+
+
+=== DIFF: pipeline/tests/test_cosine_length_ids.py ===
+@@ -13,12 +13,15 @@ class _Env:
+         self.reward = reward
+ 
+ 
+-def test_prefers_completion_ids_over_text():
++def test_completion_ids_are_ignored():
++    # One ruler for every completion. Preferring completion_ids used to make the
++    # measurement depend on whether TRL had interleaved a tool message, which it
++    # does exactly when the model called a tool - i.e. the counter branched on
++    # correctness. See test_same_ruler_for_answered_and_unanswered below.
+     r = CosineLengthReward(_Tok(), max_len=10)
+-    # completion_ids says 2 tokens; the decoded text would re-encode to 5.
+     out_ids = r(["p"], ["a b c d e"], environments=[_Env(1.0)], completion_ids=[[1, 2]])
+     out_txt = r(["p"], ["a b c d e"], environments=[_Env(1.0)])
+-    assert out_ids != out_txt  # id path (2 tokens) differs from text path (5)
++    assert out_ids == out_txt
+ 
+ 
+ def test_falls_back_to_text_without_ids():
+@@ -71,10 +74,27 @@ def test_multiturn_counts_assistant_only_not_completion_ids():
+     assert out[0] == r._reward(4, True)
+ 
+ 
+-def test_singleturn_one_assistant_message_uses_completion_ids():
+-    # Single assistant message, no tool message -> single-turn -> use the exact
+-    # completion_ids count (3), NOT the re-encoded text (5). Reasoning_gym parity.
++def test_singleturn_counts_assistant_content_not_ids():
++    # Single assistant message, no tool message. The count is the re-encoded
++    # assistant content (5), not len(completion_ids) (3).
+     r = CosineLengthReward(_Tok(), max_len=100)
+     completion = [{"role": "assistant", "content": "a b c d e"}]
+     out = r(["p"], [completion], environments=[_Env(1.0)], completion_ids=[[1, 2, 3]])
+-    assert out[0] == r._reward(3, True)
++    assert out[0] == r._reward(5, True)
++
++
++def test_same_ruler_for_answered_and_unanswered_rollouts():
++    # THE regression guard for the two-rulers bug. Both rollouts emit identical
++    # assistant content; one called the tool (so TRL interleaved a tool message)
++    # and one did not. Under the old branch the first was measured with
++    # model_token_count and the second with raw completion_ids - and since a
++    # rollout that never answers always scores wrong, the wrong arm was
++    # systematically inflated relative to the correct arm by measurement alone.
++    r = CosineLengthReward(_Tok(), max_len=100)
++    answered = [{"role": "assistant", "content": "a b c"},
++                {"role": "tool", "content": "Recorded answer: 42"}]
++    unanswered = [{"role": "assistant", "content": "a b c"}]
++    out = r(["p", "p"], [answered, unanswered],
++            environments=[_Env(1.0), _Env(1.0)],
++            completion_ids=[[0] * 40, [0] * 9])
++    assert out[0] == out[1] == r._reward(3, True)
+
+
+=== DIFF: pipeline/tests/test_guardrail.py ===
+@@ -1,20 +1,31 @@
+-"""Guardrail: warn when a token_entropy knob does nothing for the resolved composer.
++"""Guardrail: warn when a reward does nothing for the resolved composer.
+ 
+-token_entropy.reward_scale is inert under advantage_weighted (per-group z-scoring
+-cancels the global scalar) but live under naive_sum.
++`advantage_weighted` z-scores each component per prompt-group, so a component
++with zero within-group variance contributes exactly 0 regardless of its weight.
++E3 (non_termination) is binary, so that is precisely what happens in every group
++where all rollouts terminate - the penalty goes silent exactly where behaviour
++is already good, which is not the shaped reward the expose specifies. The lambda
++sweep therefore has to run under naive_sum.
+ """
+ from training.config_schema import warn_inert_scalars
+ 
+ 
+-def test_warns_reward_scale_under_advantage_weighted():
+-    # token_entropy.reward_scale is inert under advantage_weighted (z-scoring
+-    # cancels the global scalar).
+-    cfg = {"token_entropy": {"enabled": True, "reward_scale": 0.5}}
++def test_warns_non_termination_under_advantage_weighted():
++    cfg = {"non_termination": {"enabled": True, "weight": 1.0}}
+     w = warn_inert_scalars(cfg, "advantage_weighted")
+-    assert any("reward_scale" in s for s in w)
++    assert any("non_termination" in s and "naive_sum" in s for s in w)
+ 
+ 
+-def test_entropy_quiet_under_naive_sum():
+-    # token_entropy.reward_scale is live under naive_sum -> no warning.
+-    cfg = {"token_entropy": {"enabled": True, "reward_scale": 0.5}}
++def test_non_termination_quiet_under_naive_sum():
++    cfg = {"non_termination": {"enabled": True, "weight": 1.0}}
+     assert warn_inert_scalars(cfg, "naive_sum") == []
++
++
++def test_disabled_reward_is_not_flagged():
++    cfg = {"non_termination": {"enabled": False, "weight": 1.0}}
++    assert warn_inert_scalars(cfg, "advantage_weighted") == []
++
++
++def test_no_rewards_configured_is_quiet():
++    assert warn_inert_scalars({}, "advantage_weighted") == []
++    assert warn_inert_scalars(None, "advantage_weighted") == []
+
+
+=== DIFF: pipeline/eval/metrics.py ===
+@@ -46,6 +46,14 @@ class EvalMetrics:
+     mean_token_count: float = 0.0
+     mean_token_count_ci_low: float = 0.0
+     mean_token_count_ci_high: float = 0.0
++    # Mean tokens over CORRECT episodes only - the efficiency number. The pooled
++    # mean above is dominated by failures, which run to the generation cap, so a
++    # change in failure rate there is indistinguishable from a change in length.
++    # That confound is what voided e9-e21. None when nothing was correct (not
++    # 0.0, which would read as perfectly efficient).
++    mean_token_count_correct: float | None = None
++    mean_token_count_correct_ci_low: float | None = None
++    mean_token_count_correct_ci_high: float | None = None
+     # Fraction of correct completions whose token count is at or below the
+     # per-split P10 (configurable). Captures "correct with too little
+     # reasoning — likely pattern-match luck". None when there are no
+@@ -275,6 +283,14 @@ def compute_metrics(
+ 
+     correct_results = [r for r in results if r.correct]
+ 
++    # The efficiency number, kept next to the pooled one rather than only inside
++    # the plotting module (where it used to live and no report could reach it).
++    mean_correct = correct_lo = correct_hi = None
++    if correct_results:
++        correct_tokens = np.array([r.n_tokens for r in correct_results], dtype=float)
++        mean_correct = float(correct_tokens.mean())
++        correct_lo, correct_hi = _bootstrap_ci(correct_tokens, n_bootstrap=n_bootstrap)
++
+     # Absolute-threshold overrides (e.g. from a fixed reference run via
+     # load_reference_thresholds) take precedence over the per-run percentile.
+     # When set, they make the over/under-thinking rate comparable across runs;
+@@ -337,6 +353,9 @@ def compute_metrics(
+         mean_token_count=mean_tokens,
+         mean_token_count_ci_low=tokens_ci_low,
+         mean_token_count_ci_high=tokens_ci_high,
++        mean_token_count_correct=mean_correct,
++        mean_token_count_correct_ci_low=correct_lo,
++        mean_token_count_correct_ci_high=correct_hi,
+         underthinking_rate=underthinking_rate,
+         underthinking_rate_ci_low=under_ci_low,
+         underthinking_rate_ci_high=under_ci_high,
+
+
+=== DIFF: pipeline/training/batch.py ===
+@@ -182,6 +182,25 @@ def _is_real_checkpoint(exp_id: str) -> bool:
+     return os.path.isdir(ckpt) and not os.path.isfile(os.path.join(ckpt, ".smoke"))
+ 
+ 
++def mark_smoke_checkpoint(checkpoint_dir: str, smoke: bool) -> None:
++    """Set or clear the `.smoke` marker `_is_real_checkpoint` reads.
++
++    Lives here, next to its reader, so the two cannot drift; `training.train`
++    calls it after saving the adapter.
++
++    Clearing matters as much as setting. `save_pretrained` does not empty the
++    directory, so a marker left by an earlier --smoke run used to survive a real
++    one forever: `_is_real_checkpoint` then never skipped train, while train's
++    own clobber guard refused to overwrite without --overwrite, and the run
++    became unrunnable through the batch runner without --force.
++    """
++    marker = os.path.join(checkpoint_dir, ".smoke")
++    if smoke:
++        open(marker, "w").close()
++    elif os.path.exists(marker):
++        os.remove(marker)
++
++
+ def _write_eval_stub(config_path: str, status: str, note: str = "") -> bool:
+     """Backstop for T0.5: guarantee runs/<exp>/eval_report.json exists even when
+     the eval phase produced none — eval skipped before the subprocess ran (no
+
+
+=== DIFF: pipeline/training/grpo_runner.py ===
+@@ -118,13 +118,17 @@ class GRPORunner:
+             beta=float(t.get("kl_beta", 0.001)),
+             seed=int(self.config.get("seed", 42)),
+         )
+-        # Multi-turn domains cap the tool-calling loop at max_turns so a rollout
+-        # cannot run unbounded turns. Single-step domains leave it unset (the
+-        # model calls its one tool and stops). max_tool_calling_iterations is a
+-        # TRL 1.6 GRPOConfig field (confirmed at the L4 smoke).
++        # Cap the tool-calling loop. TRL treats an unset
++        # max_tool_calling_iterations as sys.maxsize, so leaving it off for
++        # single-step domains left the loop unbounded: a reasoning_gym rollout
++        # could call `answer` repeatedly until it filled the completion budget,
++        # which is itself a mechanism for the cap-bound rollouts the e22/e23 cap
++        # probes went looking for. Default to 1 - a single-step domain's model
++        # calls its one tool and stops - and let env_config.max_turns raise it.
++        # max_tool_calling_iterations is a TRL 1.6 GRPOConfig field (confirmed
++        # at the L4 smoke).
+         max_turns = int((t.get("env_config") or {}).get("max_turns", 0))
+-        if max_turns > 0:
+-            kwargs["max_tool_calling_iterations"] = max_turns
++        kwargs["max_tool_calling_iterations"] = max_turns if max_turns > 0 else 1
+         if self._use_vllm:
+             kwargs["use_vllm"] = True
+             kwargs["vllm_mode"] = "colocate"
+@@ -183,10 +187,15 @@ class GRPORunner:
+     def _save_train_log(trainer, output_dir: str) -> None:
+         """Persist TRL's in-memory log_history to train_log.json.
+ 
+-        save_strategy is off (we save only the final LoRA), so TRL never writes
+-        trainer_state.json and the per-step curves - reward/kl/loss/completion
++        TRL writes a checkpoint every `save_steps` (100 by default, since
++        GRPOConfig's save_strategy is STEPS), but those carry only what the
++        trainer needs to resume. The per-step curves - reward/kl/loss/completion
+         length plus the per-component reward metrics the callback merged in -
+-        would vanish on exit. Dump them so eval.plots can draw training curves.
++        live in `state.log_history` and would vanish on exit. Dump them so
++        eval.plots can draw training curves.
++
++        This runs after `trainer.train()` returns, so a killed run loses the
++        file; its curves survive only as text in the batch log.
+         """
+         log = getattr(getattr(trainer, "state", None), "log_history", None)
+         if not log:
+
+
+=== DIFF: pipeline/training/rewards/cosine_length.py ===
+@@ -76,30 +76,19 @@ class CosineLengthReward:
+             float(getattr(e, "reward", 0.0)) >= CORRECT_REWARD_THRESHOLD
+             for e in environments
+         ]
+-        # Prefer the exact model-generated token ids TRL/the rollout_func provide
+-        # over re-encoding decoded text, so the length signal counts model tokens
+-        # only. Falls back to re-encoding the decoded completion.
+-        provided_ids = kwargs.get("completion_ids")
+-        scores = []
+-        for i, completion in enumerate(completions):
+-            ids_i = provided_ids[i] if (provided_ids is not None and i < len(provided_ids)) else None
+-            n_tokens = self._n_tokens(completion, ids_i)
+-            scores.append(self._reward(n_tokens, correct_flags[i]))
+-        return scores
+-
+-    @staticmethod
+-    def _is_multiturn(completion) -> bool:
+-        # Multi-turn iff TRL interleaved a tool-result (game feedback) message.
+-        # In that case completion_ids over-counts (it includes tool tokens), so
+-        # fall back to the assistant-only re-encode.
+-        return isinstance(completion, list) and any(
+-            isinstance(m, dict) and m.get("role") == "tool" for m in completion
+-        )
+-
+-    def _n_tokens(self, completion, completion_ids_i) -> int:
+-        # Single-turn: prefer the exact model-generated ids TRL provides (no
+-        # re-encode) - keeps reasoning_gym numbers identical. Multi-turn: count
+-        # assistant tokens only, excluding injected feedback.
+-        if not self._is_multiturn(completion) and completion_ids_i is not None:
+-            return len(completion_ids_i)
+-        return model_token_count(completion, self.tokenizer)
++        # One ruler for every completion. This used to branch: raw
++        # `len(completion_ids)` when TRL had interleaved no tool message,
++        # `model_token_count` otherwise. But TRL interleaves a tool message
++        # exactly when the model called a tool, so the branch was a proxy for
++        # the correctness gate a few lines up - rollouts that answered were
++        # counted one way, rollouts that never answered (always scored wrong)
++        # the other, and the latter kept every `<think>` / `<tool_call>` /
++        # `<|im_end|>` framing token the former dropped. The wrong arm was
++        # inflated by tens of tokens purely by measurement, and because the
++        # composer z-scores per prompt-group that offset shifted every rollout's
++        # normalised value. Same class as the reasoning_content bug: a plausible
++        # number computed from the wrong token set.
++        return [
++            self._reward(model_token_count(c, self.tokenizer), correct_flags[i])
++            for i, c in enumerate(completions)
++        ]
+
+
+=== DIFF: pipeline/tests/test_registry.py ===
+@@ -9,9 +9,20 @@ def test_qwen3_1_7b_registered():
+     assert cfg["max_seq_length"] == 2048
+ 
+ 
++# Mirror names stay banned by default: the pipeline dropped the Unsloth loader
++# for plain `AutoModelForCausalLM` in cf7f0db, and a re-uploaded checkpoint under
++# a stock loader is a silent confound. Pinned exceptions are allowed only where
++# the official repo is unreachable and the mirror has been checked - see the
++# registry comment for what was verified on this one.
++ALLOWED_MIRRORS = {"unsloth/Llama-3.2-1B-Instruct"}
++
++
+ def test_no_unsloth_prefixed_model_names():
+     for slug, cfg in MODEL_REGISTRY.items():
+-        assert not cfg["model_name"].startswith("unsloth/"), slug
++        name = cfg["model_name"]
++        if name in ALLOWED_MIRRORS:
++            continue
++        assert not name.startswith("unsloth/"), slug
+ 
+ 
+ def test_unknown_slug_raises():
+
+
+=== DIFF: pipeline/tests/test_offtarget_metrics.py ===
+@@ -93,9 +93,19 @@ def _msgs(o):
+     return [{"role": "user", "content": o}]
+ 
+ 
++def _turn(name, args, n_tok):
++    """A turn_fn result: (parsed assistant message, tool name, args, tokens)."""
++    msg = {"role": "assistant", "content": ""}
++    if name is not None:
++        msg["tool_calls"] = [{"type": "function",
++                              "function": {"name": name, "arguments": args or {}}}]
++    return msg, name, args, n_tok
++
++
+ def _run(scripted, max_turns=6, gen_cap=1024):
++    turns = iter([_turn(*t) for t in scripted])
+     return _run_multiturn_episodes(
+-        _FakeToolEnv(), 1, 0, lambda m: next(scripted),
++        _FakeToolEnv(), 1, 0, lambda m, budget: next(turns),
+         max_turns=max_turns, make_messages=_msgs, tool_names=_TOOLS, gen_cap=gen_cap,
+     )
+ 
+
+
+Investigate per the method in your instructions, then return the findings list.
