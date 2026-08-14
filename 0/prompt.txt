@@ -1,0 +1,1 @@
+ok do the proposed train.py fix, then commit and push again. tell me when done
