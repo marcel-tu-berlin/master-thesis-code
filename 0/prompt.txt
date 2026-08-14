@@ -1,0 +1,52 @@
+Review this change for security vulnerabilities.
+
+Changed files (you may Read these and any other file in the repo):
+  - pipeline/configs/e27-browsergym-e1-baseline-qwen3-1_7b.yaml
+  - pipeline/configs/e28-browsergym-e2-cosine-qwen3-1_7b.yaml
+  - pipeline/configs/e29-browsergym-e3-nontermination-qwen3-1_7b.yaml
+
+Unified diff (only + lines are new):
+
+=== DIFF: pipeline/configs/e27-browsergym-e1-baseline-qwen3-1_7b.yaml ===
+@@ -51,6 +51,12 @@ training:
+   # the worst trajectory in the mix lands near 4124 and the median near 2686.
+   # It fits, with nothing to spare at the tail - watch clip ratio at step 5.
+   max_prompt_length: 4096
++  # Stated, not left to the default, so the frozen config records it. The E1/E2/E3
++  # arms are only comparable if all three ran the same geometry, and the check for
++  # that is the diff of the frozen runs/<exp>/config.yaml files - which cannot see
++  # a key no config writes. 4 is also what grpo_runner defaults to, so this changes
++  # nothing about what runs.
++  batch_size: 4
+   n_rollouts: 8
+   micro_batch_size: 1
+   max_steps: 300
+
+
+=== DIFF: pipeline/configs/e28-browsergym-e2-cosine-qwen3-1_7b.yaml ===
+@@ -25,6 +25,9 @@ training:
+   # max_completion_length per trajectory, not per turn). e27 clipped at
+   # 0.008-0.058 across 300 steps with no drift, so this is sized right.
+   max_prompt_length: 4096
++  # Geometry stated explicitly so the frozen config records it - see e27. This arm
++  # must differ from e27 in exactly the rewards.token_length block and nothing else.
++  batch_size: 4
+   n_rollouts: 8
+   micro_batch_size: 1
+   max_steps: 300
+
+
+=== DIFF: pipeline/configs/e29-browsergym-e3-nontermination-qwen3-1_7b.yaml ===
+@@ -22,6 +22,9 @@ training:
+     repo_path: /workspace/OpenEnv/envs
+     port: 8000
+   max_prompt_length: 4096
++  # Geometry stated explicitly so the frozen config records it - see e27. This arm
++  # must differ from e27 in exactly the rewards.non_termination block and nothing else.
++  batch_size: 4
+   n_rollouts: 8
+   micro_batch_size: 1
+   max_steps: 300
+
+
+Investigate per the method in your instructions, then return the findings list.
