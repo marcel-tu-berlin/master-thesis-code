@@ -1,0 +1,6 @@
+<task-notification>
+<task-id>bbi4xpdav</task-id>
+<summary>Monitor event: "token_truncate 50-step verification on gpu-l4 (pid 508770)"</summary>
+<event>VERIFY step ~25/50:</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
