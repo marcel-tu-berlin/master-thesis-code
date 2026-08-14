@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>byr12ug45</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/25f68f83-6041-4412-8b24-5cd51640c84a/tasks/byr12ug45.output</output-file>
+<status>completed</status>
+<summary>Monitor "B2 temp-1.2 lr-5e-5 probe on gpu-l4 (pid 1505327)" stream ended</summary>
+</task-notification>
