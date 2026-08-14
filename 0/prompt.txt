@@ -1,0 +1,3 @@
+ok so for now we dont need more seeds. the result is enough for me
+
+why again can we not just set the cap to 16k or make it unlimited? is this due to memory constraints? and if so which options do we have so that we dont need to fight early terminations?
