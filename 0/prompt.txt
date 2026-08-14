@@ -1,0 +1,3 @@
+first wtf is going on with the @RUNNING.md . its only and really only a basic list tracking whats running. why the fuck are you putting so much information their? either create a dedicated document holding best practices/decisions or whatever you call it but running should do what it says: contain a list of running experiments on the box - not more, not less
+
+then commit and push after this is fixed
