@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bk2ddbpia</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/e023ab91-4ec9-4799-ba43-493733af57c7/tasks/bk2ddbpia.output</output-file>
+<status>failed</status>
+<summary>Background command "Wait for e27 re-eval completion" failed with exit code 255</summary>
+</task-notification>
