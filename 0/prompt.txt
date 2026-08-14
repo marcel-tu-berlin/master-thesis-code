@@ -1,0 +1,277 @@
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. Primary Request and Intent:
+
+   The user is writing a Master's thesis on **reward bias substitution** (Lamparth et al. 2026). RQ1 = effectiveness of efficiency reward shaping; RQ2 = does reducing one inefficiency shift the agent toward another undesirable behavior; RQ3 = an evaluation protocol distinguishing genuine gains from substitution. Reward conditions: E0 base model, E1 task-success baseline, E2 length-aware (cosine/DIET), E3 non-termination-aware, optional E4 combined. Shaped reward: `R_lambda = R_task - lambda * C_target`.
+
+   Four substantive user requests this session, in order:
+
+   (a) **"add llama-3.2-1b to the registry already. my hf cli is authed if needed here"** - resolve the pending model-lineage decision by adding the 1B variant.
+
+   (b) **"any other downloadable open source model without the need for a license? i really dont care about the exact model. or lets just take the ones from unsloth? would this induce any disadvantages i dont see atm?"** - after I reported the meta-llama gating blocker, asked for ungated alternatives and an honest assessment of unsloth mirror downsides.
+
+   (c) **"go"** - approval to point the registry at the unsloth mirror, narrow the test guard, and land the eval-parser fallback.
+
+   (d) **"in the meantime make a very short and focused high level report of where we at. looking at our current finalized expose and the code base: what is missing in the code and experiment wise? what are next steps. just 2-3 sentences very high level such that i can update my supervisor. and write this in german."** - plus the full exposé v1.0 pasted for reference. **This is the outstanding deliverable.**
+
+   Also, mid-session: **"whats the current state of the experiments on the box right now? can we stop them and restart later again? because a collegue needs the box now"** - answered, and the user then selected "Kill now (Recommended)" via AskUserQuestion.
+
+   **Standing constraints from CLAUDE.md / global config that REMAIN IN FORCE:**
+   - **Never include the user's name ("Marcel" / "Marcel Heidebrecht") in any commit message, code comment, docstring, or generated file.** Conventional commits (`feat:`, `fix:`, `refactor:`, `chore:`, `docs:`), no personal names.
+   - **ASCII only in all output** - no em dashes, en dashes, curly/smart quotes, ellipsis characters, non-breaking spaces. (German umlauts are letters, not typographic ornament, and are required for correct German.)
+   - **Work on `master` only** - never create branches or git worktrees for this repo.
+   - **Commit only when asked.** Nothing has been committed this session.
+   - `RUNNING.md` must be stamped with box time (`ssh gpu-l4 date`), never local time; updated at every phase change, kill, and crash; rows deleted once harvested; "Nothing running." when idle.
+   - **End every response with a "Next steps" section.**
+   - Mark any unverified assumption acted on with a greppable `ASSUMPTION:` prefix.
+   - Use Context7 MCP for library/framework/API documentation questions.
+   - Mandatory skills: `humanizer` + `writing-clearly-and-concisely` for any human-facing prose (both loaded this turn); `karpathy-guidelines`; `/ponytail` YAGNI ladder; `i-have-adhd` for decision/action turns.
+   - Caveman mode (terse prose) and Ponytail mode (YAGNI) active via hooks; code/commits/docs written normally.
+
+2. Key Technical Concepts:
+   - GRPO (TRL `GRPOTrainer`) with `environment_factory`, LoRA/PEFT, Qwen3-1.7B, vLLM colocate on NVIDIA L4 (24 GB)
+   - OpenEnv environments as local HTTP subprocesses (no Docker); BrowserGym/MiniWoB++
+   - **TRL matches chat templates by exact string equality** in `add_response_schema` against a fixed list; `grpo_trainer.py:488` hard-raises when `supports_tool_calling` is False. This is the real constraint on model choice, not "has a tools template".
+   - Two tool-call wire formats: Qwen/Hermes `<tool_call>{"name":..., "arguments":...}</tool_call>` vs Llama 3.x bare `{"name":..., "parameters":...}`
+   - `json.JSONDecoder().raw_decode(text, idx)` as the correct untagged-JSON scanner (brace-matching regex truncates on nested objects)
+   - `frac_reward_zero_std`; `AdvantageWeightedComposer` vs `NaiveSumComposer`; `CORRECT_REWARD_THRESHOLD = 0.5`
+   - Paired McNemar exact test; `_EVAL_SEED_OFFSET = 100_000`, shifted split `seed_offset: 200000`
+   - transformers `parse_response` puts Qwen3 think blocks in `reasoning_content` (root of the voided e9-e25 campaign)
+   - HF `TrainingArguments.save_strategy` defaults to `STEPS`; `save_only_model=False` means optimizer state is checkpointed
+
+3. Files and Code Sections:
+
+   - **`pipeline/training/registry.py`** (MODIFIED) - added the second-lineage entry after `qwen-7b`. Final state of the new entry:
+     ```python
+     # Second lineage, for the cross-model check that the reward effects are not
+     # a Qwen artefact. Llama is not a preference, it is the only option: TRL's
+     # `add_response_schema` matches chat templates by exact string equality
+     # against a fixed list (glm4moe, gptoss, llama3_1/3_2, qwen*, nemotron_3)
+     # and `GRPOTrainer` refuses to start on anything else. Of that list the only
+     # non-Qwen entries that fit a 24 GB card are the Llama 3.x pair - gpt-oss is
+     # 21.5B and GLM-4.5-Air 110B. SmolLM3 and Granite render our tools correctly
+     # and TRL still rejects them, so "has a tool-calling template" is not the bar.
+     #
+     # The `unsloth/` mirror rather than `meta-llama/` because the official repo
+     # is gated behind license approval plus an HF token readable on the box, and
+     # that box is shared. The usual objection to a mirror is that a re-upload
+     # could carry a modified template, which for this pipeline would be the one
+     # confound that matters; this mirror's `chat_template` hashes byte-identical
+     # to TRL's `llama3_2_chat_template` (sha256 5816fce10444e03c). Its only
+     # deviations from stock are an `unsloth_fixed` marker in config.json and a
+     # `pad_token` of `<|finetune_right_pad_id|>`, a reserved Llama token that
+     # official ships unset.
+     #
+     # Two differences from Qwen3 matter to a length study: no thinking mode (so
+     # the tool-call JSON is the whole generation and there is no reasoning trace
+     # to compress), and a 128k vocab against Qwen3's 152k (a proportionally
+     # smaller logits tensor in the policy update).
+     "llama3.2-1b": {
+         "model_name": "unsloth/Llama-3.2-1B-Instruct",
+         "load_in_4bit": False,
+         "max_seq_length": 2048,
+         "max_lora_rank": 32,
+     },
+     ```
+
+   - **`pipeline/tests/test_registry.py`** (MODIFIED) - guard narrowed, not deleted:
+     ```python
+     # Mirror names stay banned by default: the pipeline dropped the Unsloth loader
+     # for plain `AutoModelForCausalLM` in cf7f0db, and a re-uploaded checkpoint under
+     # a stock loader is a silent confound. Pinned exceptions are allowed only where
+     # the official repo is unreachable and the mirror has been checked - see the
+     # registry comment for what was verified on this one.
+     ALLOWED_MIRRORS = {"unsloth/Llama-3.2-1B-Instruct"}
+
+     def test_no_unsloth_prefixed_model_names():
+         for slug, cfg in MODEL_REGISTRY.items():
+             name = cfg["model_name"]
+             if name in ALLOWED_MIRRORS:
+                 continue
+             assert not name.startswith("unsloth/"), slug
+     ```
+
+   - **`pipeline/configs/e0b-browsergym-base-llama3_2-1b.yaml`** (CREATED, untracked) - E0 on the second lineage. Verified by flattened-key diff to differ from `e0-browsergym-base-qwen3-1_7b.yaml` in exactly 3 keys: `experiment_id`, `model.slug`, `description`. Splits (held_out 100 / shifted 100 with `tasks: [navigate-tree, click-checkboxes-transfer]`, `seed_offset: 200000`), seeds, `max_new_tokens: 4096`, env geometry all identical. Run with `python -m eval.runner --config <this> --base-model`.
+
+   - **`pipeline/eval/agentic_eval.py`** (MODIFIED) - the load-bearing change. Added above `_parse_answer`:
+     ```python
+     def _iter_tool_payloads(text: str):
+         """Yield each tool-call payload dict the model emitted, in order.
+
+         Two wire formats, because the study runs two model lineages. Qwen3 wraps
+         calls in Hermes `<tool_call>` tags; Llama 3.x emits a bare JSON object with
+         no tags at all. Tagged matches take priority and short-circuit the rest, so
+         a model that emits tags is parsed exactly as it was before this existed and
+         the untagged scan only runs when there were none to find.
+
+         Training does not need this - TRL's `parse_response` normalises both from
+         the token ids. Eval parses the decoded text itself, so it has to agree.
+
+         One deliberate difference from TRL: its `llama3_schema` regex is anchored at
+         `^`, so a call preceded by prose is training-invisible and never executed.
+         The scan below is unanchored, which matches how the Hermes branch has always
+         treated Qwen (`finditer` over the whole completion) and keeps the two
+         lineages scored by one rule. It does mean eval credits a prose-prefixed call
+         that training would have dropped - relevant mainly to the untrained E0 arms,
+         which have not yet learnt to lead with the call.
+         """
+         tagged = False
+         for m in _TOOL_CALL_RE.finditer(text):
+             try:
+                 payload = json.loads(m.group(1))
+             except (ValueError, TypeError):
+                 continue
+             if isinstance(payload, dict):
+                 tagged = True
+                 yield payload
+         if tagged:
+             return
+
+         # Untagged JSON can start anywhere in the completion, and a brace-matching
+         # regex gets this wrong on nested objects. `raw_decode` from each `{` is the
+         # stdlib's own scanner, so it stops at the right brace by construction.
+         decoder = json.JSONDecoder()
+         for i, ch in enumerate(text):
+             if ch != "{":
+                 continue
+             try:
+                 payload, _ = decoder.raw_decode(text, i)
+             except ValueError:
+                 continue
+             if isinstance(payload, dict) and "name" in payload:
+                 yield payload
+
+     def _call_args(payload: dict) -> dict:
+         """The argument object of a tool call, under either lineage's key.
+
+         Qwen/Hermes calls it `arguments`, Llama 3.x calls it `parameters`. A payload
+         whose args are neither absent nor a dict (a model emitting them
+         pre-serialized, say) reads as no arguments rather than raising.
+         """
+         args = payload.get("arguments")
+         if args is None:
+             args = payload.get("parameters")
+         return args if isinstance(args, dict) else {}
+     ```
+     And both parsers rewritten to route through them:
+     ```python
+     def _parse_answer(text: str) -> str | None:
+         """Return the answer from the first valid `answer` tool call, else None."""
+         for payload in _iter_tool_payloads(text):
+             if payload.get("name") == "answer":
+                 ans = _call_args(payload).get("answer")
+                 if ans is not None:
+                     return str(ans)
+         return None
+
+     def _parse_tool_call(text: str) -> tuple | None:
+         """Return (name, arguments) from the FIRST valid tool call, else None.
+
+         General form used by the multi-turn loop (any tool name). The single-step
+         reasoning_gym path keeps its own _parse_answer (first `answer` call only).
+         """
+         for payload in _iter_tool_payloads(text):
+             name = payload.get("name")
+             if name is not None:
+                 return str(name), _call_args(payload)
+         return None
+     ```
+
+   - **`pipeline/tests/test_agentic_episode_eval.py`** (MODIFIED) - import widened to include `_parse_tool_call`; 7 tests added under `# --- Llama 3.x wire format: no <tool_call> tags, `parameters` not `arguments` ---`: `test_parse_answer_untagged_llama_format`, `test_parse_tool_call_untagged_llama_format`, `test_parse_tool_call_untagged_with_surrounding_prose`, `test_parse_tool_call_untagged_nested_args_not_truncated`, `test_tagged_call_wins_over_stray_untagged_json`, `test_parse_tool_call_still_none_on_plain_prose`, `test_parse_tool_call_none_on_json_without_name`.
+
+   - **`pipeline/training/grpo_runner.py`** (MODIFIED) - `_save_train_log` docstring corrected. Old text claimed "save_strategy is off (we save only the final LoRA), so TRL never writes trainer_state.json". Replaced with:
+     ```python
+     TRL writes a checkpoint every `save_steps` (100 by default, since
+     GRPOConfig's save_strategy is STEPS), but those carry only what the
+     trainer needs to resume. The per-step curves - reward/kl/loss/completion
+     length plus the per-component reward metrics the callback merged in -
+     live in `state.log_history` and would vanish on exit. Dump them so
+     eval.plots can draw training curves.
+
+     This runs after `trainer.train()` returns, so a killed run loses the
+     file; its curves survive only as text in the batch log.
+     ```
+
+   - **`RUNNING.md`** (MODIFIED) - stamp `2026-08-03 10:57 UTC (box time)`, table replaced with "Nothing running.", new top section `## e28/e29 stopped at step 83/300 - GPU handed to a colleague, not a failure` documenting the ordered kill, the orphaned env server, the relaunch command, the ~20h budget, and the checkpoint/resume findings. Older section renamed to `## e28 first attempt, KILLED at step 8/300 - the cosine was measuring the wrong quantity` to disambiguate two same-morning e28 stops.
+
+4. Errors and fixes:
+
+   - **`hf download meta-llama/Llama-3.2-1B-Instruct`** -> `Error: Access denied. This repository requires approval.` User's CLI is authed (`user=marcel290820`) but the account has not accepted the Llama license. Box additionally has `NO_TOKEN_FILE` / `NO_HF_ENV`. Resolved by moving to the unsloth mirror after the user asked about alternatives.
+
+   - **`test_no_unsloth_prefixed_model_names` FAILED** on my first registry entry. I did not paper over it - read the test, then `git show cf7f0db` to recover the rationale (guard landed when the pipeline migrated off the Unsloth loader to `AutoModelForCausalLM`). First switched to `meta-llama/`, then after the user's question and the byte-identical-template evidence, narrowed the guard with a pinned `ALLOWED_MIRRORS` exception rather than deleting it.
+
+   - **`from training.config_schema import load_config`** -> `ImportError: cannot import name 'load_config'`. The real public API is `validate_config(config: dict)` (line 185). Fixed by `yaml.safe_load(...)` + `validate_config(...)`.
+
+   - **`ModuleNotFoundError: No module named 'huggingface_hub'`** on system python3, and no `transformers` in `.venv-test` (and no `../.venv` at all on the Mac). Fixed by running the decisive checks on the box's `/workspace/master-thesis-code/.venv/bin/python`, which has transformers 5.12.0 - the version that actually matters.
+
+   - **`ImportError: cannot import name 'parse_response' from 'transformers.utils.chat_parsing_utils'`** - wrong module. TRL has its own at `trl/chat_template_utils.py:888` plus `supports_tool_calling` at :448 and `add_response_schema`. Fixed by importing from `trl.chat_template_utils`.
+
+   - **SyntaxError in an ssh heredoc**: `print(f"...{getattr(i,\"safetensors\",None)}...")` -> `unexpected character after line continuation character`. Fixed by switching to `%` formatting.
+
+   - **Repeated cwd confusion** - `cd pipeline` sometimes persisted between Bash calls and sometimes reset, producing `(eval):cd:1: no such file or directory: pipeline` and `../.venv-test/bin/python: no such file or directory`. Fixed by using absolute paths or a leading `cd /Users/.../master-thesis-code/pipeline &&`.
+
+   - **My own overcaution, corrected**: in the first turn I flagged the unsloth mirror as a lineage confound that "reopens the question". After measuring (template sha256 identical to TRL's constant; only `unsloth_fixed` + `pad_token` differ), I stated plainly that the caution was not warranted.
+
+   - **Stale docstring found and fixed**: `grpo_runner.py:186` asserted "save_strategy is off". Disproved by querying installed `GRPOConfig` (`save_strategy: SaveStrategy.STEPS`, `save_steps: 100`, `save_only_model: False`) and by e27's directory containing `checkpoint-100/-200/-300/-final`.
+
+5. Problem Solving:
+
+   **Model lineage resolved by enumeration, not preference.** Read `trl/chat_template_utils.py:380-470`: `add_response_schema` matches by exact string equality against glm4moe, gptoss, llama3_1/llama3_2, qwen2_5/qwen3/qwen3_instruct_2507/qwen3_vl, qwen3_5_nothink/qwen3_5_think/qwen3_6, nemotron_3_nano/super/ultra; everything else raises `ValueError: Unrecognized chat template`, and `grpo_trainer.py:488` refuses to start. Empirically: SmolLM3-3B and granite-3.3-2b render our `click` tool correctly (docstring schema and all) yet both return `supports_tool_calling: False`. Of the accepted list, the only non-Qwen entries that fit 24 GB are the Llama 3.x pair (gpt-oss-20b = 21.5B, GLM-4.5-Air = 110B, Nemotron 401). Granite was the one I wanted - Apache 2.0, thinking mode, 49k vocab that would have raised the completion-length ceiling - and it is unusable.
+
+   **Unsloth mirror assessed with evidence.** `chat_template` byte-identical to TRL's `llama3_2_chat_template`, sha256 `5816fce10444e03c` on both. Only deviations: `unsloth_fixed: true` in config.json and `pad_token: <|finetune_right_pad_id|>` (a reserved Llama token official ships unset). Weights could not be compared because meta-llama is inaccessible - stated as a residual limit. Recommendation went to the mirror partly because meta-llama would require a personal HF token on a box shared with another user.
+
+   **Eval parser was Qwen-locked and would have scored Llama 0/100.** Training was already fine (TRL's `parse_response` normalizes `parameters` -> `arguments` from token ids), so only eval needed work. Design verified against TRL's own `llama3_schema` rather than my assumed format - the `x-regex` confirmed `{"name":..., "parameters":...}` and the `x-regex-substitutions` confirmed the key rename. That check also surfaced that TRL is `^`-anchored while my scan is not; I kept mine unanchored to match how the Hermes branch has always treated Qwen and documented the divergence.
+
+   **GPU handed over cleanly.** Killed batch parent 783675 first so it could not launch e29 as the trainer exited, then watcher 786026, then train 783676; env server 783870 orphaned rather than following its parent and took a separate SIGTERM - `ps` on the parents alone would have looked clean while it still held port 8000. GPU verified free (0 MiB, 0%). Monitor task b6d60urm8 stopped so it would not report a false crash. MiniWoB static server 217225 on :8080 left up deliberately.
+
+   **Resume assessed and declined.** No checkpoint existed at step 83 (first lands at 100, missed by 17 steps / ~30 min). `resume_from_checkpoint` appears nowhere in the pipeline and `runner.train()` calls `trainer.train()` with no resume argument. Recommended a clean restart because the resume path is untested and e28 is the E2 arm the RQ1 claim rests on.
+
+6. All user messages:
+   - "/compact" (local command; caveat block says not to respond to it) followed by: "add llama-3.2-1b to the registry already. my hf cli is authed if needed here"
+   - "any other downloadable open source model without the need for a license? i really dont care about the exact model. or lets just take the ones from unsloth? would this induce any disadvantages i dont see atm?"
+   - "go"
+   - "whats the current state of the experiments on the box right now? can we stop them and restart later again? because a collegue needs the box now"
+   - (AskUserQuestion response) "Kill e28 now, or wait ~44 min for checkpoint-100 to land first?" = "Kill now (Recommended)"
+   - "in the meantime make a very short and focused high level report of where we at. looking at our current finalized expose and the code base: what is missing in the code and experiment wise? what are next steps. just 2-3 sentences very high level such that i can update my supervisor. and write this in german." - accompanied by the full text of the finalized exposé v1.0 (2026-08-03), a Typst document.
+
+   (Several transcript entries are automated system reminders about task tools; they are not user input.)
+
+7. Pending Tasks:
+   - **Write the German supervisor report** (2-3 sentences, high level: what is missing code-wise and experiment-wise, plus next steps). This is the active, unfinished deliverable.
+   - Relaunch e28/e29 from scratch once the colleague is done with the box (command is at the top of `RUNNING.md`).
+   - Seven files uncommitted; user has not asked for a commit.
+   - BACKLOG 4b still an open scope call: re-run a poly cosine arm on the fixed counter, or stop citing that campaign.
+   - First Llama run needs a smoke check that it actually emits parseable calls (parser verified against TRL's schema, not against real generations).
+
+8. Current Work:
+
+   The user's most recent request is the German supervisor report. I had just loaded the two mandatory prose skills (`humanizer` and `writing-clearly-and-concisely`) per CLAUDE.md, and they have returned. **No German text has been written yet.**
+
+   The content mapping I had worked out from the exposé's phase list against verified repository/box state:
+   - Phase 1 (secondary environment pilot, difficulty calibration, environment-selection criteria): done. Both rejections (calendar env reward blind to the goal; FinQA at `frac_reward_zero_std` 0.967, 0/60 held-out) are measured and written up.
+   - Phase 2 (E0 base + E1 task-success-only in BrowserGym, paired on identical instances): done. e0 and e27 harvested; held_out flat, shifted 0.870 -> 0.790 at p = 0.021 (McNemar).
+   - Phase 3 (E2 length-aware and E3 non-termination lambda sweeps): **not done** - e28/e29 launched at 08:34 UTC and stopped at step 83/300 this morning to free the box.
+   - Phase 4 (repeat across >= 2 seeds): not started.
+   - Phase 5 optional (second lineage on the non-termination condition): code is ready as of this session (registry entry, e0b config, dual-format eval parser); nothing has been run.
+   - Code gap worth naming: the exposé §6 "Lambda variation" promises lambda_low / medium / high, but only one lambda per condition exists as a config today (e28 at weight 1.0, e29).
+
+   Immediately prior to this, I had completed and verified the code work: 195 tests passing, box GPU confirmed free at 0 MiB / 0%, `RUNNING.md` updated with box time 10:57 UTC, and `git status --short` showing:
+   ```
+    M RUNNING.md
+    M pipeline/eval/agentic_eval.py
+    M pipeline/tests/test_agentic_episode_eval.py
+    M pipeline/tests/test_registry.py
+    M pipeline/training/grpo_runner.py
+    M pipeline/training/registry.py
+   ?? pipeline/configs/e0b-browsergym-base-llama3_2-1b.yaml
+   ```
+
+9. Optional Next Step:
+
+   Write the German report the user asked for, verbatim request: *"in the meantime make a very short and focused high level report of where we at. looking at our current finalized expose and the code base: what is missing in the code and experiment wise? what are next steps. just 2-3 sentences very high level such that i can update my supervisor. and write this in german."*
+
+   Three sentences covering: (1) Phases 1 and 2 are complete - environment selection is measured and the E0-vs-E1 paired comparison in BrowserGym is done; (2) what is missing is the actual efficiency conditions E2/E3, where the code is finished but the lambda-sweep configs are not, and the first run was stopped early to free the GPU; (3) next steps are the E2/E3 lambda sweep, then the seed replication, then optionally the second-lineage arm whose code support was just added. Apply the loaded humanizer and writing-clearly-and-concisely guidance, use proper German umlauts (letters, not typographic ornament), avoid em dashes and curly quotes, and close with the mandatory "Next steps" section.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/mheidebrecht/.claude/projects/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/ab988c24-a88e-415d-8dd2-615cc390ae14.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
