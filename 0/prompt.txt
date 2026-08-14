@@ -1,0 +1,6 @@
+<task-notification>
+<task-id>buj2cjpn8</task-id>
+<summary>Monitor event: "e27 retrain milestones and failures"</summary>
+<event>e27 step 103 reached. Last 'completions/clipped_ratio': '0.125' -- recheck clipping vs the pre-fix mean of 0.025 / max 0.500</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
