@@ -1,0 +1,7 @@
+Campaign check for the browsergym E1/E2/E3 arms (e27bs4, e28bs4, e29bs4) running on gpu-l4 as batch pid 2309661.
+
+1. Read state: `ssh -n gpu-l4 'sh /workspace/campaign_state.sh'`.
+2. If any arm changed phase since the last check (train -> eval, or the next arm started), update RUNNING.md - stamp `Updated:` with box time from `ssh gpu-l4 date -u`, never local time.
+3. If an arm just wrote its eval_report.json, harvest it: `rsync -a --exclude 'checkpoint*' gpu-l4:/workspace/master-thesis-code/pipeline/runs/<exp> pipeline/runs/` and report held_out and shifted accuracy, non_termination_rate, and mean_token_count_correct. Do not compare arms until all three have reported.
+4. If the state shows BATCH-PROCESS-GONE while any arm still lacks REPORT, treat it as a failure: diagnose from /workspace/e27bs4_e28bs4_e29bs4_batch.log and the arm's runs/<exp>/batch_train.log, and report what died.
+5. Otherwise reply with a single status line and nothing else.
