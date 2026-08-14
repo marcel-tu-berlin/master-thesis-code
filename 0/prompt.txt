@@ -1,0 +1,1 @@
+explain the need for rollout_func and environment_factory further - what are they exactly used for?
