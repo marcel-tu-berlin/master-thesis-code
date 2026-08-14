@@ -1,0 +1,1 @@
+ok please save the plan under docs/plans in this worktree and dont forget the optimization knobs from B - i dont see them in your plan. then continue with the execution
