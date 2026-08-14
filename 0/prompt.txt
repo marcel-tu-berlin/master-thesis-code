@@ -1,0 +1,2 @@
+meeting is already done. mainly we discussed some specifications on the concrete thesis direction but for now lets continue with the consine length reward. i want this finally fixed. do we really need this stupid token cap for the task solving? why not either increasing it to a much much higher value or having it
+  maybe even disabled completely? we need this reward to be tested. it doesnt make sense to just cut the agent off when it is still thinking
