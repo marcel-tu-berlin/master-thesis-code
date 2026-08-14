@@ -1,0 +1,1 @@
+ok good to know. i think we should have some state file in this repo so that we always know what currently runs. just in a simple format like you did with your last response. create it as suited, updated the @../../CLAUDE.md to reflect this as a hard requirement for every run being executed on the box and commit everything we currently have unversioned on master and push it
