@@ -1,0 +1,133 @@
+Review this change for security vulnerabilities.
+
+Changed files (you may Read these and any other file in the repo):
+  - pipeline/configs/e24-poly-4k-env-only-qwen3-1_7b.yaml
+  - pipeline/configs/e24bs4-poly-4k-env-only-qwen3-1_7b.yaml
+  - pipeline/configs/e25-poly-4k-cosine-w16-qwen3-1_7b.yaml
+  - pipeline/configs/e25bs4-poly-4k-cosine-w16-qwen3-1_7b.yaml
+
+Unified diff (only + lines are new):
+
+=== DIFF: pipeline/configs/e24-poly-4k-env-only-qwen3-1_7b.yaml ===
+@@ -1,3 +1,8 @@
++# SUPERSEDED by e24bs4-poly-4k-env-only-qwen3-1_7b.yaml. Do not run this one.
++# It trained on 2026-07-29, before a19b1ff made batch_size default to 4, so
++# runs/e24-poly-4k-env-only-qwen3-1_7b/ was produced at batch_size 1 and its
++# numbers are void. Running this file TODAY resolves batch_size to 4 and would
++# silently produce a different experiment under the same name.
+ experiment_id: e24-poly-4k-env-only-qwen3-1_7b
+ description: "E24: control arm for the raised-cap cosine test, cosine reward off. The e22 probe showed the 2048 completion cap was the confound behind the e9-e18 null: every episode that hit the cap terminates when given room (16/16 across poly and countdown, zero loops), and on polynomial_equations all four rescued episodes are CORRECT, taking the e12 checkpoint from 0.80 to 1.00 on the same seeds. The sweep was therefore scored on rollouts cut mid-reasoning, mislabelled wrong, and then handed to the cosine wrong-branch that pays for length. Budget here is 4096 (max_seq 5120 - prompt 1024), twice the old one and the hardware ceiling on a 24 GB L4: accelerate upcasts the completion logits to fp32 for the policy backward, so peak grows by 10 bytes per token per vocab entry (bf16 logits + fp32 copy + fp32 grad, vocab 151936) on top of a 14.4 GiB resident base. Measured OOMs at 16384, 7168 and 6144 fix that model; 4096 leaves about 1.4 GiB of margin. TRL 1.6 has no chunked-logp escape (use_liger_loss does not exist in this version), and the only way past this ceiling is dropping accelerate's mixed precision, which would break numeric comparability with every earlier run. 4096 covers 18 of the 20 correct-episode lengths the probe measured - the same 18 that 6144 or 7168 would cover, because nothing in the measured distribution falls between 3093 and 9516. Pairs with e25."
+ seed: 42
+
+
+=== DIFF: pipeline/configs/e24bs4-poly-4k-env-only-qwen3-1_7b.yaml ===
+@@ -0,0 +1,45 @@
++experiment_id: e24bs4-poly-4k-env-only-qwen3-1_7b
++description: "E24bs4: control arm for the raised-cap cosine test, cosine reward off. Pairs with e25bs4, and the two together are the first comparison in this project free of both void causes - the completion cap is 4096 rather than 2048, and batch_size is 4 rather than the old silent default of 1. Recovered into configs/ from the frozen runs/e24bs4-poly-4k-env-only-qwen3-1_7b/config.yaml, which was the only copy: the pair was launched ad hoc on the box and its configs were never tracked, so the one clean comparison could not be re-run or seed-replicated. Byte-identical to what produced runs/e24bs4-*. Why the cap is 4096 and not higher: the e22 probe showed the 2048 cap was the confound behind the e9-e18 null, since every episode that hit it terminates when given room (16/16 across poly and countdown, zero loops), and on polynomial_equations all four rescued episodes are CORRECT, taking the e12 checkpoint from 0.80 to 1.00 on the same seeds. The sweep was therefore scored on rollouts cut mid-reasoning, mislabelled wrong, then handed to the cosine wrong-branch that pays for length. 4096 (max_seq 5120 - prompt 1024) is the hardware ceiling on a 24 GB L4: accelerate upcasts the completion logits to fp32 for the policy backward, so peak grows by 10 bytes per token per vocab entry (bf16 logits + fp32 copy + fp32 grad, vocab 151936) on top of a 14.4 GiB resident base. Measured OOMs at 16384, 7168 and 6144; 4096 leaves about 1.4 GiB of margin. It covers 18 of the 20 correct-episode lengths the probe measured - the same 18 that 6144 or 7168 would cover, because nothing in the measured distribution falls between 3093 and 9516."
++seed: 42
++
++model:
++  slug: qwen3-1.7b
++  lora_r: 16
++  max_seq_length: 5120
++  gpu_memory_utilization: 0.23
++
++training:
++  mode: agentic
++  env: reasoning_gym
++  env_config:
++    dataset: polynomial_equations
++    size: 500
++  env_server:
++    repo_path: /workspace/OpenEnv/envs
++    port: 8077
++  max_prompt_length: 1024
++  # Geometry stated, never defaulted: freezing copies the config verbatim, so a key
++  # no config writes is absent from the frozen copy and the e24bs4-vs-e25bs4 diff
++  # cannot prove the arms matched. max_steps is 150 rather than e24's 300 because a
++  # step at batch_size 4 costs four times as much wall clock; both arms of THIS pair
++  # run 150, which is what the comparison requires.
++  batch_size: 4
++  n_rollouts: 8
++  micro_batch_size: 1
++  max_steps: 150
++  learning_rate: 5e-6
++  kl_beta: 0.001
++
++rewards:
++  compose_method: advantage_weighted
++  env_reward:
++    enabled: true
++    weight: 1.0
++  token_length:
++    enabled: false
++
++eval:
++  temperature: 0.0
++  do_sample: false
++  agentic:
++    n_episodes: 100
+
+
+=== DIFF: pipeline/configs/e25-poly-4k-cosine-w16-qwen3-1_7b.yaml ===
+@@ -1,3 +1,8 @@
++# SUPERSEDED by e25bs4-poly-4k-cosine-w16-qwen3-1_7b.yaml. Do not run this one.
++# It trained on 2026-07-29, before a19b1ff made batch_size default to 4, so
++# runs/e25-poly-4k-cosine-w16-qwen3-1_7b/ was produced at batch_size 1 and its
++# numbers are void. Running this file TODAY resolves batch_size to 4 and would
++# silently produce a different experiment under the same name.
+ experiment_id: e25-poly-4k-cosine-w16-qwen3-1_7b
+ description: "E25: the cosine length reward's fair test, paired with the e24 control. Relative to e17 (same task, same weight 16, 2048 budget, null) the completion budget doubles to 4096, which is the hardware ceiling - see e24. That takes the share of truncated-and-mislabelled rollouts from about 20 percent to about 10 percent: the e22 probe measured correct-episode lengths of median 702, p90 3093, max 9877, and 18 of 20 fit under 4096. max_len is set to 4096 as well, which here is the right call rather than the earlier design error - the error was setting max_len to a cap far above where completions actually live, because the cosine is flat near both endpoints and the whole distribution would sit in the dead zone. At a 4096 cap the covered distribution spans 213 to 3093, i.e. 5 to 75 percent of the curve, so the reward has real slope across it. With the task near-saturated at this budget most groups are all-correct, so the env component has zero within-group variance and contributes nothing under advantage_weighted, and the cosine correct-branch drives the entire gradient - the best case the countdown pair was meant to supply before the graded-scorer artifact killed its premise. Watch accuracy: compression bought with correctness is the Wu/Yeo overshoot."
+ seed: 42
+
+
+=== DIFF: pipeline/configs/e25bs4-poly-4k-cosine-w16-qwen3-1_7b.yaml ===
+@@ -0,0 +1,45 @@
++experiment_id: e25bs4-poly-4k-cosine-w16-qwen3-1_7b
++description: "E25bs4: the cosine length reward's fair test, paired with the e24bs4 control. Recovered into configs/ from the frozen runs/e25bs4-poly-4k-cosine-w16-qwen3-1_7b/config.yaml, which was the only copy - see e24bs4. Differs from e24bs4 in exactly the rewards.token_length block and nothing else. Relative to e17 (same task, same weight 16, 2048 budget, null) the completion budget doubles to 4096, the hardware ceiling, which takes the share of truncated-and-mislabelled rollouts from about 20 percent to about 10 percent: the e22 probe measured correct-episode lengths of median 702, p90 3093, max 9877, and 18 of 20 fit under 4096. max_len is 4096 as well, which here is the right call rather than the earlier design error - that error was setting max_len far above where completions actually live, because the cosine is flat near both endpoints and the whole distribution would then sit in the dead zone. At a 4096 cap the covered distribution spans 213 to 3093, i.e. 5 to 75 percent of the curve, so the reward has real slope across it. With the task near-saturated at this budget most groups are all-correct, so the env component has zero within-group variance and contributes nothing under advantage_weighted, and the cosine correct-branch drives the entire gradient - the best case the countdown pair was meant to supply before the graded-scorer artifact killed its premise. Watch accuracy: compression bought with correctness is the Wu/Yeo overshoot. Read the pair's frac_reward_zero_std against e24bs4's before reading the result - 99.5 percent of groups are live here against 40.7 percent in the control, so the contrast is reward plus more gradient, not the reward alone."
++seed: 42
++
++model:
++  slug: qwen3-1.7b
++  lora_r: 16
++  max_seq_length: 5120
++  gpu_memory_utilization: 0.23
++
++training:
++  mode: agentic
++  env: reasoning_gym
++  env_config:
++    dataset: polynomial_equations
++    size: 500
++  env_server:
++    repo_path: /workspace/OpenEnv/envs
++    port: 8077
++  max_prompt_length: 1024
++  # Geometry stated, never defaulted, and identical to e24bs4 key for key - see the
++  # note there. The only intended difference between the two configs is the
++  # rewards.token_length block below.
++  batch_size: 4
++  n_rollouts: 8
++  micro_batch_size: 1
++  max_steps: 150
++  learning_rate: 5e-6
++  kl_beta: 0.001
++
++rewards:
++  compose_method: advantage_weighted
++  env_reward:
++    enabled: true
++    weight: 1.0
++  token_length:
++    enabled: true
++    weight: 16.0
++    max_len: 4096
++
++eval:
++  temperature: 0.0
++  do_sample: false
++  agentic:
++    n_episodes: 100
+
+
+Investigate per the method in your instructions, then return the findings list.
