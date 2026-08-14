@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>biqurqq6y</task-id>
+<tool-use-id>toolu_01FZJPaj8hZE4abyPTEdu5WP</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/25f68f83-6041-4412-8b24-5cd51640c84a/tasks/biqurqq6y.output</output-file>
+<status>completed</status>
+<summary>Monitor "B1 lr-2e-5 probe on gpu-l4 (pid 769822)" stream ended</summary>
+</task-notification>
