@@ -1,0 +1,1 @@
+already note as a further option that we can also try the next larger version of the qwen model as quantized version such that it fits in memory. generally we should play around with parameter count and quantization
