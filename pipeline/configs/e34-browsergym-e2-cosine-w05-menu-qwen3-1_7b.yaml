@@ -1,0 +1,89 @@
+experiment_id: e34-browsergym-e2-cosine-w05-menu-qwen3-1_7b
+description: "E2 lambda sweep, medium arm: e31's recipe with the cosine weight lowered to 0.5 and nothing else changed, so the E2 dose-response is read across e30 (lambda=0), e33 (0.25), e34 (0.5) and e31 (1.0) on one recipe - thesis section 4.3 requires each shaped condition at several penalty strengths. What the sweep separates: at lambda=1 the cosine bought a paired median -1130 tokens on the 186 jointly-correct held-out episodes (-68%) but paid a 7pt held-out drop against e30 (14/0 flips, McNemar p=1.2e-4, the Wu/Yeo overshoot observed directly) - and it carried two confounds, every prompt-group live (frac_reward_zero_std 0.000 vs e30's ~0.5-0.7) and KL 0.368 vs e30's 0.101. The question at 0.5: does a smaller lambda keep most of the compression while shrinking the overshoot and the drift, or do they fade together? Read against e30 and e31 only; seed, geometry, splits and reference report identical to both. Same caveat as e31: under naive_sum the weight is a live but possibly weak lever - a flat line across the sweep is itself the answer."
+seed: 42
+
+model:
+  slug: qwen3-1.7b
+  # Initial prompt is small (lead-in, goal, first page: about 700 tokens), and
+  # the whole trajectory is capped at 4096 below, so 8192 leaves slack.
+  max_seq_length: 8192
+  lora_r: 16
+  gpu_memory_utilization: 0.30
+
+training:
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    # Menu-only (C4): every seed maps to click-menu-2, so the whole batch is
+    # the one family with headroom. Even seeds produce the same questions the
+    # mixed e27bs4 campaign drew for menu, odd seeds are new menu questions.
+    tasks: [click-menu-2]
+    # MiniWoB HTML is not shipped with browsergym-miniwob. This must point at a
+    # served clone of miniwob-plusplus or the env raises "core is not defined"
+    # at the first reset, and it does not survive a box restart. Start it first:
+    #   cd /workspace/miniwob-plusplus/miniwob/html && python3 -m http.server 8080
+    miniwob_url: http://localhost:8080/miniwob/
+    # The one turn cap. Menu-2 needs 2.6 steps, so 8 is headroom.
+    max_turns: 8
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  # Sets TRL's max_completion_length to 8192 - 4096 = 4096, the budget for the
+  # WHOLE trajectory. Menu-2's worst case lands near 4124 tokens (45-token
+  # pages measured through the adapter), so truncation stays rare.
+  max_prompt_length: 4096
+  # Geometry stated explicitly so the frozen config records it. This arm must
+  # differ from e30 in exactly the rewards.token_length block and nothing else;
+  # the diff of the two frozen configs is the proof.
+  batch_size: 4
+  n_rollouts: 8
+  micro_batch_size: 1
+  max_steps: 150
+  # 10x the e27bs4 campaign's 5e-6: top of the probe ladder's monotone
+  # dose-response, stable at 50 steps. e30 ran it to 150 steps clean
+  # (grad_norm flat, KL settling near 0.10 under kl_beta 0.001).
+  learning_rate: 5e-5
+  kl_beta: 0.001
+  # The trainer fix (commit a975c40). The TRL 1.6 default, sequence_mask,
+  # zeroes or collapses the per-sequence weight of long completions and starved
+  # menu-2 of gradient in every earlier browsergym run.
+  vllm_importance_sampling_mode: token_truncate
+
+rewards:
+  # Matches e30, so e30 is the lambda=0 point of the same code path.
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    enabled: true
+    weight: 0.5
+    max_len: 4096
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  # Pinned, not derived. Budget for the WHOLE trajectory, matching TRL's
+  # max_completion_length in training. Every arm of the campaign must state the
+  # same value or the comparison is measured under two different budgets.
+  max_new_tokens: 4096
+  # Thinking rates are measured against the paired base model's token
+  # distribution, not this run's own percentiles, so every arm of the campaign
+  # is scored on one ruler.
+  reference_report: runs/e0m-browsergym-base-menu-qwen3-1_7b/eval_report.json
+  agentic:
+    splits:
+      # Held-out: menu-2 questions from this seed's block, disjoint from the
+      # training seeds via the offset. n=200 per the campaign power plan.
+      - name: held_out
+        n_episodes: 200
+      # Shifted: three families never trained on. click-dialog-2 (base 0.80)
+      # detects substitution in both directions; navigate-tree and
+      # click-checkboxes-transfer (at ceiling) detect degradation. 50 episodes
+      # per family via seed % 3.
+      - name: shifted
+        n_episodes: 150
+        env_config:
+          tasks: [click-dialog-2, navigate-tree, click-checkboxes-transfer]
+        seed_offset: 200000
