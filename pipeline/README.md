@@ -26,14 +26,14 @@ between them fails at runtime instead of at import.
 
 ```bash
 cd pipeline
-python -m training.train --config configs/e5-agentic-reasoning-gym-qwen3-1_7b.yaml --eval
+python -m training.train --config configs/e30-browsergym-e1-menu-qwen3-1_7b.yaml --eval
 ```
 
 `--eval` runs held-out episode evaluation after training. `--smoke` overrides the
 config for a fast sanity check (3 steps, 2 rollouts, 512 seq, 10 eval episodes):
 
 ```bash
-python -m training.train --config configs/e5-agentic-reasoning-gym-qwen3-1_7b.yaml --smoke --eval
+python -m training.train --config configs/e30-browsergym-e1-menu-qwen3-1_7b.yaml --smoke --eval
 ```
 
 ### How agentic training works
@@ -56,7 +56,7 @@ python -m training.train --config configs/e5-agentic-reasoning-gym-qwen3-1_7b.ya
 ## Evaluate a checkpoint
 
 ```bash
-python -m eval.runner --config configs/e5-agentic-reasoning-gym-qwen3-1_7b.yaml
+python -m eval.runner --config configs/e30-browsergym-e1-menu-qwen3-1_7b.yaml
 ```
 
 Runs N held-out episodes (default 100, set by `eval.agentic.n_episodes`) on seeds
@@ -93,8 +93,8 @@ writes `runs/<exp>/episodes_<name>.jsonl`. Omitting `splits` keeps the single
 Built for unattended ablation and seed sweeps on a single GPU.
 
 ```bash
-python -m training.batch configs/e5-*.yaml --train --eval
-python -m training.batch configs/e5-*.yaml --train --eval --seeds 42 43 44
+python -m training.batch configs/e3*-*.yaml --train --eval
+python -m training.batch configs/e3*-*.yaml --train --eval --seeds 42 43 44
 ```
 
 | Flag | Behaviour |
@@ -171,8 +171,9 @@ eval/agentic_eval.py:run_agentic_eval()  # N held-out episodes, env-scored repor
 ### `configs/`
 
 YAML experiment configs. `_template.yaml` documents every field; copy it to make
-a new experiment. `e5-agentic-reasoning-gym-qwen3-1_7b.yaml` is the reference run
-(chain_sum, Qwen3-1.7B, env reward + cosine length).
+a new experiment. `e30-browsergym-e1-menu-qwen3-1_7b.yaml` is the reference run
+(browsergym click-menu-2, Qwen3-1.7B, env reward only). Finished and superseded
+configs live in `configs/archive/` - read its README before re-running one.
 
 ### `domains/`
 

@@ -230,9 +230,9 @@ The pipeline is the surface for systematic experimentation. Full docs in
 `pipeline/README.md`. Run from `pipeline/`:
 
 ```bash
-python -m training.train --config configs/e5-agentic-reasoning-gym-qwen3-1_7b.yaml --eval
-python -m eval.runner --config configs/e5-agentic-reasoning-gym-qwen3-1_7b.yaml
-python -m training.batch configs/e5-*.yaml --train --eval --seeds 42 43 44
+python -m training.train --config configs/e30-browsergym-e1-menu-qwen3-1_7b.yaml --eval
+python -m eval.runner --config configs/e30-browsergym-e1-menu-qwen3-1_7b.yaml
+python -m training.batch configs/e3*-*.yaml --train --eval --seeds 42 43 44
 ```
 
 Add `--smoke` to any command for a fast sanity check (3 steps, 10 eval episodes).
@@ -278,7 +278,7 @@ value without making it visible.
 runs). Built for unattended ablation and seed sweeps on a single GPU.
 
 ```bash
-python -m training.batch configs/e5-*.yaml --train --eval
+python -m training.batch configs/e3*-*.yaml --train --eval
 ```
 
 Phase flags `--train` and `--eval` are independent and combinable; default when
