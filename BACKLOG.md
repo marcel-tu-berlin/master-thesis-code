@@ -53,23 +53,7 @@ Forcing fp32 logits flips `selective_log_softmax` to its chunked-logsumexp
 branch at 4 bytes for the logits plus 4 for the gradient - the same 8 bytes per
 element. No saving.
 
-## 2. Decide whether to re-run any poly cosine arm - needs a call
-
-The cosine reward now counts the whole completion. Whether to spend GPU
-re-running the e24bs4/e25bs4 pair on the fixed counter is a scope question, not a
-correctness one: polynomial_equations is saturated and the study has moved to
-browsergym, where e28 is the E2 arm.
-
-- Cheap: re-run nothing, and stop citing the poly null entirely. The thesis then
-  says the length reward was tested on browsergym, and nothing about poly.
-- Thorough: one re-run of the pair, about 17h per seed, which converts "we never
-  tested it there" into an actual result.
-
-Not blocked any more: both configs are in `configs/` as of `9853a94`, recovered
-from the frozen copies that were their only record. The thorough option is a
-launch away.
-
-## 3. Model scale x quantization sweep - larger Qwen3, 4-bit where needed
+## 2. Model scale x quantization sweep - larger Qwen3, 4-bit where needed
 
 Supersedes the audit plan's D1, which was gated on "menu-2 stays flat" and
 deleted when B3 refuted that premise. This is the ungated version: parameter
