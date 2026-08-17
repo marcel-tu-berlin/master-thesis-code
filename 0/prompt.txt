@@ -1,0 +1,11 @@
+what was task 2 again?
+
+---
+
+ok i think the poly task isnt needed anymore. we dont use poly as an env or not?
+
+please check tasks 1. 3 amd 2 in taskwarrior against @thesis.pdf 
+
+see whats needed and whats not and then plan next steps for the experiments. tasks 6 and 7 are fine. 6 is solely maintained by myself. if you want to revise/improve task 7 desc feel free to do so. in the end its just about trying it out. but maybe the current model setup is enough
+
+in the end report to me where we stand compared to the thesis and whats still open
