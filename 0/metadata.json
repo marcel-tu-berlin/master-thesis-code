@@ -1,0 +1,233 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M07QB3WJG218GXVVKKMA9VQ8",
+  "session_id": "ab988c24-a88e-415d-8dd2-615cc390ae14",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-17T11:22:48.98067Z",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "CLAUDE.md",
+    "pipeline/README.md",
+    "pipeline/configs/archive/README.md",
+    "pipeline/configs/archive/e0-browsergym-base-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e0b-browsergym-base-llama3_2-1b.yaml",
+    "pipeline/configs/archive/e10-agentic-poly-env-only-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e11-agentic-poly-cosine-hibudget-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e12-agentic-poly-env-only-hibudget-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e13-agentic-poly-cosine-w4-hibudget-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e16-agentic-poly-cosine-w8-hibudget-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e17-agentic-poly-cosine-w16-hibudget-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e18-agentic-poly-cosine-w16-naivesum-hibudget-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e20-agentic-countdown-env-only-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e21-agentic-countdown-cosine-w16-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e22-poly-cap-probe-16k.yaml",
+    "pipeline/configs/archive/e23-countdown-cap-probe-16k.yaml",
+    "pipeline/configs/archive/e24-poly-4k-env-only-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e24bs4-poly-4k-env-only-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e25-poly-4k-cosine-w16-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e25bs4-poly-4k-cosine-w16-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e27-browsergym-e1-baseline-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e27bs4-browsergym-e1-baseline-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e27probe-browsergym-difficulty-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e27probe2-browsergym-nohint-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e27probe3-browsergym-4k-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e27probe4-browsergym-short-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e28bs4-browsergym-e2-cosine-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e29bs4-browsergym-e3-nontermination-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e5-agentic-reasoning-gym-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e6-agentic-env-only-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e9-agentic-poly-cosine-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/probe-chain_sum-hard.yaml",
+    "pipeline/configs/archive/probe-countdown.yaml",
+    "pipeline/configs/archive/probe-polynomial_equations.yaml",
+    "pipeline/configs/archive/probe-propositional_logic.yaml",
+    "pipeline/configs/e0-browsergym-base-qwen3-1_7b.yaml",
+    "pipeline/configs/e0b-browsergym-base-llama3_2-1b.yaml",
+    "pipeline/configs/e10-agentic-poly-env-only-qwen3-1_7b.yaml",
+    "pipeline/configs/e11-agentic-poly-cosine-hibudget-qwen3-1_7b.yaml",
+    "pipeline/configs/e12-agentic-poly-env-only-hibudget-qwen3-1_7b.yaml",
+    "pipeline/configs/e13-agentic-poly-cosine-w4-hibudget-qwen3-1_7b.yaml",
+    "pipeline/configs/e16-agentic-poly-cosine-w8-hibudget-qwen3-1_7b.yaml",
+    "pipeline/configs/e17-agentic-poly-cosine-w16-hibudget-qwen3-1_7b.yaml",
+    "pipeline/configs/e18-agentic-poly-cosine-w16-naivesum-hibudget-qwen3-1_7b.yaml",
+    "pipeline/configs/e20-agentic-countdown-env-only-qwen3-1_7b.yaml",
+    "pipeline/configs/e21-agentic-countdown-cosine-w16-qwen3-1_7b.yaml",
+    "pipeline/configs/e22-poly-cap-probe-16k.yaml",
+    "pipeline/configs/e23-countdown-cap-probe-16k.yaml",
+    "pipeline/configs/e24-poly-4k-env-only-qwen3-1_7b.yaml",
+    "pipeline/configs/e24bs4-poly-4k-env-only-qwen3-1_7b.yaml",
+    "pipeline/configs/e25-poly-4k-cosine-w16-qwen3-1_7b.yaml",
+    "pipeline/configs/e25bs4-poly-4k-cosine-w16-qwen3-1_7b.yaml",
+    "pipeline/configs/e27-browsergym-e1-baseline-qwen3-1_7b.yaml",
+    "pipeline/configs/e27bs4-browsergym-e1-baseline-qwen3-1_7b.yaml",
+    "pipeline/configs/e27probe-browsergym-difficulty-qwen3-1_7b.yaml",
+    "pipeline/configs/e27probe2-browsergym-nohint-qwen3-1_7b.yaml",
+    "pipeline/configs/e27probe3-browsergym-4k-qwen3-1_7b.yaml",
+    "pipeline/configs/e27probe4-browsergym-short-qwen3-1_7b.yaml",
+    "pipeline/configs/e28bs4-browsergym-e2-cosine-qwen3-1_7b.yaml",
+    "pipeline/configs/e29bs4-browsergym-e3-nontermination-qwen3-1_7b.yaml",
+    "pipeline/configs/e5-agentic-reasoning-gym-qwen3-1_7b.yaml",
+    "pipeline/configs/e6-agentic-env-only-qwen3-1_7b.yaml",
+    "pipeline/configs/e9-agentic-poly-cosine-qwen3-1_7b.yaml",
+    "pipeline/configs/probe-chain_sum-hard.yaml",
+    "pipeline/configs/probe-countdown.yaml",
+    "pipeline/configs/probe-polynomial_equations.yaml",
+    "pipeline/configs/probe-propositional_logic.yaml"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "9652c61da7ab",
+  "checkpoint_transcript_start": 19238,
+  "transcript_lines_at_start": 19238,
+  "compact_transcript_start": 2809,
+  "token_usage": {
+    "input_tokens": 2,
+    "cache_creation_tokens": 910,
+    "cache_read_tokens": 172729,
+    "output_tokens": 798,
+    "api_call_count": 1
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01R8xdxSHwG7mM6QcwjuixR4",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "andrej-karpathy-skills:karpathy-guidelines"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "9652c61da7ab",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 24,
+        "end": 25,
+        "entry_ids": [
+          "ad76e224-ed9b-47ab-a2ee-dec74cdbf029"
+        ],
+        "tool_use_id": "toolu_01R8xdxSHwG7mM6QcwjuixR4"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01R8xdxSHwG7mM6QcwjuixR4"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: andrej-karpathy-skills:karpathy-guidelines",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_015xb5xmCeBWBFWAXAzfYdsU",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "i-have-adhd"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "9652c61da7ab",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 28,
+        "end": 29,
+        "entry_ids": [
+          "d5510c19-ba8a-4974-ad2d-873904a6f245"
+        ],
+        "tool_use_id": "toolu_015xb5xmCeBWBFWAXAzfYdsU"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_015xb5xmCeBWBFWAXAzfYdsU"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: i-have-adhd",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01QbsXhFW5vChNK8XMb1wBMf",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "humanizer"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "9652c61da7ab",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 6454,
+        "end": 6455,
+        "entry_ids": [
+          "caa1ea39-6c63-4abd-9b18-a95dc9fe5f7c"
+        ],
+        "tool_use_id": "toolu_01QbsXhFW5vChNK8XMb1wBMf"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01QbsXhFW5vChNK8XMb1wBMf"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: humanizer",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01H78awkZzjYcR6RLjwMqGNH",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "writing-clearly-and-concisely"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "9652c61da7ab",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 6455,
+        "end": 6456,
+        "entry_ids": [
+          "08838ff3-25a0-49ea-906f-80ecc232d2c5"
+        ],
+        "tool_use_id": "toolu_01H78awkZzjYcR6RLjwMqGNH"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01H78awkZzjYcR6RLjwMqGNH"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: writing-clearly-and-concisely",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-17T11:22:47.751325Z",
+    "agent_lines": 1577,
+    "agent_removed": 1564,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1577,
+    "total_lines_changed": 3141,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
