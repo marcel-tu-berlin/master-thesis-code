@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M07QBSNC50FVPF263FZ8G9C7",
+  "strategy": "manual-commit",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "pipeline/configs/e33-browsergym-e2-cosine-w025-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/e34-browsergym-e2-cosine-w05-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/e35-browsergym-e3-nontermination-w025-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/e36-browsergym-e3-nontermination-w05-menu-qwen3-1_7b.yaml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 2,
+    "cache_creation_tokens": 2206,
+    "cache_read_tokens": 173639,
+    "output_tokens": 812,
+    "api_call_count": 1
+  }
+}
