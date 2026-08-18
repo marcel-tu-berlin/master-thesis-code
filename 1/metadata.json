@@ -1,0 +1,278 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M0B8HWJQG7WQ2F5707VH90SZ",
+  "session_id": "ab988c24-a88e-415d-8dd2-615cc390ae14",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-18T20:21:18.568083Z",
+  "branch": "master",
+  "checkpoints_count": 10,
+  "save_step_count": 10,
+  "files_touched": [
+    "RUNNING.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "4cf003a46d29",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 14903,
+    "cache_creation_tokens": 16163451,
+    "cache_read_tokens": 413895320,
+    "output_tokens": 2034551,
+    "api_call_count": 2353
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01R8xdxSHwG7mM6QcwjuixR4",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "andrej-karpathy-skills:karpathy-guidelines"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "4cf003a46d29",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 24,
+        "end": 25,
+        "entry_ids": [
+          "ad76e224-ed9b-47ab-a2ee-dec74cdbf029"
+        ],
+        "tool_use_id": "toolu_01R8xdxSHwG7mM6QcwjuixR4"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01R8xdxSHwG7mM6QcwjuixR4"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: andrej-karpathy-skills:karpathy-guidelines",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_015xb5xmCeBWBFWAXAzfYdsU",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "i-have-adhd"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "4cf003a46d29",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 28,
+        "end": 29,
+        "entry_ids": [
+          "d5510c19-ba8a-4974-ad2d-873904a6f245"
+        ],
+        "tool_use_id": "toolu_015xb5xmCeBWBFWAXAzfYdsU"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_015xb5xmCeBWBFWAXAzfYdsU"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: i-have-adhd",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01QbsXhFW5vChNK8XMb1wBMf",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "humanizer"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "4cf003a46d29",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 6454,
+        "end": 6455,
+        "entry_ids": [
+          "caa1ea39-6c63-4abd-9b18-a95dc9fe5f7c"
+        ],
+        "tool_use_id": "toolu_01QbsXhFW5vChNK8XMb1wBMf"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01QbsXhFW5vChNK8XMb1wBMf"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: humanizer",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01H78awkZzjYcR6RLjwMqGNH",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "writing-clearly-and-concisely"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "4cf003a46d29",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 6455,
+        "end": 6456,
+        "entry_ids": [
+          "08838ff3-25a0-49ea-906f-80ecc232d2c5"
+        ],
+        "tool_use_id": "toolu_01H78awkZzjYcR6RLjwMqGNH"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01H78awkZzjYcR6RLjwMqGNH"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: writing-clearly-and-concisely",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 10
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-18T20:21:17.415449Z",
+    "agent_lines": 5,
+    "agent_removed": 2,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 5,
+    "total_lines_changed": 7,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 7,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 7,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 7,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 7,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 6,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 6,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 6,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 5,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 60,
+      "agent_lines_removed": 4,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    }
+  ]
+}

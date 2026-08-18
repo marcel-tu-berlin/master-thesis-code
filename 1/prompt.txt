@@ -1,0 +1,53 @@
+since i share the gpu box - for how much time should i block it now?
+
+---
+
+ok box is blocked, launch
+
+---
+
+<task-notification>
+<task-id>brq0vdt8d</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/ce743513-f646-49c5-a8f7-1ec640c1292b/tasks/brq0vdt8d.output</output-file>
+<status>failed</status>
+<summary>Background command "Wait 12 min then verify e33 training is progressing" failed with exit code 1</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>belqth8ez</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mheidebrecht-Documents-Projects-Uni-Master-Thesis-master-thesis-code/ce743513-f646-49c5-a8f7-1ec640c1292b/tasks/belqth8ez.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll devpod ssh port every 5 min until it reopens (max 4h)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+how is it going?
+
+---
+
+check again and please schedule meaningful checks so that we know early if our training stopped
+
+---
+
+Watchdog check for the e33-e36 lambda-sweep batch on gpu-l4 (batch pid 4184053, arm order e33->e34->e35->e36, log /workspace/e33_e36_batch.log). Run one ssh command checking: (a) batch pid 4184053 alive; (b) current arm and phase - run dirs under /workspace/master-thesis-code/pipeline/runs/, train progress from tail of the arm's batch_train.log, eval progress from wc -l of episodes_*.jsonl (NEVER the eval log tail - block-buffered, reads as hung); (c) staleness - if the newest file in the active arm's run dir is >45 min old AND GPU util is 0, treat as stalled. Decision rules: "Connection refused" on ssh is the known kube-proxy transient (LAB_NOTES) - never relaunch anything, just note it and alert only if it is the second consecutive refused check. If batch pid is dead and all four run dirs have a real eval_report.json: batch complete - send PushNotification, then delete this cron job via CronDelete. If batch pid is dead prematurely or an arm is stalled: send PushNotification naming what died plus the last log lines; do NOT relaunch or kill anything without the user. If healthy: update RUNNING.md only on a phase change (arm finished / train->eval), stamp with box time; otherwise reply in one short line and take no other action.
+
+---
+
+Watchdog check for the e33-e36 lambda-sweep batch on gpu-l4 (batch pid 4184053, arm order e33->e34->e35->e36, log /workspace/e33_e36_batch.log). Run one ssh command checking: (a) batch pid 4184053 alive; (b) current arm and phase - run dirs under /workspace/master-thesis-code/pipeline/runs/, train progress from tail of the arm's batch_train.log, eval progress from wc -l of episodes_*.jsonl (NEVER the eval log tail - block-buffered, reads as hung); (c) staleness - if the newest file in the active arm's run dir is >45 min old AND GPU util is 0, treat as stalled. Decision rules: "Connection refused" on ssh is the known kube-proxy transient (LAB_NOTES) - never relaunch anything, just note it and alert only if it is the second consecutive refused check. If batch pid is dead and all four run dirs have a real eval_report.json: batch complete - send PushNotification, then delete this cron job via CronDelete. If batch pid is dead prematurely or an arm is stalled: send PushNotification naming what died plus the last log lines; do NOT relaunch or kill anything without the user. If healthy: update RUNNING.md only on a phase change (arm finished / train->eval), stamp with box time; otherwise reply in one short line and take no other action.
+
+---
+
+Watchdog check for the e33-e36 lambda-sweep batch on gpu-l4 (batch pid 4184053, arm order e33->e34->e35->e36, log /workspace/e33_e36_batch.log). Run one ssh command checking: (a) batch pid 4184053 alive; (b) current arm and phase - run dirs under /workspace/master-thesis-code/pipeline/runs/, train progress from tail of the arm's batch_train.log, eval progress from wc -l of episodes_*.jsonl (NEVER the eval log tail - block-buffered, reads as hung); (c) staleness - if the newest file in the active arm's run dir is >45 min old AND GPU util is 0, treat as stalled. Decision rules: "Connection refused" on ssh is the known kube-proxy transient (LAB_NOTES) - never relaunch anything, just note it and alert only if it is the second consecutive refused check. If batch pid is dead and all four run dirs have a real eval_report.json: batch complete - send PushNotification, then delete this cron job via CronDelete. If batch pid is dead prematurely or an arm is stalled: send PushNotification naming what died plus the last log lines; do NOT relaunch or kill anything without the user. If healthy: update RUNNING.md only on a phase change (arm finished / train->eval), stamp with box time; otherwise reply in one short line and take no other action.
+
+---
+
+Watchdog check for the e33-e36 lambda-sweep batch on gpu-l4 (batch pid 4184053, arm order e33->e34->e35->e36, log /workspace/e33_e36_batch.log). Run one ssh command checking: (a) batch pid 4184053 alive; (b) current arm and phase - run dirs under /workspace/master-thesis-code/pipeline/runs/, train progress from tail of the arm's batch_train.log, eval progress from wc -l of episodes_*.jsonl (NEVER the eval log tail - block-buffered, reads as hung); (c) staleness - if the newest file in the active arm's run dir is >45 min old AND GPU util is 0, treat as stalled. Decision rules: "Connection refused" on ssh is the known kube-proxy transient (LAB_NOTES) - never relaunch anything, just note it and alert only if it is the second consecutive refused check. If batch pid is dead and all four run dirs have a real eval_report.json: batch complete - send PushNotification, then delete this cron job via CronDelete. If batch pid is dead prematurely or an arm is stalled: send PushNotification naming what died plus the last log lines; do NOT relaunch or kill anything without the user. If healthy: update RUNNING.md only on a phase change (arm finished / train->eval), stamp with box time; otherwise reply in one short line and take no other action.
+
+---
+
+Watchdog check for the e33-e36 lambda-sweep batch on gpu-l4 (batch pid 4184053, arm order e33->e34->e35->e36, log /workspace/e33_e36_batch.log). Run one ssh command checking: (a) batch pid 4184053 alive; (b) current arm and phase - run dirs under /workspace/master-thesis-code/pipeline/runs/, train progress from tail of the arm's batch_train.log, eval progress from wc -l of episodes_*.jsonl (NEVER the eval log tail - block-buffered, reads as hung); (c) staleness - if the newest file in the active arm's run dir is >45 min old AND GPU util is 0, treat as stalled. Decision rules: "Connection refused" on ssh is the known kube-proxy transient (LAB_NOTES) - never relaunch anything, just note it and alert only if it is the second consecutive refused check. If batch pid is dead and all four run dirs have a real eval_report.json: batch complete - send PushNotification, then delete this cron job via CronDelete. If batch pid is dead prematurely or an arm is stalled: send PushNotification naming what died plus the last log lines; do NOT relaunch or kill anything without the user. If healthy: update RUNNING.md only on a phase change (arm finished / train->eval), stamp with box time; otherwise reply in one short line and take no other action.
