@@ -1,0 +1,49 @@
+experiment_id: e0m-browsergym-base-menu-qwen3-4b
+description: "Scale probe, eval-only: Qwen3-4B (post-trained, the 1.7B's lineage counterpart) run base-model through the identical e0m menu campaign evals - same seed 42, same two splits, same whole-trajectory budget - so the only difference from e0m-browsergym-base-menu-qwen3-1_7b is parameter count and every episode is paired on the same question draw. It answers the cheap question before any 4B training is considered: does scale alone move click-menu-2 and the shifted families? Two readings matter. If 4B lands inside the 40-80% band, menu-2 remains a valid training task at 4B and a scale replication of the lambda sweep is on the table; if it saturates, the C4 band check has to reopen with a different task pool before any 4B arm (the difficulty band is model-relative, see BACKLOG scale item). This report is 4B's own e0 reference and must never be pinned as reference_report by any 1.7B arm. Run with: python -m eval.runner --config <this> --base-model. bf16 eval fits the L4 (HF greedy generate, no vLLM); do not launch while a training batch holds the GPU."
+seed: 42
+
+model:
+  slug: qwen3-4b
+  lora_r: 16
+  max_seq_length: 8192
+  gpu_memory_utilization: 0.30
+
+training:
+  # Present for the env geometry only; nothing trains here. Every value below
+  # is copied from e0m/e30 so the two base evals differ in exactly one thing,
+  # the model.
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    tasks: [click-menu-2]
+    # Must be up before launch and does not survive a box restart:
+    #   cd /workspace/miniwob-plusplus/miniwob/html && python3 -m http.server 8080
+    miniwob_url: http://localhost:8080/miniwob/
+    max_turns: 8
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  max_prompt_length: 4096
+
+rewards:
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  # Pinned to e30's value so a later change to the training geometry cannot
+  # silently move the baseline out from under the comparison.
+  max_new_tokens: 4096
+  agentic:
+    splits:
+      - name: held_out
+        n_episodes: 200
+      - name: shifted
+        n_episodes: 150
+        env_config:
+          tasks: [click-dialog-2, navigate-tree, click-checkboxes-transfer]
+        seed_offset: 200000

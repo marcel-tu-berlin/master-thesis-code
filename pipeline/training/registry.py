@@ -7,8 +7,12 @@ MODEL_REGISTRY: dict[str, dict] = {
         "max_lora_rank": 32,
     },
     "qwen3-4b": {
-        "model_name": "Qwen/Qwen3-4B-Base",
-        "load_in_4bit": False,
+        # Post-trained lineage counterpart of qwen3-1.7b, not Qwen3-4B-Base:
+        # the scale sweep varies parameter count only, and the pipeline's 1.7B
+        # is the post-trained checkpoint with the tool-calling chat template,
+        # which the Base lineage does not carry.
+        "model_name": "Qwen/Qwen3-4B",
+        "load_in_4bit": False,   # bf16 fits the L4 for eval; training precision decided per-arm
         "max_seq_length": 2048,
         "max_lora_rank": 32,
     },
