@@ -1,0 +1,105 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M0B8J67H66CW2NXC35C0JMQ2",
+  "session_id": "7de4bf05-3fef-4a6e-8837-fd03b191e8f0",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-18T20:21:19.619247Z",
+  "branch": "master",
+  "checkpoints_count": 4,
+  "save_step_count": 1,
+  "files_touched": [
+    "pipeline/configs/e0m-browsergym-base-menu-qwen3-4b.yaml",
+    "pipeline/training/registry.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "6cfa80a253ba",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 70,
+    "cache_creation_tokens": 270558,
+    "cache_read_tokens": 3884194,
+    "output_tokens": 45861,
+    "api_call_count": 35
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01NDsZbPA4hLUhLwiQ8mdgF1",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "humanizer"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "6cfa80a253ba",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 354,
+        "end": 355,
+        "entry_ids": [
+          "64fa1b1a-4490-4e49-b2b7-4c4904a6a1e2"
+        ],
+        "tool_use_id": "toolu_01NDsZbPA4hLUhLwiQ8mdgF1"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01NDsZbPA4hLUhLwiQ8mdgF1"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: humanizer",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01EDzy3gxE4hNxSRcW3jFLSN",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "writing-clearly-and-concisely"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "6cfa80a253ba",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 355,
+        "end": 356,
+        "entry_ids": [
+          "ea3e9de1-07b5-4503-940e-36e09aebd415"
+        ],
+        "tool_use_id": "toolu_01EDzy3gxE4hNxSRcW3jFLSN"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01EDzy3gxE4hNxSRcW3jFLSN"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: writing-clearly-and-concisely",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 4
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-18T20:21:19.593641Z",
+    "agent_lines": 55,
+    "agent_removed": 2,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 55,
+    "total_lines_changed": 57,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

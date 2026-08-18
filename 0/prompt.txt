@@ -1,0 +1,20 @@
+since we are currently waiting for our experiment to finish (see @RUNNING.md ) i think we could use the time and implement open todos. first check if any open todos are noted and see if we are already able to use the bigger models as already planned in a taskwarrior task. since we got our first confusing result during this batch (see @thesis-code ) I worry that qwen-1.7 isnt enough. by confusing i mean that the w0.25 run for the length reward compressed harder then the w1 run. this hints at the model not being capable enough and results only being noise and not true signal
+
+---
+
+ok
+
+how much can we still play with model size here? check all knobs which exist assuming we are bound by the L4. I was thinking about numerical precision or inference engines. please report to me first high level what we could try to find the best setup for our goal and then also give me your opinion from your knowledge and research about what configurations are best for our specific thesis goal or if we should maybe even try other models etc. In the end I want to maximize credibility of our results
+
+---
+
+do i understand correctly that if we dont use vllm we gain half the memory and can therefore use double the size of a model and only the training would take longer? why bother then using vllm? we can always just wait for it while it runs in the background. training speed should never constrain us here. we have the time
+
+---
+
+whats liger kernel? what is it changing and how does it make the setup more efficient memory wise? does it have any downsides?
+
+---
+
+ok i feel like we first need to await our batched run and more seeds to decide on all changes. please write up the possible options in an entirely new document just high level. name it: IMPROVEMENTS.md
+i will revisit it later. dont touch existing documents or task warrior. for now this should stay standalone. also commit the qwen3-4b experiment as well as the other changes currently in the worktree and push on master. dont commit the new improvements.md document yet.
