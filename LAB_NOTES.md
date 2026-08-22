@@ -403,6 +403,28 @@ method-development history with their caveats attached
 (`pipeline/runs/e24_e25_4k_pair_findings.md`). Do not re-add a poly arm without
 a thesis-level reason.
 
+## Standing rule: the dependency stack is pinned (2026-08-22)
+
+`setup.sh` used to install `trl>=0.26` plus a bare list of package names, so
+every fresh environment resolved whatever was newest that week, and the OpenEnv
+clone floated on upstream HEAD. Nothing recorded which versions a run trained
+against - e9 through e36 all sit on "whatever was installed at the time". That
+is the same failure mode as an unrecorded `batch_size`: a library changes, the
+numbers move, and nothing on disk says why.
+
+Now `requirements.lock.txt` (frozen off the box venv, 277 packages) is the only
+install source, and `OPENENV_COMMIT` in `setup.sh` pins the clone to
+`024eedc90305cc8bd7a5b44f44d1b987102e957b` (v0.4.1-67-g024eedc, 2026-07-31).
+The stack this pins is trl 1.6.0, transformers 5.12.0, torch 2.10.0+cu130,
+vllm 0.19.1+cu130, peft 0.19.1, reasoning-gym 0.1.25, browsergym 0.14.3,
+playwright 1.44.0.
+
+Upgrading is a deliberate act, not a side effect of re-running setup: install,
+verify against a real reset, then re-freeze the lock in the same commit. A
+version bump landing silently between two arms of a comparison confounds them
+exactly like a geometry change would. Runs before this commit have no recorded
+stack; that is a caveat on their reproducibility, not on their numbers.
+
 ## Before the E2 / E3 arms - two knobs checked against e27's real numbers
 
 **E3 is live.** `NonTerminationPenalty` reads `env.done`, and
