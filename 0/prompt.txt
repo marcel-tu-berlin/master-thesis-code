@@ -1,0 +1,5 @@
+did we already pin the versions of our dependencies e.g. openenv? check also what we installed on the gpu box
+
+---
+
+go ahead, pin it and commit the lockfile and yes just revert the dead code and then only report to me the locked version for openenv for now
