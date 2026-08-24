@@ -18,7 +18,12 @@ CASES = [
      {"REASONING_GYM_DATASET": "polynomial_equations"}),
     ("browsergym", "browsergym_env.server.app", 8202,
      {"BROWSERGYM_BENCHMARK": "miniwob", "BROWSERGYM_TASK_NAME": "click-option",
-      "BROWSERGYM_HEADLESS": "true"}),
+      "BROWSERGYM_HEADLESS": "true",
+      # MiniWoB's HTML is served from the miniwob-plusplus clone, and browsergym
+      # raises at reset without this. The configs carry it as env_config.miniwob_url;
+      # the probe has no config, so it takes the launch checklist's URL unless the
+      # caller names another. Without it the probe reported a false RESET FAILED.
+      "MINIWOB_URL": os.environ.get("MINIWOB_URL", "http://localhost:8080/miniwob/")}),
 ]
 
 
