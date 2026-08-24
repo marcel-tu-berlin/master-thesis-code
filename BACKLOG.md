@@ -29,23 +29,22 @@ the full `[T, vocab]` tensor is never allocated. transformers claims ~60% memory
 reduction. If it holds here, 16k training becomes reachable on the L4 with no
 new hardware and no precision change.
 
-Not verified yet:
+Done 2026-08-24: liger-kernel 0.8.2 installed and in the lock, `training.use_liger_kernel`
+passes through `_grpo_config`, and a browsergym `--smoke` ran the fused path end to
+end with a live env server (TRL's `compute_liger_loss` applies the multi-turn
+`tool_mask`, the vLLM importance-sampling ratio and the ref logps itself, read at
+trl 1.6 source). Qwen3 is supported (`apply_liger_kernel_to_qwen3` imports).
 
-- `liger_kernel` is not installed on the box (`pip install liger-kernel`); TRL
-  raises `ImportError` if the flag is set without it.
-- Whether the released liger-kernel supports Qwen3.
-- Whether `LigerFusedLinearGRPOLoss` composes with `environment_factory` and the
-  multi-turn tool masking the agentic path depends on.
+Still open:
 
-Steps:
-
-1. Install liger-kernel on the box.
-2. Add `use_liger_kernel` passthrough in `_grpo_config` (`training/grpo_runner.py`).
-3. `--smoke` agentic run at the current `max_seq_length: 5120` - does the path
-   run at all with a live env server.
-4. A/B against e24 at 4096, same seed, to confirm the loss path is numerically
-   equivalent and not just cheaper.
-5. Memcheck at 16k. If it fits, the cap question is closed.
+4. `probe-p2-liger` vs `probe-p2-base` (50 steps, seed 42, running - see
+   `RUNNING.md`): is the loss path equivalent (paired per-step reward, grad_norm,
+   loss) and what does it save in step time. Read with `python -m probes.p2_compare`.
+   Note the liger path logs `clip_ratio` only, not the `clip_ratio/{low,high,region}`
+   family - check `eval/plots.py` reads before plotting a liger run.
+5. Memcheck at 16k (`max_seq_length` 20480, `max_prompt_length` 4096, `micro_batch_size`
+   1). If it fits, the cap question is closed and `micro_batch_size` 2-4 becomes a
+   speed knob to probe next.
 
 Dead end, do not retry: dropping mixed precision. `cast_lm_head_to_fp32`
 defaults to `False` and we never set it, so there is no fp32 upcast to remove.
