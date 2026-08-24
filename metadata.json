@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M0TZY0GEH45H4EVSNY7G92KN",
+  "strategy": "manual-commit",
+  "branch": "master",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "pipeline/training/env_stamp.py",
+    "requirements.lock.txt"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 9231,
+    "cache_creation_tokens": 813877,
+    "cache_read_tokens": 8723930,
+    "output_tokens": 79384,
+    "api_call_count": 54
+  }
+}
