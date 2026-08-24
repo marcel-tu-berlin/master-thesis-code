@@ -48,7 +48,9 @@ chronological order.
   argv** `EnvServerProcess` passes. It always binds 8000 by default, which is what
   the configs ask for. A different `training.env_server.port` would fail loud
   (nothing answers the client), not silent.
-- **OpenEnv clone updated** `d372fab` -> `024eedc`. Rollback point is `d372fab`.
+- **OpenEnv clone updated** `d372fab` -> `024eedc`. Rollback point is `d372fab`,
+  and rolling back means editing `pipeline/OPENENV_COMMIT` - a `git checkout` in
+  the clone alone is reverted by the next setup and refused at the next launch.
   The clone carries no local patches any more: the only ones were finqa's, deleted
   with the env. Their two lessons live in "Contract a new OpenEnv env must meet"
   below.
@@ -412,18 +414,24 @@ against - e9 through e36 all sit on "whatever was installed at the time". That
 is the same failure mode as an unrecorded `batch_size`: a library changes, the
 numbers move, and nothing on disk says why.
 
-Now `requirements.lock.txt` (frozen off the box venv, 277 packages) is the only
-install source, and `OPENENV_COMMIT` in `setup.sh` pins the clone to
-`024eedc90305cc8bd7a5b44f44d1b987102e957b` (v0.4.1-67-g024eedc, 2026-07-31).
-The stack this pins is trl 1.6.0, transformers 5.12.0, torch 2.10.0+cu130,
-vllm 0.19.1+cu130, peft 0.19.1, reasoning-gym 0.1.25, browsergym 0.14.3,
-playwright 1.44.0.
+Since 2026-08-22 `requirements.lock.txt` is the only install source and
+`pipeline/OPENENV_COMMIT` pins the clone. The live values are in those two files;
+do not copy them here, or this section becomes a second, stale answer to the same
+question. What e30-e36 trained on was trl 1.6.0 / transformers 5.12.0 / torch
+2.10.0+cu130 / vllm 0.19.1+cu130, on OpenEnv `024eedc` - recorded here because
+those runs predate the stamp file and nothing else holds it.
 
 Upgrading is a deliberate act, not a side effect of re-running setup: install,
 verify against a real reset, then re-freeze the lock in the same commit. A
 version bump landing silently between two arms of a comparison confounds them
-exactly like a geometry change would. Runs before this commit have no recorded
+exactly like a geometry change would. Runs before 2026-08-22 have no recorded
 stack; that is a caveat on their reproducibility, not on their numbers.
+
+Two things now enforce the pin outside setup, because setup only runs when
+someone runs it: a launch refuses to serve a run from a clone that has moved off
+`pipeline/OPENENV_COMMIT`, and each phase writes `runs/<exp>/env_stamp.json` with
+the clone HEAD and the load-bearing package versions it actually had. From e37 on,
+the run directory answers "which stack produced this" on its own.
 
 ## Before the E2 / E3 arms - two knobs checked against e27's real numbers
 

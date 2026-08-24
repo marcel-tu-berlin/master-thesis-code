@@ -14,13 +14,18 @@ not need a code change.
 ./setup.sh
 ```
 
-This creates `.venv` via `uv`, installs the GPU stack (`trl`, `peft`,
-`bitsandbytes`, a pinned `vllm` cu130 wheel, `reasoning-gym`), and clones
-`meta-pytorch/OpenEnv` to `/workspace/OpenEnv` (its env servers are not on PyPI).
-Point `training.env_server.repo_path` at that clone's `envs/` dir. The `openenv`
+This creates `.venv` via `uv` on Python 3.12.3, installs every package from
+`requirements.lock.txt` (the only install source - nothing floats), clones OpenEnv
+to `/workspace/OpenEnv` and pins it to `pipeline/OPENENV_COMMIT` (its env servers
+are not on PyPI), and installs browsergym's non-pip artifacts (playwright's
+chromium, the pinned miniwob-plusplus clone). Point
+`training.env_server.repo_path` at the OpenEnv clone's `envs/` dir. The `openenv`
 core is installed editable from that same clone rather than from PyPI, so the
 core and the env servers can never drift apart - see CLAUDE.md for why a skew
 between them fails at runtime instead of at import.
+
+A launch refuses to run against a clone that has moved off the pin, and each
+phase records the stack it ran on in `runs/<exp>/env_stamp.json`.
 
 ## Train
 

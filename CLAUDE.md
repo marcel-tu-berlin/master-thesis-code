@@ -188,9 +188,19 @@ Edit and run tests on the Mac. Training and eval run on the GPU box
 # tests: CPU-only, a few seconds, no GPU stack required
 cd pipeline && ../.venv-test/bin/python -m pytest tests/ -q
 
+# setup.sh has its own harness (stubs uv/git/playwright, installs nothing)
+bash tests/test_setup.sh
+
+# .venv-test is pinned separately - requirements.lock.txt is +cu130 and Linux-only
+uv venv .venv-test --python 3.12.6
+uv pip install --python .venv-test/bin/python -r requirements-test.lock.txt
+
 # push code to the box before any launch - the whole package, never one module
 rsync -a --delete --exclude 'runs/' --exclude '__pycache__/' --exclude '.pytest_cache/' \
   pipeline/ gpu-l4:/workspace/master-thesis-code/pipeline/
+
+# setup.sh and the lockfile live outside pipeline/, so they need their own push
+rsync -a setup.sh requirements.lock.txt gpu-l4:/workspace/master-thesis-code/
 
 # harvest results back; checkpoints stay on the box
 rsync -a --exclude 'checkpoint*' \
@@ -211,11 +221,27 @@ in `LAB_NOTES.md`. Read them before launching.
 ./setup.sh
 ```
 
-Creates `.venv` via `uv` with Python 3.12. Installs the GPU stack (`trl`, `peft`,
-`bitsandbytes`, `accelerate`, a pinned `vllm` cu130 wheel,
-`reasoning-gym`) and clones `meta-pytorch/OpenEnv` to `/workspace/OpenEnv` (its
-env servers are not on PyPI). Hardware target: NVIDIA L4 (24 GB) or RTX 4090,
-CUDA 13.0, Linux. `--torch-backend=auto` selects the torch variant.
+Creates `.venv` via `uv` on Python 3.12.3 and installs `requirements.lock.txt`,
+which is the only install source - every version is pinned, nothing floats. It
+then pins the OpenEnv clone at `/workspace/OpenEnv` to the commit in
+`pipeline/OPENENV_COMMIT` and installs its core editable with `--no-deps`, and
+installs browsergym's two non-pip artifacts: playwright's chromium and the pinned
+`miniwob-plusplus` clone whose HTML MiniWoB serves from. Hardware target: NVIDIA
+L4 (24 GB) or RTX 4090, CUDA 13.0, Linux; `--torch-backend=cu130` matches the
+`+cu130` wheels in the lock.
+
+Upgrading is a deliberate act, never a side effect of re-running setup: change the
+version, install, verify against a real env reset, and re-freeze the lock in the
+same commit (the regen command, and why it must not redirect straight into the
+lockfile, are in the lockfile header). Moving the OpenEnv clone means editing
+`pipeline/OPENENV_COMMIT`; a `git pull` in the clone alone gets reverted by the
+next setup and refused at the next launch.
+
+The pin is enforced where it matters rather than only at setup:
+`EnvServerProcess.start()` refuses to launch against a clone that is not at
+`pipeline/OPENENV_COMMIT`, and each phase writes `runs/<exp>/env_stamp.json`
+recording the clone HEAD plus the versions of the packages a run's numbers depend
+on. `runs/<exp>/` therefore says which stack produced it.
 
 The `openenv` core is installed **editable from that clone**, not from PyPI as
 `openenv-core`. Both ship the same `openenv` import name, so installing both lets
@@ -508,6 +534,8 @@ grad-accum to fit 24 GB.
 ### Outputs
 
 - `runs/<experiment_id>/config.yaml` - frozen experiment config
+- `runs/<experiment_id>/env_stamp.json` - the stack each phase ran against
+  (OpenEnv clone HEAD, load-bearing package versions), keyed `train` / `eval`
 - `runs/<experiment_id>/checkpoint-final/` - LoRA adapter + tokenizer
 - `runs/<experiment_id>/eval_report.json` / `eval_report.md` - agentic episode
   metrics (success rate, token efficiency)
