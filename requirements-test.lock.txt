@@ -1,0 +1,67 @@
+# The CPU-only venv the tests run in on the Mac (Python 3.12.6). It is NOT
+# requirements.lock.txt: that one pins +cu130 wheels and a Linux-only vllm, and
+# will not install here. Recreate with:
+#   uv venv .venv-test --python 3.12.6
+#   uv pip install --python .venv-test/bin/python -r requirements-test.lock.txt
+# Regenerate the same way as the main lock (see its header), from this venv:
+#   uv pip freeze --python .venv-test/bin/python
+aiohappyeyeballs==2.6.2
+aiohttp==3.14.1
+aiosignal==1.4.0
+annotated-doc==0.0.4
+anyio==4.13.0
+attrs==26.1.0
+certifi==2026.5.20
+charset-normalizer==3.4.7
+click==8.4.1
+contourpy==1.3.3
+cycler==0.12.1
+datasets==5.0.0
+dill==0.4.1
+filelock==3.29.1
+fonttools==4.63.0
+frozenlist==1.8.0
+fsspec==2026.4.0
+h11==0.16.0
+hf-xet==1.5.1
+httpcore==1.0.9
+httpx==0.28.1
+huggingface-hub==1.18.0
+idna==3.18
+iniconfig==2.3.0
+jinja2==3.1.6
+kiwisolver==1.5.0
+markdown-it-py==4.2.0
+markupsafe==3.0.3
+matplotlib==3.11.0
+mdurl==0.1.2
+mpmath==1.3.0
+multidict==6.7.1
+multiprocess==0.70.19
+networkx==3.6.1
+numpy==2.4.6
+packaging==26.2
+pandas==3.0.3
+pillow==12.2.0
+pluggy==1.6.0
+propcache==0.5.2
+pyarrow==24.0.0
+pygments==2.20.0
+pyparsing==3.3.2
+pytest==9.0.3
+python-dateutil==2.9.0.post0
+pyyaml==6.0.3
+requests==2.34.2
+rich==15.0.0
+scipy==1.17.1
+setuptools==81.0.0
+shellingham==1.5.4
+six==1.17.0
+sympy==1.14.0
+torch==2.12.0
+tqdm==4.68.2
+typer==0.25.1
+typing-extensions==4.15.0
+urllib3==2.7.0
+xxhash==3.7.0
+yarl==1.24.2
