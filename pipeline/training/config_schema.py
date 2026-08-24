@@ -69,6 +69,31 @@ _KNOWN_TRAINING_KEYS = {
     "n_rollouts", "batch_size", "micro_batch_size",
     "learning_rate", "kl_beta", "temperature", "weight_decay", "warmup_ratio",
     "vllm_importance_sampling_mode",
+    # Optimizer and LR schedule, passed through to GRPOConfig, which rejects an
+    # unknown name itself. Config keys rather than runner constants since the
+    # 2026-08-24 recipe change (LAB_NOTES): the seed-42 browsergym campaign
+    # trained under paged_adamw_8bit / cosine and its configs pin those so a
+    # seed replication trains under the same recipe.
+    "optim", "lr_scheduler_type",
+    # Phase-2 A/B knobs (2026-08-24), all TRL GRPOConfig passthroughs at TRL's
+    # own defaults when absent: num_iterations (mu, optimizer steps per
+    # rollout batch; >1 is off-policy and engages the PPO clip) and
+    # use_liger_kernel (fused linear GRPO loss, never materialises the
+    # [T, vocab] logits - the 4096-token training ceiling, BACKLOG 1).
+    "num_iterations", "use_liger_kernel",
+}
+
+# Known keys under `model`. The last block without a whitelist: `lora_rnk: 8`
+# validated, the runner trained at the registry rank, and the frozen config
+# recorded 8. Every key here is read by grpo_runner, train.py or agentic_eval.
+_KNOWN_MODEL_KEYS = {
+    "slug", "lora_r", "lora_alpha", "load_in_4bit", "max_seq_length",
+    "use_vllm", "gpu_memory_utilization",
+    # vLLM sleep mode: the colocated engine releases its weights and KV cache
+    # (sleep level 2) during the policy update and reloads them before the
+    # next generation, so gpu_memory_utilization can exceed what the backward
+    # leaves free. Phase-2 A/B knob.
+    "vllm_enable_sleep_mode",
 }
 
 # How TRL corrects for the vLLM-sampler-vs-trainer logprob mismatch. TRL 1.6
@@ -145,6 +170,7 @@ _NUMERIC_COERCIONS = {
     "training.n_rollouts": (1, 256),
     "training.save_steps": (1, 100_000),
     "training.max_prompt_length": (1, 131072),
+    "training.num_iterations": (1, 16),
 }
 
 
@@ -372,6 +398,15 @@ def validate_config(config: dict) -> None:
             errors.append(
                 f"Unknown sub-keys under rewards.{reward_name}: {sorted(unknown_sub)}. "
                 f"Allowed: {sorted(allowed)}"
+            )
+
+    model = config.get("model")
+    if isinstance(model, dict):
+        unknown_model = set(model) - _KNOWN_MODEL_KEYS
+        if unknown_model:
+            errors.append(
+                f"Unknown model keys: {sorted(unknown_model)}. "
+                f"Known: {sorted(_KNOWN_MODEL_KEYS)}"
             )
 
     training = config.get("training")

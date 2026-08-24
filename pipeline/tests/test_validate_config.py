@@ -112,6 +112,33 @@ def test_accepts_every_training_key_the_code_reads():
         learning_rate=5e-6, kl_beta=0.001, temperature=1.0,
         weight_decay=0.1, warmup_ratio=0.1,
         vllm_importance_sampling_mode="token_truncate",
+        optim="paged_adamw_8bit", lr_scheduler_type="cosine",
+        num_iterations=2, use_liger_kernel=True,
+    )
+    validate_config(cfg)  # must not raise
+
+
+def test_rejects_zero_num_iterations():
+    cfg = _agentic_base()
+    cfg["training"]["num_iterations"] = 0
+    with pytest.raises(ValueError, match="num_iterations"):
+        validate_config(cfg)
+
+
+def test_rejects_unknown_model_key():
+    # `model` was the last block without a whitelist: a typo here fell back to
+    # the runner default while the frozen config recorded the intended value.
+    cfg = _agentic_base()
+    cfg["model"]["lora_rnk"] = 8
+    with pytest.raises(ValueError, match="model keys"):
+        validate_config(cfg)
+
+
+def test_accepts_every_model_key_the_code_reads():
+    cfg = _agentic_base()
+    cfg["model"].update(
+        lora_r=16, lora_alpha=32, load_in_4bit=False, max_seq_length=8192,
+        use_vllm=True, gpu_memory_utilization=0.3, vllm_enable_sleep_mode=True,
     )
     validate_config(cfg)  # must not raise
 

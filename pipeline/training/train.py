@@ -97,10 +97,13 @@ def apply_smoke_overrides(config: dict) -> dict:
     config["model"]["max_seq_length"] = seq
     # Under colocate the backward competes with vLLM's KV pool for the 24 GB, so
     # give training headroom in smoke (0.6 util OOMs a full agentic rollout here).
-    # Set before --vllm's setdefault so this wins.
-    config["model"]["gpu_memory_utilization"] = min(
-        float(config["model"].get("gpu_memory_utilization", 0.45) or 0.45), 0.45
-    )
+    # Set before --vllm's setdefault so this wins. Not under sleep mode: there
+    # the engine releases its pool during the backward, and a smoke of that
+    # knob has to run the share the config asks for.
+    if not config["model"].get("vllm_enable_sleep_mode"):
+        config["model"]["gpu_memory_utilization"] = min(
+            float(config["model"].get("gpu_memory_utilization", 0.45) or 0.45), 0.45
+        )
     # Safety: the completion budget is max_seq - max_prompt_length, so keep the
     # prompt cap at half the context (a config with max_prompt_length == max_seq
     # would otherwise leave zero room to generate).
@@ -139,8 +142,7 @@ def main() -> None:
         config.setdefault("model", {})
         config["model"]["use_vllm"] = True
         config["model"].setdefault("gpu_memory_utilization", 0.6)
-        config["model"]["enforce_eager"] = True
-        print("⚠  vLLM fast inference ON (--vllm): gpu_memory_utilization=0.6, enforce_eager=True")
+        print("⚠  vLLM fast inference ON (--vllm): gpu_memory_utilization=0.6")
     validate_config(config)
     seed = config.get("seed", 42)
     random.seed(seed)

@@ -27,7 +27,10 @@ training:
   n_rollouts: 8                # GRPO group size
   max_steps: 300
   learning_rate: 5e-6
-  kl_beta: 0.001
+  # Recipe defaults (2026-08-24). Written out so the frozen config records them.
+  kl_beta: 0.0                 # TRL default; >0 adds a ref-model forward per step
+  optim: adamw_torch_fused     # LoRA state is ~140 MB, 8-bit paging buys nothing
+  lr_scheduler_type: constant_with_warmup   # cosine wasted the tail of a 150-step run
 
 rewards:
   compose_method: advantage_weighted   # advantage_weighted | naive_sum

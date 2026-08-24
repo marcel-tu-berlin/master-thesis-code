@@ -44,6 +44,13 @@ training:
   # dose-response, stable at 50 steps. Watch KL growth past that horizon.
   learning_rate: 5e-5
   kl_beta: 0.001
+  # Recipe this arm trained under, pinned. The runner defaults moved to
+  # adamw_torch_fused / constant_with_warmup / kl_beta 0.0 on 2026-08-24
+  # (LAB_NOTES), so a re-run of this config reproduces the run on disk only
+  # because the old values are stated here rather than inherited. This
+  # campaign is closed: no further runs on the old recipe (decision 2026-08-24).
+  optim: paged_adamw_8bit
+  lr_scheduler_type: cosine
   # The trainer fix (commit a975c40). The TRL 1.6 default, sequence_mask,
   # zeroes or collapses the per-sequence weight of long completions and starved
   # menu-2 of gradient in every earlier browsergym run.

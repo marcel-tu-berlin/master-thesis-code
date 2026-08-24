@@ -2,10 +2,6 @@ import os
 import json
 import sys
 
-# Reduce CUDA allocator fragmentation so vLLM colocate + training coexist on a
-# 24 GB GPU. Must be set before torch initializes the caching allocator.
-os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
-
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
@@ -33,6 +29,17 @@ class GRPORunner:
         # required for the agentic rollout path and is the only tractable option
         # for GRPO on a single GPU. Set model.use_vllm: false to fall back to HF.
         use_vllm = config["model"].get("use_vllm", True)
+        sleep_mode = bool(config["model"].get("vllm_enable_sleep_mode", False))
+
+        # Expandable segments reduce allocator fragmentation so vLLM colocate
+        # and training coexist on 24 GB. torch parses the setting at the first
+        # CUDA allocation (the from_pretrained below), so it is set here rather
+        # than at import. vLLM's sleep mode is the exception: it swaps the
+        # engine's memory through a CUDA memory pool, which torch cannot back
+        # with expandable segments (pytorch#147851; vLLM asserts on the
+        # PYTORCH_CUDA_ALLOC_CONF spelling, torch honours this one too).
+        if not sleep_mode:
+            os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 
         dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
 
@@ -73,6 +80,7 @@ class GRPORunner:
         self._lora_rank = lora_rank
         self._max_seq = max_seq
         self._use_vllm = use_vllm
+        self._sleep_mode = sleep_mode
 
     def _grpo_config(self, output_dir: str) -> GRPOConfig:
         t = self.config["training"]
@@ -106,6 +114,19 @@ class GRPORunner:
         print(f"Batch geometry: batch_size={batch_size}  n_rollouts={n_rollouts}  "
               f"micro_batch_size={micro}  grad_accum={grad_accum}  max_steps={max_steps}")
 
+        # Recipe defaults since 2026-08-24 (LAB_NOTES "Standing rule: recipe
+        # defaults"). The seed-42 browsergym campaign (e30-e36) ran
+        # paged_adamw_8bit / cosine / kl_beta 0.001; its configs state those
+        # explicitly, so re-running them reproduces the old recipe.
+        #  - adamw_torch_fused: the LoRA has ~17M params, so fp32 Adam state is
+        #    ~140 MB. The 8-bit paged optimizer saved nothing and quantised the
+        #    moments of exactly the parameters being trained.
+        #  - constant_with_warmup: a 150-step run under cosine spent its last
+        #    ~40 steps near zero LR, so the average LR was about half of the
+        #    stated one. This setup is step-starved; each step should count.
+        #  - kl_beta 0.0 (TRL's own default): at 0.001 the KL term was 1e-4 of
+        #    the loss while the ref-model forward it requires cost a full extra
+        #    pass every step.
         kwargs = dict(
             temperature=float(t.get("temperature", 1.0)),
             learning_rate=float(t.get("learning_rate", 5e-6)),
@@ -113,8 +134,8 @@ class GRPORunner:
             adam_beta2=0.99,
             weight_decay=float(t.get("weight_decay", 0.1)),
             warmup_ratio=float(t.get("warmup_ratio", 0.1)),
-            lr_scheduler_type="cosine",
-            optim="paged_adamw_8bit",
+            lr_scheduler_type=str(t.get("lr_scheduler_type", "constant_with_warmup")),
+            optim=str(t.get("optim", "adamw_torch_fused")),
             logging_steps=1,
             bf16=torch.cuda.is_bf16_supported(),
             fp16=not torch.cuda.is_bf16_supported(),
@@ -131,9 +152,16 @@ class GRPORunner:
             save_steps=int(t.get("save_steps", 100)),
             output_dir=output_dir,
             report_to="none",
-            beta=float(t.get("kl_beta", 0.001)),
+            beta=float(t.get("kl_beta", 0.0)),
             seed=int(self.config.get("seed", 42)),
+            # Phase-2 A/B knobs at TRL's defaults (LAB_NOTES "recipe defaults").
+            num_iterations=int(t.get("num_iterations", 1)),
+            use_liger_kernel=bool(t.get("use_liger_kernel", False)),
         )
+        print(f"Recipe: optim={kwargs['optim']}  lr_scheduler_type={kwargs['lr_scheduler_type']}  "
+              f"kl_beta={kwargs['beta']}  learning_rate={kwargs['learning_rate']}  "
+              f"num_iterations={kwargs['num_iterations']}  use_liger_kernel={kwargs['use_liger_kernel']}  "
+              f"vllm_enable_sleep_mode={self._sleep_mode}")
         # Cap the tool-calling loop. TRL treats an unset
         # max_tool_calling_iterations as sys.maxsize, so leaving it off for
         # single-step domains left the loop unbounded: a reasoning_gym rollout
@@ -153,6 +181,7 @@ class GRPORunner:
             # Cap vLLM's context to the training seq length. Qwen3's native 40k
             # context would demand a ~4 GiB KV cache and OOM the colocated engine.
             kwargs["vllm_max_model_length"] = self._max_seq
+            kwargs["vllm_enable_sleep_mode"] = self._sleep_mode
             # TRL 1.6's default correction for the vLLM-vs-trainer logprob
             # mismatch is sequence_mask: the per-EPISODE weight exp(sum of
             # per-token drift) multiplies the loss, and a weight outside
