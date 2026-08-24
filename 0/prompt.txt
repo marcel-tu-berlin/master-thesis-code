@@ -1,0 +1,4 @@
+ok i have some more things that we should consider to optimize our setup. 
+check all the following pieces and report to me the current state and if we could try to optimize something:
+- all the training parameters which are easily set like lora rank, batch size, alpha lora, gradient accumulation and stuff like this (do we have sensible settings at all places?)
+- we dont use unsloth - why again? could we use it? if not - why not?
