@@ -45,3 +45,16 @@ script imports each `app` object and serves it on its own port instead of callin
 ```bash
 /workspace/master-thesis-code/.venv/bin/python env_check.py
 ```
+
+## `p2_compare.py` - pair probe arms on their training logs
+
+Reads `train_log.json` from a base run and any number of arms and prints per-arm
+step time, mean reward, clip rate and completion length, plus the paired
+per-step reward difference against the base (same seed, so step k saw the same
+questions in every arm) with a sign count and SE. The Phase-2 trainer-knob
+probes (`probe-p2-*`, LAB_NOTES "recipe defaults") are read with it. Runs
+anywhere the logs are:
+
+```bash
+python -m probes.p2_compare runs/probe-p2-base runs/probe-p2-liger runs/probe-p2-sleep
+```
