@@ -1,0 +1,66 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M0T0PH3V58RXBZ0DFXM78PJA",
+  "session_id": "78270fd7-d580-400b-9e46-83bbbcb0e57f",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-24T13:52:29.948632Z",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "CLAUDE.md",
+    "LAB_NOTES.md",
+    "pipeline/README.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "882907c3fa8a",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 162,
+    "cache_creation_tokens": 420210,
+    "cache_read_tokens": 10734062,
+    "output_tokens": 78494,
+    "api_call_count": 81
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-goal-2026-08-24T09:58:59.297249Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "goal"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "4c8834572245",
+      "timestamp": "2026-08-24T09:58:59.297249Z",
+      "native": {
+        "command": "/goal"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/goal",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-24T13:52:29.896777Z",
+    "agent_lines": 58,
+    "agent_removed": 17,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 58,
+    "total_lines_changed": 75,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
