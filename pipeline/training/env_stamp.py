@@ -27,6 +27,9 @@ STAMP_FILE = "env_stamp.json"
 STAMPED_PACKAGES = (
     "trl", "transformers", "torch", "vllm", "peft", "accelerate", "datasets",
     "bitsandbytes", "reasoning-gym", "browsergym-core", "playwright", "numpy",
+    # The fused GRPO loss when training.use_liger_kernel is on; None otherwise
+    # says the box did not have it.
+    "liger-kernel",
 )
 
 
