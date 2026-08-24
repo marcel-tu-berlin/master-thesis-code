@@ -3,8 +3,56 @@ import socket
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 from training.config_schema import DEFAULT_BATCH_SIZE, DEFAULT_N_ROLLOUTS
+
+# setup.sh moves the OpenEnv clone onto this commit. It lives inside pipeline/ so
+# it travels with the rsync that pushes the pipeline to the box, which is the only
+# thing that reliably reaches the box checkout.
+_PIN_FILE = Path(__file__).resolve().parents[1] / "OPENENV_COMMIT"
+
+# Where setup.sh puts the clone. One definition, so the server and the run stamp
+# cannot disagree about which clone the run used.
+DEFAULT_REPO_ENVS_PATH = "/workspace/OpenEnv/envs"
+
+
+def openenv_pin() -> str:
+    """The OpenEnv commit this checkout expects the env-server clone to be at."""
+    return _PIN_FILE.read_text().strip()
+
+
+def clone_head(repo_envs_path) -> str:
+    """HEAD of the git clone holding `repo_envs_path` (git walks up from a subdir)."""
+    return subprocess.run(
+        ["git", "-C", str(repo_envs_path), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+
+def verify_openenv_pin(repo_envs_path) -> str:
+    """Refuse to serve a run from a clone that is not at the pin.
+
+    setup.sh pins the clone, but nothing kept it there: a `git pull` in
+    /workspace/OpenEnv changes the env servers and their wire contract under a
+    run, and the run still produces plausible numbers. Checking at launch is the
+    only place that sees the clone the run will actually talk to.
+    """
+    pin = openenv_pin()
+    try:
+        head = clone_head(repo_envs_path)
+    except (OSError, subprocess.CalledProcessError) as e:
+        raise RuntimeError(
+            f"cannot read the OpenEnv clone HEAD at {repo_envs_path!r} to check it "
+            f"against the pin {pin}; run ./setup.sh on this box ({e})"
+        ) from e
+    if head != pin:
+        raise RuntimeError(
+            f"OpenEnv clone at {repo_envs_path!r} is at {head}, not the pinned "
+            f"{pin}. Run ./setup.sh to move it back, or update "
+            f"pipeline/OPENENV_COMMIT if the move was deliberate."
+        )
+    return head
 
 
 class EnvServerProcess:
@@ -60,6 +108,7 @@ class EnvServerProcess:
                 f"silently serve this run. Kill it before launching "
                 f"({' '.join(self.command())})"
             )
+        verify_openenv_pin(self.repo_envs_path)
         self._proc = subprocess.Popen(
             self.command(),
             cwd=self.repo_envs_path,
@@ -140,7 +189,7 @@ def build_env_server(config, domain, python=None) -> EnvServerProcess:
         # for every domain. start() still refuses a port something else already
         # holds.
         port=int(es.get("port", 8000)),
-        repo_envs_path=es.get("repo_path", "/workspace/OpenEnv/envs"),
+        repo_envs_path=es.get("repo_path", DEFAULT_REPO_ENVS_PATH),
         max_concurrent=max(8, n_envs),
         server_env=domain.server_env(env_config),
         python=python,

@@ -14,6 +14,7 @@ from eval.agentic_eval import seed_block
 from training.batch import mark_smoke_checkpoint
 from training.grpo_runner import GRPORunner
 from training.env_server import build_env_server
+from training.env_stamp import write_env_stamp
 from training.rewards import REWARD_REGISTRY
 from training.rewards.compose import build_composer
 from training.config_schema import (DEFAULT_N_ROLLOUTS, validate_config,
@@ -204,6 +205,10 @@ def main() -> None:
     dataset = domain.build_seed_dataset(env_config, n=n_prompts,
                                         seed_base=seed_block(seed))
     server = build_env_server(config, domain, python=sys.executable)
+    # The frozen config records what the run asked for; this records what the box
+    # actually had installed while it trained. A hand-installed package between
+    # two arms is otherwise invisible.
+    write_env_stamp(run_dir, "train", server.repo_envs_path)
     make_factory = lambda base_url: domain.make_env_factory(base_url, env_config)  # noqa: E731
     print(f"Agentic env: {config['training']['env']}  seed-rows: {len(dataset)}  "
           f"server: {server.base_url} (max_concurrent={server.max_concurrent})")

@@ -439,7 +439,8 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
     from trl.chat_template_utils import add_response_schema, parse_response
 
     from training.registry import get_model_config
-    from training.env_server import build_env_server
+    from training.env_server import DEFAULT_REPO_ENVS_PATH, build_env_server
+    from training.env_stamp import write_env_stamp
 
     model_cfg = get_model_config(config["model"]["slug"])
     load_4bit = config["model"].get("load_in_4bit", model_cfg["load_in_4bit"])
@@ -479,6 +480,12 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
     # Created up front: each split writes its episode records as it finishes, so
     # a crash in a later split does not lose the earlier one's trajectories.
     os.makedirs(run_dir, exist_ok=True)
+    # Eval can run weeks after training, on a stack that moved in between, so it
+    # records its own half of runs/<exp>/env_stamp.json rather than sharing the
+    # training one.
+    write_env_stamp(run_dir, "eval",
+                    (config.get("training", {}).get("env_server", {}) or {})
+                    .get("repo_path", DEFAULT_REPO_ENVS_PATH))
     split_metrics = {}
     for split in splits:
         n = split["n_episodes"]
