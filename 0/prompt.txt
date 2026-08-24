@@ -1,0 +1,16 @@
+ok lets do the following:
+
+we need two phases. phase 1 for the obvious fixes. implement them and smoke test if everything works still. should cover: kl_beta to 0.0, optim to adamw_torch_fused, lr_scheduler_type to constant_with_warmup
+also fix the hygiene gap youve found in phase 1
+
+then phase 2: everything that needs A/B testing. this includes: num_iterations, vllm sleep mode and gpu mem util, liger fused grpo loss (only if working and this needs strong verification that everything still works)
+
+regarding rollout_func - do we even use it? i cant find it in the code
+
+---
+
+You can drop the 43 seed plan for the old pipeline. We will only continue with the now improved version of the pipeline. Dont even think about more seeds until the current setup yields first results that look interesting
+
+---
+
+commit the phase 1 and 2 changes, delete the smoke dirs
