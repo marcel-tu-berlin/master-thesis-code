@@ -47,6 +47,26 @@ _CURVE_KEYS = [
     ("completions/clipped_ratio", "clipped at cap (fraction)"),
     ("kl", "KL"),
     ("loss", "loss"),
+    # The optimization panel. Every one of these was already written to
+    # train_log.json and plotted by nothing, which is why a campaign's "is this
+    # signal or noise" question had to be answered from the aggregate report
+    # alone: frac_reward_zero_std is the gradient-share caveat, and grad_norm and
+    # entropy are where a collapsing policy shows up before the reward does.
+    ("frac_reward_zero_std", "prompt-groups with zero reward variance"),
+    ("grad_norm", "grad norm"),
+    ("entropy", "entropy"),
+]
+
+# Cross-arm overlay panels, in order. Deliberately fewer than _CURVE_KEYS: this
+# figure answers "did the arms diverge, and when", so it carries the series whose
+# between-arm difference is interpretable, not every series that exists.
+_OVERLAY_KEYS = [
+    ("reward/EnvReward/raw_mean", "env reward (raw mean)"),
+    ("completions/mean_length", "mean completion length (tokens)"),
+    ("frac_reward_zero_std", "groups with zero reward variance"),
+    ("kl", "KL"),
+    ("entropy", "entropy"),
+    ("grad_norm", "grad norm"),
 ]
 
 
@@ -241,6 +261,179 @@ def plot_training_curves(log_history, fig=None):
     return fig
 
 
+def _smooth(xs, ys, window):
+    """Bucket means of `window` consecutive points, at each bucket's mean x.
+
+    Raw per-step series on a 150-step run are noisy enough that two arms'
+    trajectories overlap visually even when their levels differ; the bucket mean
+    is drawn on top of the raw line so both the trend and the scatter it came
+    from stay visible.
+    """
+    if window <= 1 or len(ys) < window:
+        return xs, ys
+    n = (len(ys) // window) * window
+    bx = np.asarray(xs[:n], dtype=float).reshape(-1, window).mean(axis=1)
+    by = np.asarray(ys[:n], dtype=float).reshape(-1, window).mean(axis=1)
+    return bx.tolist(), by.tolist()
+
+
+def plot_training_overlay(logs, keys=None, smooth=10, fig=None):
+    """One panel per series, every arm overlaid on a shared x-axis.
+
+    `logs` is [(label, log_history), ...]. This is the figure the per-run
+    `training_curves_<exp>.png` cannot be: separate figures per arm answer "what
+    did this run do", never "did the arms diverge, and at which step" - and that
+    second question is what separates a reward effect (arms split early and stay
+    split) from optimization noise (they wander around each other).
+
+    A final panel overlays the shaped component's `contrib_l1` where a run has
+    one, so an arm whose penalty goes inert mid-run is visible as a decaying
+    line rather than as an unexplained flat result. Returns None when no log
+    carries any of the keys.
+    """
+    keys = _OVERLAY_KEYS if keys is None else keys
+    logs = [(lbl, log) for lbl, log in logs if log]
+    panels = [(k, lbl) for k, lbl in keys
+              if any(_series(log, k)[1] for _, log in logs)]
+    # Shaped components only: EnvReward is the task signal and already has its
+    # own panel, so overlaying it here would just repeat it.
+    comp_keys = sorted({k for _, log in logs for e in log for k in e
+                        if k.startswith("reward/") and k.endswith("/contrib_l1")
+                        and "EnvReward" not in k})
+    total = len(panels) + (1 if comp_keys else 0)
+    if total == 0:
+        return None
+    ncols = min(3, total)
+    nrows = (total + ncols - 1) // ncols
+    if fig is None:
+        fig = plt.figure(figsize=(5.2 * ncols, 3.4 * nrows))
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    for i, (key, label) in enumerate(panels):
+        ax = fig.add_subplot(nrows, ncols, i + 1)
+        for j, (lbl, log) in enumerate(logs):
+            xs, ys = _series(log, key)
+            if not ys:
+                continue
+            c = colors[j % len(colors)]
+            ax.plot(xs, ys, color=c, alpha=0.22, linewidth=0.8)
+            sx, sy = _smooth(xs, ys, smooth)
+            ax.plot(sx, sy, color=c, linewidth=1.8, label=lbl)
+        ax.set_xlabel("step"), ax.set_ylabel(label), ax.set_title(label)
+        ax.grid(True, alpha=0.3)
+        if i == 0 and ax.get_legend_handles_labels()[0]:
+            ax.legend(fontsize=8)
+    if comp_keys:
+        ax = fig.add_subplot(nrows, ncols, total)
+        for j, (lbl, log) in enumerate(logs):
+            for k in comp_keys:
+                xs, ys = _series(log, k)
+                if not ys:
+                    continue
+                sx, sy = _smooth(xs, ys, smooth)
+                ax.plot(sx, sy, color=colors[j % len(colors)],
+                        label=f"{lbl}: {k.split('/')[1]}")
+        ax.set_xlabel("step"), ax.set_ylabel("|contribution| to the advantage")
+        ax.set_title("shaped component contribution"), ax.legend(fontsize=7)
+        ax.grid(True, alpha=0.3)
+    fig.suptitle("Training dynamics across arms")
+    fig.tight_layout()
+    return fig
+
+
+def _panel_value(row, key):
+    """(value, yerr) for a panel cell. A (v, lo, hi) triple carries a CI."""
+    v = row.get(key)
+    if isinstance(v, (tuple, list)) and len(v) == 3:
+        return float(v[0]), [[max(0.0, v[0] - v[1])], [max(0.0, v[2] - v[0])]]
+    return (None if v is None else float(v)), None
+
+
+def plot_dose_response(rows, panels, refs=None, fig=None):
+    """Dose-response: each panel is one metric against the shaping weight lambda.
+
+    `rows` are dicts with `condition` (the series, e.g. "E2 cosine"), `lam`, and
+    the panel keys - each either a scalar or a (value, ci_low, ci_high) triple.
+    `refs` is {panel_key: (label, value)}, drawn as a dashed horizontal line: the
+    E0 base model, which has no lambda and so cannot be a point on these axes.
+
+    The lambda=0 point is the task-reward-only control, so every series starts
+    from the same place by construction and a panel reads as "what does turning
+    this knob up buy, and what does it cost".
+    """
+    n = len(panels)
+    ncols = min(2, n) or 1
+    nrows = (n + ncols - 1) // ncols
+    if fig is None:
+        fig = plt.figure(figsize=(5.6 * ncols, 3.8 * nrows))
+    conditions = []
+    for r in rows:
+        if r["condition"] not in conditions:
+            conditions.append(r["condition"])
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    for i, (key, label) in enumerate(panels):
+        ax = fig.add_subplot(nrows, ncols, i + 1)
+        for j, cond in enumerate(conditions):
+            pts = sorted((r for r in rows if r["condition"] == cond),
+                         key=lambda r: r["lam"])
+            xs, ys, errs = [], [], []
+            for r in pts:
+                v, err = _panel_value(r, key)
+                if v is None:
+                    continue
+                xs.append(r["lam"]), ys.append(v)
+                errs.append(err)
+            if not xs:
+                continue
+            c = colors[j % len(colors)]
+            ax.plot(xs, ys, "o-", color=c, label=cond, markersize=6)
+            for x, y, e in zip(xs, ys, errs):
+                if e is not None:
+                    ax.errorbar([x], [y], yerr=e, fmt="none", ecolor=c, capsize=4)
+        if refs and key in (refs or {}):
+            rlabel, rval = refs[key]
+            ax.axhline(rval, linestyle="--", color="#666666", linewidth=1)
+            ax.annotate(rlabel, (0.02, rval), xycoords=("axes fraction", "data"),
+                        fontsize=8, color="#666666", va="bottom")
+        ax.set_xlabel("shaping weight lambda"), ax.set_ylabel(label)
+        ax.set_title(label), ax.grid(True, alpha=0.3)
+        if i == 0 and ax.get_legend_handles_labels()[0]:
+            ax.legend(fontsize=8)
+    fig.suptitle("Dose-response: what the shaping weight buys and costs")
+    fig.tight_layout()
+    return fig
+
+
+def plot_paired_deltas(series, fig=None):
+    """Per-episode token difference against the control, sorted, one panel per arm.
+
+    `series` is [(label, [diff, ...]), ...] over the JOINTLY CORRECT episodes.
+    A summary median cannot distinguish "every episode got a bit shorter" from
+    "a handful collapsed and the rest did not move", and those are different
+    claims about what the reward did. The zero line is the control.
+    """
+    series = [(lbl, list(d)) for lbl, d in series if len(d)]
+    if not series:
+        return None
+    ncols = min(3, len(series))
+    nrows = (len(series) + ncols - 1) // ncols
+    if fig is None:
+        fig = plt.figure(figsize=(4.6 * ncols, 3.4 * nrows))
+    for i, (label, diffs) in enumerate(series):
+        ax = fig.add_subplot(nrows, ncols, i + 1)
+        d = np.sort(np.asarray(diffs, dtype=float))
+        ax.bar(np.arange(d.size), d,
+               color=["#55A868" if v <= 0 else "#C44E52" for v in d])
+        ax.axhline(0, color="black", linewidth=0.8)
+        ax.axhline(float(np.median(d)), color="#4C72B0", linestyle="--", linewidth=1,
+                   label=f"median {np.median(d):.0f}")
+        ax.set_title(f"{label} (n={d.size})")
+        ax.set_xlabel("episodes, sorted"), ax.set_ylabel("tokens vs control")
+        ax.legend(fontsize=8), ax.grid(True, alpha=0.3)
+    fig.suptitle("Per-episode token difference on jointly correct episodes")
+    fig.tight_layout()
+    return fig
+
+
 def _report_splits(path: str) -> list[str]:
     """Split names a report carries, in file order."""
     jp = os.path.join(path, "eval_report.json") if os.path.isdir(path) else path
@@ -302,15 +495,72 @@ def make_figures(report_paths, out_dir, dpi=130, split=None):
                 print(f"skip {name}{tag}.png: {type(exc).__name__}: {exc}")
 
     # Training curves are per-run, not per-split - drawn once, outside the loop.
+    logs = []
     for p in report_paths:
         run_dir = p if os.path.isdir(p) else os.path.dirname(p)
         train_log = os.path.join(run_dir, "train_log.json")
         if not os.path.exists(train_log):
             continue
         with open(train_log) as f:
-            fig = plot_training_curves(json.load(f))
+            log = json.load(f)
+        logs.append((_short(os.path.basename(run_dir)), log))
+        fig = plot_training_curves(log)
         if fig is not None:
             _save(fig, f"training_curves_{_short(os.path.basename(run_dir))}.png")
+    # The cross-arm view. Only meaningful from two runs up, which is also when
+    # the per-run figures stop being able to answer the question.
+    if len(logs) > 1:
+        fig = plot_training_overlay(logs)
+        if fig is not None:
+            _save(fig, "training_overlay.png")
+    return written
+
+
+def make_dose_figures(base, runs, out_dir, dpi=130, ref=None, family=None,
+                      held_out="held_out", shifted="shifted"):
+    """Dose-response and per-episode paired figures, against a control run.
+
+    Both need the pairing, so the numbers come from `eval.paired` (which owns the
+    statistics) and only the drawing happens here. Returns the written paths.
+    """
+    from eval import paired
+
+    os.makedirs(out_dir, exist_ok=True)
+    written = []
+    arms = [r for r in runs if os.path.normpath(r) != os.path.normpath(base)]
+    rows = paired.dose_rows(base, arms, held_out=held_out, shifted=shifted, family=family)
+    panels = [
+        ("losses", f"{held_out} losses vs control (paired)"),
+        ("median_dtok", "paired median token diff, correct episodes"),
+        ("shifted_nonterm", f"{shifted} non-termination rate"),
+    ]
+    if family:
+        panels.append(("family_acc", f"{shifted} {family} accuracy"))
+    # The control's config supplies the family mapping for a base-model run,
+    # which never trained and so froze no config of its own.
+    refs = (paired.dose_refs(ref, shifted, family, config=paired.load_config(base))
+            if ref else None)
+    fig = plot_dose_response(rows, panels, refs)
+    path = os.path.join(out_dir, "dose_response.png")
+    fig.savefig(path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    written.append(path)
+
+    base_eps = paired.load_episodes(base, held_out)
+    series = []
+    for arm in arms:
+        try:
+            arm_eps = paired.load_episodes(arm, held_out)
+        except OSError:
+            continue
+        c = paired.compare(base_eps, arm_eps, arm_id=paired._short(arm))
+        series.append((paired._short(arm), c.token_diffs))
+    fig = plot_paired_deltas(series)
+    if fig is not None:
+        path = os.path.join(out_dir, "paired_deltas.png")
+        fig.savefig(path, dpi=dpi, bbox_inches="tight")
+        plt.close(fig)
+        written.append(path)
     return written
 
 
@@ -321,6 +571,12 @@ def main():
     ap.add_argument("-o", "--out", default="runs/plots", help="output dir (default runs/plots)")
     ap.add_argument("--split", default=None,
                     help="render only this eval split (default: one figure set per split)")
+    ap.add_argument("--base", help="control run dir; adds the dose-response and "
+                                   "per-episode paired figures")
+    ap.add_argument("--ref", help="reference run dir for the dashed E0 line (with --base)")
+    ap.add_argument("--family", help="task family whose accuracy gets a dose panel")
+    ap.add_argument("--held-out", default="held_out", help="paired split (default held_out)")
+    ap.add_argument("--shifted", default="shifted", help="off-target split (default shifted)")
     args = ap.parse_args()
 
     paths = list(args.runs) + (sorted(globmod.glob(args.glob)) if args.glob else [])
@@ -336,6 +592,11 @@ def main():
 
     for w in make_figures(valid, args.out, split=args.split):
         print(f"wrote {w}")
+    if args.base:
+        for w in make_dose_figures(args.base, valid, args.out, ref=args.ref,
+                                   family=args.family, held_out=args.held_out,
+                                   shifted=args.shifted):
+            print(f"wrote {w}")
 
 
 if __name__ == "__main__":

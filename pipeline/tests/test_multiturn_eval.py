@@ -422,3 +422,57 @@ def test_on_result_fires_per_episode():
         max_turns=1, make_messages=_msgs, tool_names={"move"},
         on_result=lambda i, r: seen.append(i))
     assert seen == [0, 1, 2]
+
+
+# --- per-turn trajectory records: what an episode's tokens were spent on ---
+# The aggregate report says an arm got shorter. Only these records say whether
+# the tokens came out of the think block, the spoken content, or the actions -
+# and "stopped verifying" and "stopped rambling" are opposite RQ2 answers.
+
+def test_turns_record_one_entry_per_turn_including_the_silent_one():
+    env = _FakeGameEnv("slate")
+    rs = _run_multiturn_episodes(
+        env, 1, 0, _scripted(_turn("move", {"message": "crane"}, 10, reasoning="think"),
+                             _turn(None, None, 3, content="giving up")),
+        max_turns=6, make_messages=_msgs, tool_names={"move"})
+    turns = rs[0].turns
+    assert [t["n_tokens"] for t in turns] == [10, 3]
+    assert turns[0]["reasoning"] == "think"
+    assert turns[0]["tool_calls"] == [{"name": "move", "arguments": {"message": "crane"}}]
+    # The turn that emitted nothing usable is the one worth reading afterwards.
+    assert turns[1]["tool_calls"] == [] and turns[1]["content"] == "giving up"
+
+
+def test_turns_split_reasoning_and_content_tokens_when_counting_is_available():
+    env = _FakeGameEnv("slate")
+    rs = _run_multiturn_episodes(
+        env, 1, 0, _scripted(_turn("move", {"message": "slate"}, 9,
+                                   reasoning="a b c", content="d e")),
+        max_turns=2, make_messages=_msgs, tool_names={"move"},
+        count_tokens=lambda t: len(t.split()))
+    turn = rs[0].turns[0]
+    assert turn["n_reasoning_tokens"] == 3 and turn["n_content_tokens"] == 2
+
+
+def test_turns_omit_token_split_without_a_counter():
+    env = _FakeGameEnv("slate")
+    rs = _run_multiturn_episodes(
+        env, 1, 0, _scripted(_turn("move", {"message": "slate"}, 9, reasoning="x")),
+        max_turns=2, make_messages=_msgs, tool_names={"move"})
+    assert "n_reasoning_tokens" not in rs[0].turns[0]
+
+
+def test_episode_line_carries_turns_only_when_recorded():
+    import json
+
+    from eval.agentic_eval import _episode_line
+    from eval.metrics import SampleResult
+
+    rec = SampleResult(correct=True, n_tokens=9, n_steps=1, terminated=True,
+                       stop_reason="env_done", tool_calls=["move"],
+                       turns=[{"n_tokens": 9, "reasoning": "r", "content": "",
+                               "tool_calls": []}])
+    assert json.loads(_episode_line(0, 42, rec))["turns"][0]["reasoning"] == "r"
+    # Absent, not null: every earlier episodes_*.jsonl parses unchanged.
+    plain = SampleResult(correct=True, n_tokens=9, n_steps=1)
+    assert "turns" not in json.loads(_episode_line(0, 42, plain))

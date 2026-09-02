@@ -206,6 +206,74 @@ def test_make_figures_split_override_renders_only_that_split(tmp_path):
     assert not any("shifted" in w for w in written)
 
 
+# --- cross-arm training overlay, dose-response, per-episode deltas ---
+
+def test_plot_training_overlay_one_panel_per_present_key():
+    logs = [("e30", _SYNTH_LOG), ("e31", _SYNTH_LOG)]
+    fig = plots.plot_training_overlay(logs, keys=[("kl", "KL"), ("nope", "absent")])
+    # The absent key gets no panel; the contrib_l1 panel is absent too (this log
+    # carries raw_mean only), so exactly one panel is drawn.
+    assert fig is not None and len(fig.axes) == 1
+    assert len(fig.axes[0].lines) == 4               # raw + smoothed, per arm
+
+
+def test_plot_training_overlay_adds_a_shaped_component_panel():
+    log = [dict(e, **{"reward/CosineLengthReward/contrib_l1": 0.5,
+                      "reward/EnvReward/contrib_l1": 0.9}) for e in _SYNTH_LOG]
+    fig = plots.plot_training_overlay([("e31", log)], keys=[("kl", "KL")])
+    assert len(fig.axes) == 2
+    # EnvReward has its own panel already; only the shaped component is overlaid.
+    labels = [t.get_text() for t in fig.axes[1].get_legend().get_texts()]
+    assert labels == ["e31: CosineLengthReward"]
+
+
+def test_plot_training_overlay_no_data_returns_none():
+    assert plots.plot_training_overlay([("e30", [])], keys=[("kl", "KL")]) is None
+
+
+def test_plot_dose_response_draws_a_series_per_condition_and_a_reference():
+    rows = [
+        {"condition": "E2", "lam": 0.0, "losses": 0, "median_dtok": 0.0},
+        {"condition": "E2", "lam": 1.0, "losses": 14, "median_dtok": (-1130.0, -1161.0, -986.0)},
+        {"condition": "E3", "lam": 0.0, "losses": 0, "median_dtok": 0.0},
+        {"condition": "E3", "lam": 1.0, "losses": 54, "median_dtok": (-70.0, -151.0, 61.0)},
+    ]
+    fig = plots.plot_dose_response(
+        rows, [("losses", "losses"), ("median_dtok", "median dtok")],
+        refs={"losses": ("E0 base", 40)})
+    assert len(fig.axes) == 2
+    # Two conditions -> two connected series per panel (plus the dashed E0 line).
+    assert len([l for l in fig.axes[0].lines if l.get_linestyle() == "-"]) == 2
+    assert any(l.get_linestyle() == "--" for l in fig.axes[0].lines)
+
+
+def test_plot_dose_response_skips_a_missing_metric():
+    rows = [{"condition": "E2", "lam": 0.0, "losses": 0, "median_dtok": None},
+            {"condition": "E2", "lam": 1.0, "losses": 3, "median_dtok": None}]
+    fig = plots.plot_dose_response(rows, [("median_dtok", "median dtok")])
+    assert len(fig.axes[0].lines) == 0
+
+
+def test_plot_paired_deltas_one_panel_per_arm_sorted():
+    fig = plots.plot_paired_deltas([("e31", [-100, 20, -300]), ("e32", [5, -5])])
+    assert len(fig.axes) == 2
+    heights = [p.get_height() for p in fig.axes[0].patches]
+    assert heights == sorted(heights)
+
+
+def test_plot_paired_deltas_no_diffs_returns_none():
+    assert plots.plot_paired_deltas([("e31", [])]) is None
+
+
+def test_make_figures_draws_the_overlay_only_from_two_logs_up(tmp_path):
+    one = _write_run(tmp_path, "e7", [200], [1024], train_log=_SYNTH_LOG)
+    names = {os.path.basename(p) for p in plots.make_figures([one], str(tmp_path / "o1"))}
+    assert "training_overlay.png" not in names
+    two = _write_run(tmp_path, "e8", [200], [1024], train_log=_SYNTH_LOG)
+    names = {os.path.basename(p) for p in plots.make_figures([one, two], str(tmp_path / "o2"))}
+    assert "training_overlay.png" in names
+
+
 def test_make_figures_skips_a_run_missing_the_split(tmp_path):
     both = _protocol_report(tmp_path, "e27-x", ["held_out", "shifted"])
     only = _protocol_report(tmp_path, "e5-x", ["held_out"])
