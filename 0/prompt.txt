@@ -1,0 +1,20 @@
+yes remove them too
+
+also i struggly to understand what environment_factory actually is. explain it to me in more detail and with simple terms
+
+---
+
+please verify using the current documentation and library references that this doesnt work with unsloth. i need to be 100% certain on this because i will need to make a decision here with architecural scope
+
+---
+
+harvest the probes and continue with them then walk me through the defaults to decide for
+
+---
+
+we might need to rerun the probe. I think they setup a completely new box. Im currently waiting for a response from my supervisor and will let you know here what the situation is
+
+---
+
+supervisor just told me that they removed the box. disk didnt survive so we need to rerun on the new box as soon as it will be available. note this todo in
+  taskwarrior as well
