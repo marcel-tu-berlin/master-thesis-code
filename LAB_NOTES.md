@@ -433,6 +433,39 @@ someone runs it: a launch refuses to serve a run from a clone that has moved off
 the clone HEAD and the load-bearing package versions it actually had. From e37 on,
 the run directory answers "which stack produced this" on its own.
 
+## Reading a campaign: the paired stats and the cross-arm figures (2026-09-01)
+
+Every paired number in the findings files up to e36 was computed in a throwaway
+snippet. `eval.paired` is that path, committed: it re-derives e31's 14/0 losses
+at p=1.2e-4 and its -1130 paired median, and e32's 54/0 and shifted dialog-2
+18/3, from the `episodes_<split>.jsonl` files. Run it before writing any
+arm-vs-arm sentence, and quote it rather than a hand computation.
+
+```bash
+# from pipeline/ - paired flips, token medians, and the training noise floor
+python -m eval.paired --base runs/<control> runs/<arm> ... --split held_out
+python -m eval.paired --base runs/<control> runs/<arm> ... --split shifted --by-family
+
+# figures; --base adds the dose-response and per-episode paired views
+python -m eval.plots --glob 'runs/e3*' -o runs/plots_<campaign> \
+  --base runs/<control> --ref runs/<E0 run> --family click-dialog-2
+```
+
+Two habits it is there to enforce. First, read `training_overlay.png` before the
+eval report: the arms are on one axis, so "diverged at step 40 and stayed" is
+distinguishable from "wandered around each other", which no per-run figure shows.
+Second, check the delta against the run's own last-30-step SD - each step already
+averages 32 rollouts, so that SD is a free noise floor, and e32's "5% weaker env
+learning" does not clear it (0.806 +- 0.153 against e30's 0.891 +- 0.095).
+
+`frac steps live` in the noise table is the gradient-share yardstick this file
+already prefers over the mean of `frac_reward_zero_std`: e30 0.880, every E2 arm
+1.000, E3 arms 0.90-0.95. The "reward plus more gradient" caveat is an E2-column
+property at every lambda, and near-absent for E3.
+
+The full read of e30-e36 through these views is in
+`pipeline/runs/e30_e36_training_dynamics_findings.md`.
+
 ## Before the E2 / E3 arms - two knobs checked against e27's real numbers
 
 **E3 is live.** `NonTerminationPenalty` reads `env.done`, and

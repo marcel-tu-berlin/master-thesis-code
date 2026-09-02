@@ -240,13 +240,26 @@ a registry entry and the key in `config_schema._KNOWN_REWARD_KEYS`.
 - `agentic_eval.py` - `run_agentic_eval`: loads the LoRA (or no adapter, for E0),
   launches the env server per split, runs N held-out episodes, parses the tool
   call, scores via the env, and writes the report keyed by split name plus one
-  `episodes_<split>.jsonl` trajectory record.
+  `episodes_<split>.jsonl` trajectory record. A multi-turn episode's record also
+  carries `turns`: per assistant turn, its token count, the reasoning and content
+  text, and the calls it requested - the aggregate report says an arm got
+  shorter, only this says which part of the turn the tokens came out of.
 - `runner.py` - thin `python -m eval.runner` entry that dispatches to
   `run_agentic_eval`.
 - `metrics.py` - `SampleResult` and `compute_metrics`: accuracy with Wilson 95%
   interval, mean token count with bootstrap CI, underthinking / overthinking
   rates, mean steps, and the off-target panel (non-termination rate,
   unsupported-claim rate, mean verification depth, stop-reason histogram).
+- `paired.py` - arm-vs-control statistics on the episode records: exact McNemar
+  on the correctness flips, sign test and a paired bootstrap on the token
+  difference over jointly correct episodes, per-family breakdowns, and the
+  last-N-step training noise floor. `python -m eval.paired --base runs/<control>
+  runs/<arm> ... [--split held_out] [--by-family]` prints markdown.
+- `plots.py` - figures. `python -m eval.plots <runs> -o <dir>` writes the
+  comparison / distribution / efficiency figures, one training-curve figure per
+  run and, from two runs up, `training_overlay.png` (every arm on one axis).
+  Adding `--base <control> [--ref <E0 run>] [--family <task>]` also writes
+  `dose_response.png` and `paired_deltas.png`.
 
 ## Reward composition and scale-invariance
 
