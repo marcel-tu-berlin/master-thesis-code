@@ -25,6 +25,18 @@ def _obs_text(observation) -> str:
     return text
 
 
+def task_for_seed(tasks, seed) -> str:
+    """The MiniWoB family a seed lands on: `tasks[seed % len(tasks)]`.
+
+    Module-level and not just inlined in `reset` because offline analysis needs
+    the same mapping to group episodes by family (`eval.paired`), and a second
+    copy of it would silently mislabel every per-family number the day the rule
+    changes here.
+    """
+    tasks = tuple(tasks)
+    return str(tasks[int(seed) % len(tasks)])
+
+
 class BrowserGymEnvAdapter:
     """TRL environment_factory adapter for the OpenEnv browsergym env (MiniWoB).
 
@@ -120,7 +132,7 @@ class BrowserGymEnvAdapter:
         kwargs and are ignored.
         """
         s = 0 if seed is None else int(seed)
-        task = self._tasks[s % len(self._tasks)]
+        task = task_for_seed(self._tasks, s)
         result = self._client.reset(seed=s, task_name=task)
         self.reward = 0.0
         self.done = False
