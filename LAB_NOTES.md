@@ -40,6 +40,18 @@ chronological order.
 
 ## Box state - read before the next run
 
+- **The old box is gone (2026-09-01), and its disk with it.** The TU admins
+  removed the L4 box behind `130.149.248.103:30236`; a replacement is promised
+  but not yet available. Everything below this bullet describes the *old* box
+  and holds only as a checklist of what `setup.sh` plus the first launch must
+  re-establish on the new one. Lost with the disk: the finished but never
+  harvested `probe-p2-{base,liger,sleep,iter2}` chain (~26 GPU-hours). The
+  probe configs were box-only and are now reconstructed in
+  `pipeline/configs/probe-p2-*.yaml`; the rerun is
+  `python -m training.batch configs/probe-p2-*.yaml --train`. Lesson: a config
+  that only exists on the box or in a scratchpad is one box removal away from
+  gone - anything a run needs to be re-launched lives in `configs/` from the
+  start.
 - **browsergym is installed in the pipeline venv** (`browsergym-core`,
   `browsergym-miniwob`, `playwright==1.44.0`), not only in `/workspace/bgym-venv`.
   `EnvServerProcess` runs the env server with `sys.executable`, so the server

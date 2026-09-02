@@ -1,0 +1,54 @@
+experiment_id: probe-p2-liger
+description: 'Phase-2 A/B probe (2026-08-24), 50 steps, seed 42, e30''s task/geometry
+  under the new recipe (adamw_torch_fused / constant_with_warmup / kl_beta 0). use_liger_kernel
+  (fused linear GRPO loss) - equivalence + memory/step-time read. Compared against
+  probe-p2-base on per-step training reward (paired by step: same seed, same question
+  order) and step_time.'
+seed: 42
+model:
+  slug: qwen3-1.7b
+  max_seq_length: 8192
+  lora_r: 16
+  gpu_memory_utilization: 0.3
+training:
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    tasks:
+    - click-menu-2
+    miniwob_url: http://localhost:8080/miniwob/
+    max_turns: 8
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  max_prompt_length: 4096
+  batch_size: 4
+  n_rollouts: 8
+  micro_batch_size: 1
+  max_steps: 50
+  learning_rate: 5e-5
+  vllm_importance_sampling_mode: token_truncate
+  use_liger_kernel: true
+rewards:
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+eval:
+  temperature: 0.0
+  do_sample: false
+  max_new_tokens: 4096
+  reference_report: runs/e0m-browsergym-base-menu-qwen3-1_7b/eval_report.json
+  agentic:
+    splits:
+    - name: held_out
+      n_episodes: 200
+    - name: shifted
+      n_episodes: 150
+      env_config:
+        tasks:
+        - click-dialog-2
+        - navigate-tree
+        - click-checkboxes-transfer
+      seed_offset: 200000
