@@ -1,0 +1,103 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M1GK7PPPQ08DTFJN3PCCWACQ",
+  "session_id": "5e0f191e-5fd6-4c97-ad2a-b2b34a394ebd",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-02T08:19:45.269651Z",
+  "branch": "worktree-analysis-insights",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "pipeline/domains/browsergym/adapter.py",
+    "pipeline/eval/paired.py",
+    "pipeline/tests/test_paired.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "38c1de089750",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1399,
+    "cache_creation_tokens": 625452,
+    "cache_read_tokens": 14947155,
+    "output_tokens": 86008,
+    "api_call_count": 90,
+    "subagent_tokens": {
+      "input_tokens": 48,
+      "cache_creation_tokens": 118909,
+      "cache_read_tokens": 1646657,
+      "output_tokens": 19580,
+      "api_call_count": 24
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01CdNNBvxMfzBGzbKKa3Lqcq",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:brainstorming"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "38c1de089750",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 31,
+        "end": 32,
+        "entry_ids": [
+          "062e807f-7979-4172-b9e8-44afda999086"
+        ],
+        "tool_use_id": "toolu_01CdNNBvxMfzBGzbKKa3Lqcq"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01CdNNBvxMfzBGzbKKa3Lqcq"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:brainstorming",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-02T08:19:44.812784Z",
+    "agent_lines": 770,
+    "agent_removed": 1,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 770,
+    "total_lines_changed": 771,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 8600,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7,
+        "thesis.pdf": 8592
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1391,
+      "agent_lines_removed": 6
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M1GK7PPPQ08DTFJN3PCCWACQ",
+  "strategy": "manual-commit",
+  "branch": "worktree-analysis-insights",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "pipeline/domains/browsergym/adapter.py",
+    "pipeline/eval/paired.py",
+    "pipeline/tests/test_paired.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1399,
+    "cache_creation_tokens": 625452,
+    "cache_read_tokens": 14947155,
+    "output_tokens": 86008,
+    "api_call_count": 90,
+    "subagent_tokens": {
+      "input_tokens": 48,
+      "cache_creation_tokens": 118909,
+      "cache_read_tokens": 1646657,
+      "output_tokens": 19580,
+      "api_call_count": 24
+    }
+  }
+}
