@@ -153,6 +153,36 @@ def _run_episodes(env, n: int, seed_base: int, gen_fn, gen_cap=None,
     return results
 
 
+def _turn_record(msg: dict, turn_calls: list[tuple], n_tokens: int,
+                 count_tokens=None) -> dict:
+    """One assistant turn as persisted in episodes_<split>.jsonl.
+
+    Keeps the text, not only the counts. The aggregate report says an arm got
+    shorter; it cannot say whether the tokens came out of the think block, out of
+    the spoken content, or out of the actions - and "shorter because it stopped
+    verifying" and "shorter because it stopped rambling" are opposite answers to
+    RQ2. `n_tokens` is the turn's exact completion length (the same count the
+    episode total and the budget are built from); the reasoning/content split is
+    counted with the tokenizer over each field on its own, so the two do not add
+    up to `n_tokens` - the template framing and the tool-call JSON are in neither.
+
+    The whole-trajectory budget bounds the text: an episode cannot hold more than
+    max_completion_length tokens of it however many turns it takes.
+    """
+    reasoning = str(msg.get("reasoning_content") or "")
+    content = str(msg.get("content") or "")
+    rec = {
+        "n_tokens": int(n_tokens),
+        "reasoning": reasoning,
+        "content": content,
+        "tool_calls": [{"name": name, "arguments": args} for name, args in turn_calls],
+    }
+    if count_tokens is not None:
+        rec["n_reasoning_tokens"] = int(count_tokens(reasoning))
+        rec["n_content_tokens"] = int(count_tokens(content))
+    return rec
+
+
 def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messages,
                             tool_names, gen_cap=None, count_tokens=None,
                             on_result=None):
@@ -203,6 +233,7 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
         messages = list(make_messages(obs))
         total_tokens = 0
         calls = []
+        turns = []
         # Generation budget for the WHOLE trajectory, not per turn. Training caps
         # the full completion at max_completion_length, so an eval that renewed
         # the budget every turn let an episode generate max_turns times what the
@@ -218,6 +249,9 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
                 break
             msg, turn_calls, n_tok = turn_fn(messages, budget)
             total_tokens += int(n_tok)
+            # Recorded before the no-call exit: a turn that spent its tokens and
+            # emitted nothing usable is the one worth reading afterwards.
+            turns.append(_turn_record(msg, turn_calls, n_tok, count_tokens))
             turn_cap, budget = budget, (None if budget is None else budget - int(n_tok))
             if not turn_calls:
                 stop_reason = _no_call_reason(n_tok, turn_cap)
@@ -277,7 +311,7 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
             correct=r >= CORRECT_REWARD_THRESHOLD,
             n_tokens=total_tokens, n_steps=len(calls), reward=r,
             terminated=stop_reason == "env_done",
-            stop_reason=stop_reason, tool_calls=calls,
+            stop_reason=stop_reason, tool_calls=calls, turns=turns,
         ))
         if on_result is not None:
             on_result(i, results[-1])
@@ -338,7 +372,7 @@ def _episode_line(index: int, seed: int, r) -> str:
     flushed per episode, not once the split finishes. A split that dies on
     episode 95 keeps 94 trajectories instead of none.
     """
-    return json.dumps({
+    line = {
         "index": index,
         "seed": seed,
         "correct": r.correct,
@@ -348,7 +382,14 @@ def _episode_line(index: int, seed: int, r) -> str:
         "terminated": r.terminated,
         "stop_reason": r.stop_reason,
         "tool_calls": r.tool_calls,
-    }) + "\n"
+    }
+    # Additive: the per-turn text is written when the loop recorded it and the
+    # key is simply absent otherwise, so every earlier episodes_*.jsonl still
+    # parses and eval_report.json (which serializes its own field list) is
+    # unchanged. The report stays an aggregate; the text lives only here.
+    if r.turns is not None:
+        line["turns"] = r.turns
+    return json.dumps(line) + "\n"
 
 
 def _reference_thresholds(eval_cfg: dict) -> dict:

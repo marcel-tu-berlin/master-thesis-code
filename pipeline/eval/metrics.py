@@ -36,6 +36,13 @@ class SampleResult:
     # the terminal tool with nothing before it is a completion claim with no
     # supporting work.
     tool_calls: list[str] | None = None
+    # Per-turn trajectory records (multi-turn eval only): the assistant's
+    # reasoning and content text, its token split, and the calls it requested.
+    # No metric reads this - it exists so a later question about WHERE an arm's
+    # tokens went, or what a compressed episode actually looks like, can be
+    # answered from disk instead of from another eval run. None for results
+    # produced before trajectory text was recorded, and for the single-turn loop.
+    turns: list[dict] | None = None
 
 
 @dataclass
