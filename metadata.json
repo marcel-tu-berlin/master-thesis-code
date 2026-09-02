@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M1GK97S0529Q0G3ZECPEJ0EH",
+  "strategy": "manual-commit",
+  "branch": "worktree-analysis-insights",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "LAB_NOTES.md",
+    "pipeline/README.md",
+    "pipeline/runs/e30_e36_training_dynamics_findings.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1409,
+    "cache_creation_tokens": 627583,
+    "cache_read_tokens": 16097965,
+    "output_tokens": 87120,
+    "api_call_count": 95
+  }
+}

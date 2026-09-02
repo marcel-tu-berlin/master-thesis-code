@@ -1,0 +1,75 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M1GK97S0529Q0G3ZECPEJ0EH",
+  "session_id": "5e0f191e-5fd6-4c97-ad2a-b2b34a394ebd",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-02T08:20:35.461931Z",
+  "branch": "worktree-analysis-insights",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "LAB_NOTES.md",
+    "pipeline/README.md",
+    "pipeline/runs/e30_e36_training_dynamics_findings.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "38c1de089750",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1409,
+    "cache_creation_tokens": 627583,
+    "cache_read_tokens": 16097965,
+    "output_tokens": 87120,
+    "api_call_count": 95
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01CdNNBvxMfzBGzbKKa3Lqcq",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:brainstorming"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "38c1de089750",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 31,
+        "end": 32,
+        "entry_ids": [
+          "062e807f-7979-4172-b9e8-44afda999086"
+        ],
+        "tool_use_id": "toolu_01CdNNBvxMfzBGzbKKa3Lqcq"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01CdNNBvxMfzBGzbKKa3Lqcq"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:brainstorming",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-02T08:20:35.013953Z",
+    "agent_lines": 186,
+    "agent_removed": 1,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 186,
+    "total_lines_changed": 187,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
