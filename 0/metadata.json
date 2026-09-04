@@ -1,0 +1,140 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M1P55AGFR5NPWVXZVNNHR303",
+  "session_id": "65e85c89-b84d-41b0-87ef-bbda2589b001",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-04T12:09:13.755624Z",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "BACKLOG.md",
+    "CLAUDE.md",
+    "DECISIONS.md",
+    "LAB_NOTES.md",
+    "docs/decisions/0001-batch-size-4-everywhere.md",
+    "docs/decisions/0002-environment-selection.md",
+    "docs/decisions/0003-truncation-is-a-reported-outcome.md",
+    "docs/decisions/0004-train-click-menu-2-only.md",
+    "docs/decisions/0005-reasoning-gym-is-calibration-only.md",
+    "docs/decisions/0006-pinned-dependency-stack.md",
+    "docs/decisions/0007-recipe-defaults-2026-08-24.md",
+    "docs/decisions/0008-no-unsloth.md",
+    "docs/decisions/README.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "5e9743878dcb",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 11383,
+    "cache_creation_tokens": 1397728,
+    "cache_read_tokens": 16079618,
+    "output_tokens": 141296,
+    "api_call_count": 121
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01MStqDWpn9aaQiiS2W415CL",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "humanizer"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "5e9743878dcb",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1706,
+        "end": 1707,
+        "entry_ids": [
+          "d2ad928d-af14-4fa6-ba60-ab0bc1f141bf"
+        ],
+        "tool_use_id": "toolu_01MStqDWpn9aaQiiS2W415CL"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01MStqDWpn9aaQiiS2W415CL"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: humanizer",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01UES9hddwtEfRZLuR62mhWS",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "writing-clearly-and-concisely"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "5e9743878dcb",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1707,
+        "end": 1708,
+        "entry_ids": [
+          "121db342-10df-459b-bf8a-2b4c7a0bb7c2"
+        ],
+        "tool_use_id": "toolu_01UES9hddwtEfRZLuR62mhWS"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01UES9hddwtEfRZLuR62mhWS"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: writing-clearly-and-concisely",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-04T12:09:13.657587Z",
+    "agent_lines": 508,
+    "agent_removed": 392,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 508,
+    "total_lines_changed": 900,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 508,
+      "agent_lines_removed": 392,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    }
+  ]
+}

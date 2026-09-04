@@ -1,0 +1,5 @@
+nice no explain to me shortly what the vLLM sleep mode was again and why we try it out here. explain in simple terms
+
+---
+
+actually create a dedicated directory in this repo for architecture decision records. put the one for unsloth here. other broader decisions like this one from @LAB_NOTES.md or @DECISIONS.md can go here as well. if they only have minor notes then just leave it
