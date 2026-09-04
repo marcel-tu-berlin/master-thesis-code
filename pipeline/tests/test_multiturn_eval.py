@@ -476,3 +476,57 @@ def test_episode_line_carries_turns_only_when_recorded():
     # Absent, not null: every earlier episodes_*.jsonl parses unchanged.
     plain = SampleResult(correct=True, n_tokens=9, n_steps=1)
     assert "turns" not in json.loads(_episode_line(0, 42, plain))
+
+
+# --- action counts feeding the invalid / repeated-action panel rates ---
+
+class _RejectingClickEnv(_ClickEnv):
+    """The browsergym adapter's convention: an env-rejected action comes back
+    prefixed "Action error" and the episode continues."""
+
+    def click(self, bid):
+        if bid == "bad":
+            return "Action error: bid not found\nPage now:\npage"
+        return super().click(bid)
+
+
+def test_invalid_actions_count_unknown_tools_bad_arguments_and_env_errors():
+    env = _RejectingClickEnv({"30", "99"})   # never completes
+    rs = _run_multiturn_episodes(
+        env, 1, 0,
+        _scripted(_turn("reset", {}, 5),                        # unknown tool
+                  _turn("click", {"nope": "1"}, 5),             # unbindable args
+                  _turn("click", {"bid": "bad"}, 5),            # env rejects
+                  _turn("click", {"bid": "30"}, 5)),            # fine
+        max_turns=4, make_messages=_msgs, tool_names={"click"})
+    assert rs[0].n_actions == 4
+    assert rs[0].n_invalid_actions == 3
+    assert rs[0].n_steps == 2            # only the two dispatched clicks
+    assert rs[0].n_repeated_actions == 0
+
+
+def test_repeated_actions_count_verbatim_repeats_of_the_previous_dispatched_call():
+    env = _ClickEnv({"30", "24", "99"})      # never completes
+    rs = _run_multiturn_episodes(
+        env, 1, 0,
+        _scripted(_turn("click", {"bid": "30"}, 5),
+                  _turn("click", {"bid": "30"}, 5),             # repeat
+                  _turn("click", {"bid": "24"}, 5),
+                  _turn("click", {"bid": "30"}, 5)),            # not a repeat
+        max_turns=4, make_messages=_msgs, tool_names={"click"})
+    assert rs[0].n_repeated_actions == 1 and rs[0].n_actions == 4
+
+
+def test_action_counts_reach_the_episode_line_and_report():
+    from eval.agentic_eval import _episode_line, _metrics_to_dict
+    from eval.metrics import compute_metrics
+    import json
+
+    env = _ClickEnv({"30"})
+    rs = _run_multiturn_episodes(env, 1, 0, _scripted(_turn("click", {"bid": "30"}, 5)),
+                                 max_turns=2, make_messages=_msgs, tool_names={"click"})
+    line = json.loads(_episode_line(0, 0, rs[0]))
+    assert (line["n_actions"], line["n_invalid_actions"], line["n_repeated_actions"]) == (1, 0, 0)
+    d = _metrics_to_dict(compute_metrics(rs))
+    assert d["invalid_action_rate"] == 0.0 and d["wrong_termination_rate"] == 0.0
+    assert d["samples"][0]["n_actions"] == 1

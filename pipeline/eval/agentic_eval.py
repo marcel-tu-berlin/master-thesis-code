@@ -223,9 +223,13 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
     that reads exactly like the mislabelled-truncation confound this eval was
     rebuilt to eliminate.
 
-    Each episode also records why it ended and which tools it called, in order.
-    The off-target panel (RQ2) is computed from those two fields, and neither is
-    recoverable afterwards from the reward alone.
+    Each episode also records why it ended and which tools it called, in order,
+    plus three action counts: calls requested, calls that drew error feedback
+    (unknown tool, unbindable arguments, or an env action error, which the
+    adapter prefixes with "Action error"), and dispatched calls that repeated
+    the previous dispatched call verbatim. The off-target panel (RQ2) is
+    computed from these fields, and none is recoverable afterwards from the
+    reward alone.
     """
     results = []
     for i in range(n):
@@ -234,6 +238,8 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
         total_tokens = 0
         calls = []
         turns = []
+        n_actions = n_invalid = n_repeated = 0
+        last_dispatched = None
         # Generation budget for the WHOLE trajectory, not per turn. Training caps
         # the full completion at max_completion_length, so an eval that renewed
         # the budget every turn let an episode generate max_turns times what the
@@ -267,10 +273,12 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
             # advertises every one of them - a call left unanswered reads to the
             # model as having succeeded, and it acts on that.
             for name, args in turn_calls:
+                n_actions += 1
                 if name not in tool_names:
                     # Never dispatched, but answered: the exact error shape
                     # TRL's training dispatch feeds back for an unknown name.
                     feedback = str({"error": f"Tool {name} not found."})
+                    n_invalid += 1
                 else:
                     fn = getattr(env, name)
                     try:
@@ -286,12 +294,18 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
                         # Every exception the call raises propagates - see the
                         # docstring.
                         feedback = str({"error": str(e)})
+                        n_invalid += 1
                     else:
                         feedback = fn(**(args or {}))
                         # Only a call that actually reached the env counts as a
                         # step. Counting a failed dispatch inflated n_steps and,
                         # through it, mean_verification_depth in the RQ2 panel.
                         calls.append(name)
+                        if (name, args) == last_dispatched:
+                            n_repeated += 1
+                        last_dispatched = (name, args)
+                        if str(feedback).startswith("Action error"):
+                            n_invalid += 1
                 fb = str(feedback)
                 # `name` mirrors TRL's tool-message shape. The budget charge
                 # mirrors its accounting: the content's token count, leaving
@@ -312,6 +326,8 @@ def _run_multiturn_episodes(env, n, seed_base, turn_fn, *, max_turns, make_messa
             n_tokens=total_tokens, n_steps=len(calls), reward=r,
             terminated=stop_reason == "env_done",
             stop_reason=stop_reason, tool_calls=calls, turns=turns,
+            n_actions=n_actions, n_invalid_actions=n_invalid,
+            n_repeated_actions=n_repeated,
         ))
         if on_result is not None:
             on_result(i, results[-1])
@@ -351,13 +367,24 @@ def _metrics_to_dict(m) -> dict:
         "unsupported_claim_rate_ci_low": m.unsupported_claim_rate_ci_low,
         "unsupported_claim_rate_ci_high": m.unsupported_claim_rate_ci_high,
         "mean_verification_depth": m.mean_verification_depth,
+        "wrong_termination_rate": m.wrong_termination_rate,
+        "wrong_termination_rate_ci_low": m.wrong_termination_rate_ci_low,
+        "wrong_termination_rate_ci_high": m.wrong_termination_rate_ci_high,
+        "invalid_action_rate": m.invalid_action_rate,
+        "invalid_action_rate_ci_low": m.invalid_action_rate_ci_low,
+        "invalid_action_rate_ci_high": m.invalid_action_rate_ci_high,
+        "repeated_action_rate": m.repeated_action_rate,
+        "repeated_action_rate_ci_low": m.repeated_action_rate_ci_low,
+        "repeated_action_rate_ci_high": m.repeated_action_rate_ci_high,
         "stop_reasons": m.stop_reasons,
         "n_samples": m.n_samples,
         "n_correct": m.n_correct,
         "samples": [
             {"correct": r.correct, "n_tokens": r.n_tokens, "n_steps": r.n_steps,
              "reward": r.reward, "terminated": r.terminated,
-             "stop_reason": r.stop_reason, "tool_calls": r.tool_calls}
+             "stop_reason": r.stop_reason, "tool_calls": r.tool_calls,
+             "n_actions": r.n_actions, "n_invalid_actions": r.n_invalid_actions,
+             "n_repeated_actions": r.n_repeated_actions}
             for r in m.raw
         ],
     }
@@ -382,6 +409,9 @@ def _episode_line(index: int, seed: int, r) -> str:
         "terminated": r.terminated,
         "stop_reason": r.stop_reason,
         "tool_calls": r.tool_calls,
+        "n_actions": r.n_actions,
+        "n_invalid_actions": r.n_invalid_actions,
+        "n_repeated_actions": r.n_repeated_actions,
     }
     # Additive: the per-turn text is written when the loop recorded it and the
     # key is simply absent otherwise, so every earlier episodes_*.jsonl still
@@ -655,6 +685,9 @@ def _report_md(experiment_id, split_metrics: dict) -> str:
             f"- non-termination rate: {nonterm}\n"
             f"- unsupported-claim rate: {m.unsupported_claim_rate}\n"
             f"- mean verification depth: {m.mean_verification_depth}\n"
+            f"- wrong-termination rate (of terminated): {m.wrong_termination_rate}\n"
+            f"- invalid-action rate (episodes with any): {m.invalid_action_rate}\n"
+            f"- repeated-action rate (episodes with any): {m.repeated_action_rate}\n"
             f"- stop reasons: {m.stop_reasons}\n"
         )
     return "".join(out)

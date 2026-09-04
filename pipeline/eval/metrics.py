@@ -43,6 +43,14 @@ class SampleResult:
     # answered from disk instead of from another eval run. None for results
     # produced before trajectory text was recorded, and for the single-turn loop.
     turns: list[dict] | None = None
+    # Action-level counts (multi-turn eval only): tool calls the model requested,
+    # how many drew error feedback (unknown tool, unbindable arguments, or an env
+    # action error), and how many dispatched calls repeated the previous
+    # dispatched call verbatim (same tool, same arguments). None for results
+    # produced before these were recorded.
+    n_actions: int | None = None
+    n_invalid_actions: int | None = None
+    n_repeated_actions: int | None = None
 
 
 @dataclass
@@ -96,6 +104,23 @@ class EvalMetrics:
     # Mean number of non-terminal tool calls in terminated episodes. Same caveat:
     # 0.0 by construction in a single-tool domain.
     mean_verification_depth: float | None = None
+    # Among TERMINATED episodes, the fraction the env scored as failed. A
+    # budget-exhaustion penalty (E3) leaves exactly this substitute open: finish
+    # fast, finish wrong. None when no episode terminated.
+    wrong_termination_rate: float | None = None
+    wrong_termination_rate_ci_low: float | None = None
+    wrong_termination_rate_ci_high: float | None = None
+    # Fraction of episodes with at least one invalid action, and with at least
+    # one repeated action (action instability). Episode-level, so each is a
+    # clean proportion the paired per-instance test can read; the per-episode
+    # counts stay on the samples for call-level ratios. None when no result
+    # carries the counts.
+    invalid_action_rate: float | None = None
+    invalid_action_rate_ci_low: float | None = None
+    invalid_action_rate_ci_high: float | None = None
+    repeated_action_rate: float | None = None
+    repeated_action_rate_ci_low: float | None = None
+    repeated_action_rate_ci_high: float | None = None
     # stop_reason -> count. Separates a real behavior (no_tool_call, max_turns)
     # from a budget artifact (hit_generation_cap).
     stop_reasons: dict = field(default_factory=dict)
@@ -239,6 +264,27 @@ def _offtarget_panel(results: list[SampleResult]) -> dict:
             unsupported_claim_rate_ci_high=hi_b,
             mean_verification_depth=float(np.mean(depths)),
         )
+
+    # Same denominator as above: only a finished episode can have finished wrong.
+    terminated = [r for r in known if r.terminated]
+    if terminated:
+        n_wrong = sum(1 for r in terminated if not r.correct)
+        lo_w, hi_w = _wilson_ci(n_wrong, len(terminated))
+        panel.update(
+            wrong_termination_rate=n_wrong / len(terminated),
+            wrong_termination_rate_ci_low=lo_w,
+            wrong_termination_rate_ci_high=hi_w,
+        )
+
+    counted = [r for r in known if r.n_invalid_actions is not None]
+    if counted:
+        for field_name, key in (("n_invalid_actions", "invalid_action_rate"),
+                                ("n_repeated_actions", "repeated_action_rate")):
+            k = sum(1 for r in counted if (getattr(r, field_name) or 0) > 0)
+            lo_a, hi_a = _wilson_ci(k, len(counted))
+            panel[key] = k / len(counted)
+            panel[f"{key}_ci_low"] = lo_a
+            panel[f"{key}_ci_high"] = hi_a
     return panel
 
 

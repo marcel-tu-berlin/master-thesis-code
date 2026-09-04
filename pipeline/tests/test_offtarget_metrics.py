@@ -240,3 +240,47 @@ def test_schema_accepts_a_valid_two_split_protocol():
              "seed_offset": 200000},
         ]}},
     })
+
+
+# --- wrong termination, invalid and repeated actions ---
+
+def _ep2(correct, terminated, invalid, repeated, n_actions=3):
+    return SampleResult(correct=correct, n_tokens=100, n_steps=n_actions,
+                        reward=1.0 if correct else 0.0, terminated=terminated,
+                        stop_reason="env_done" if terminated else "no_tool_call",
+                        tool_calls=["click"] * n_actions, n_actions=n_actions,
+                        n_invalid_actions=invalid, n_repeated_actions=repeated)
+
+
+def test_wrong_termination_is_read_over_terminated_episodes_only():
+    m = compute_metrics([
+        _ep2(True, True, 0, 0),      # finished right
+        _ep2(False, True, 0, 0),     # finished wrong: the E3 substitute
+        _ep2(False, False, 0, 0),    # never finished: not in the denominator
+    ])
+    assert m.wrong_termination_rate == 0.5
+    assert m.wrong_termination_rate_ci_low < 0.5 < m.wrong_termination_rate_ci_high
+
+
+def test_action_rates_are_episode_level():
+    m = compute_metrics([
+        _ep2(True, True, 2, 0),      # two invalid actions, still one episode
+        _ep2(True, True, 0, 1),
+        _ep2(True, True, 0, 0),
+        _ep2(True, True, 0, 0),
+    ])
+    assert m.invalid_action_rate == 0.25
+    assert m.repeated_action_rate == 0.25
+    assert m.invalid_action_rate_ci_low < 0.25 < m.invalid_action_rate_ci_high
+
+
+def test_action_rates_absent_when_counts_were_not_recorded():
+    m = compute_metrics([_ep(True, True, "env_done", ["click"])])
+    assert m.invalid_action_rate is None and m.repeated_action_rate is None
+    # wrong termination needs only the fields every panel record carries
+    assert m.wrong_termination_rate == 0.0
+
+
+def test_no_terminated_episode_leaves_wrong_termination_absent():
+    m = compute_metrics([_ep(False, False, "max_turns", ["click"])])
+    assert m.wrong_termination_rate is None
