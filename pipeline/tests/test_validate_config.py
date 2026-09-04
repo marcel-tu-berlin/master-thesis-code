@@ -268,3 +268,29 @@ def test_resolve_max_turns_defaults_to_one_on_both_sides():
     assert resolve_max_turns({}) == 1
     assert resolve_max_turns({"max_turns": 0}) == 1
     assert resolve_max_turns({"max_turns": 6}) == 6
+
+
+# --- training.scale_rewards: the std TRL divides advantages by ---
+
+def _scale_base():
+    return {"experiment_id": "x", "model": {"slug": "qwen3-1.7b"},
+            "training": {"mode": "agentic", "env": "reasoning_gym"}}
+
+
+def test_scale_rewards_accepts_trl_modes():
+    from training.config_schema import validate_config
+
+    for mode in ("group", "batch", "none"):
+        cfg = _scale_base()
+        cfg["training"]["scale_rewards"] = mode
+        validate_config(cfg)
+
+
+def test_scale_rewards_rejects_unknown_mode():
+    import pytest
+    from training.config_schema import validate_config
+
+    cfg = _scale_base()
+    cfg["training"]["scale_rewards"] = "grouped"
+    with pytest.raises(ValueError, match="scale_rewards"):
+        validate_config(cfg)

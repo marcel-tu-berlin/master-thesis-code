@@ -39,9 +39,11 @@ def _build_env_reward(domain, runner, training_cfg, cfg):
 
 
 def _build_non_termination(domain, runner, training_cfg, cfg):
-    # E3: -1 per episode that never reached the terminal tool. Reads env.done off
-    # the same live env instances. No knobs - lambda is the component `weight`.
-    return NonTerminationPenalty()
+    # E3: -1 per episode that ran out of budget (turn cap or completion budget)
+    # without the env reporting done. Reads env.done off the live env instances
+    # and the completion budget off the runner, the same one the trainer caps
+    # completions at. No knobs - lambda is the component `weight`.
+    return NonTerminationPenalty(max_completion_tokens=runner.completion_budget())
 
 
 # key -> (default_enabled, default_weight, builder). All default off; agentic

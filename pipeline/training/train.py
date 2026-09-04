@@ -17,6 +17,7 @@ from training.env_server import build_env_server
 from training.env_stamp import write_env_stamp
 from training.rewards import REWARD_REGISTRY
 from training.rewards.compose import build_composer
+from training.rewards.placebo import maybe_placebo
 from training.config_schema import (DEFAULT_N_ROLLOUTS, validate_config,
                                     warn_inert_scalars)
 from transformers import TrainerCallback, set_seed
@@ -66,7 +67,8 @@ def build_reward_components(config: dict, domain, runner: GRPORunner) -> list:
     training_cfg = config.get("training", {}) or {}
 
     method = rewards_cfg.get("compose_method", "advantage_weighted")
-    for w in warn_inert_scalars(rewards_cfg, method):
+    scale_rewards = str(training_cfg.get("scale_rewards", "group"))
+    for w in warn_inert_scalars(rewards_cfg, method, scale_rewards):
         print(f"⚠  {w}")
 
     components = []
@@ -76,7 +78,11 @@ def build_reward_components(config: dict, domain, runner: GRPORunner) -> list:
         if not cfg.get("enabled", _reg_enabled):
             continue
         weight = float(cfg.get("weight", default_weight))
-        components.append((builder(domain, runner, training_cfg, cfg), weight))
+        # Placebo arm: the same term at the same weight, shuffled within each
+        # prompt-group so it carries no information about its rollout.
+        component = maybe_placebo(builder(domain, runner, training_cfg, cfg), cfg,
+                                  training_cfg, config.get("seed", 42))
+        components.append((component, weight))
 
     return components
 

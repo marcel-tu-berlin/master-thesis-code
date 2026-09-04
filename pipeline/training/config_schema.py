@@ -81,6 +81,10 @@ _KNOWN_TRAINING_KEYS = {
     # use_liger_kernel (fused linear GRPO loss, never materialises the
     # [T, vocab] logits - the 4096-token training ceiling, BACKLOG 1).
     "num_iterations", "use_liger_kernel",
+    # Which std TRL divides advantages by (group | batch | none). `group` cancels
+    # a shaping weight in constant-task-reward groups; a dose-valid lambda sweep
+    # sets `none` or `batch`. See grpo_runner._grpo_config.
+    "scale_rewards",
 }
 
 # Known keys under `model`. The last block without a whitelist: `lora_rnk: 8`
@@ -106,6 +110,8 @@ _KNOWN_MODEL_KEYS = {
 _KNOWN_VLLM_IS_MODES = {
     "token_truncate", "token_mask", "sequence_truncate", "sequence_mask", "off",
 }
+
+_KNOWN_SCALE_REWARDS = {"group", "batch", "none"}
 
 _KNOWN_ENV_SERVER_KEYS = {"repo_path", "port"}
 
@@ -147,14 +153,20 @@ _KNOWN_EVAL_SPLIT_KEYS = {"name", "n_episodes", "env_config", "seed_offset"}
 # Whitelist of allowed sub-keys per reward. Catches typos in YAML that would
 # otherwise pass through silently and leave the reward on its default.
 _COMMON_REWARD_SUBKEYS = {"enabled", "weight"}
+# `placebo: true` shuffles an efficiency signal's values within each prompt-group
+# (training.rewards.placebo.WithinGroupShuffle): same scale and variance, no
+# link to the rollout. Only the shaped signals take it - a shuffled task reward
+# would be a training bug, not a control.
 _KNOWN_REWARD_SUBKEYS: dict[str, set[str]] = {
     "token_length":  _COMMON_REWARD_SUBKEYS | {
         "max_len",
         "r_correct_short", "r_correct_long", "r_wrong_short", "r_wrong_long",
+        "placebo",
     },
     "env_reward":    _COMMON_REWARD_SUBKEYS,
-    # E3 has no knobs: lambda is `weight`, the signal is the env's done flag.
-    "non_termination": _COMMON_REWARD_SUBKEYS,
+    # E3 has no knobs: lambda is `weight`, the signal is budget exhaustion
+    # (turn cap or completion budget) without the env reporting done.
+    "non_termination": _COMMON_REWARD_SUBKEYS | {"placebo"},
 }
 
 _NUMERIC_COERCIONS = {
@@ -174,15 +186,28 @@ _NUMERIC_COERCIONS = {
 }
 
 
-def warn_inert_scalars(rewards_cfg: dict, compose_method: str) -> list[str]:
+def warn_inert_scalars(rewards_cfg: dict, compose_method: str,
+                       scale_rewards: str = "group") -> list[str]:
     """Return warnings for reward knobs that do nothing as configured.
 
     Under `advantage_weighted` every component is z-scored per prompt-group, so
     a component with no within-group variance contributes exactly 0 no matter
-    what weight it carries. Disabled rewards are skipped.
+    what weight it carries. Under `naive_sum` with TRL's group std scaling the
+    weight of a shaped term cancels in every group whose task reward is
+    constant. Disabled rewards are skipped.
     """
     rc = rewards_cfg or {}
     warnings: list[str] = []
+
+    shaped = [k for k in ("token_length", "non_termination") if (rc.get(k) or {}).get("enabled")]
+    if compose_method == "naive_sum" and scale_rewards == "group" and shaped:
+        warnings.append(
+            f"rewards {shaped} are summed into the task reward and TRL then divides "
+            "each group's advantages by the group std (training.scale_rewards: group). "
+            "In a group whose task reward is constant that std is weight * std(cost), "
+            "so the weight cancels and the sweep measures presence, not dose (DIET, "
+            "App. B). Set training.scale_rewards: none or batch for a dose-valid sweep."
+        )
 
     if compose_method == "advantage_weighted":
         # E3 is a binary flag, so it has zero within-group variance in any group
@@ -425,6 +450,12 @@ def validate_config(config: dict) -> None:
                     f"Unknown training.env_server keys: {sorted(unknown_es)}. "
                     f"Known: {sorted(_KNOWN_ENV_SERVER_KEYS)}"
                 )
+        scale = training.get("scale_rewards")
+        if scale is not None and scale not in _KNOWN_SCALE_REWARDS:
+            raise ValueError(
+                f"Unknown training.scale_rewards: {scale!r}. "
+                f"Known: {sorted(_KNOWN_SCALE_REWARDS)}"
+            )
         is_mode = training.get("vllm_importance_sampling_mode")
         if is_mode is not None and is_mode not in _KNOWN_VLLM_IS_MODES:
             errors.append(

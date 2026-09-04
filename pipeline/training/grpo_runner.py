@@ -82,10 +82,17 @@ class GRPORunner:
         self._use_vllm = use_vllm
         self._sleep_mode = sleep_mode
 
+    def completion_budget(self) -> int:
+        """Tokens one trajectory may generate, tool results included: the
+        trainer's max_completion_length. Reward components that score budget
+        exhaustion (E3) read the cap from here so they cannot drift from it."""
+        t = self.config["training"]
+        max_prompt_len = int(t.get("max_prompt_length", self._max_seq // 2))
+        return self._max_seq - max_prompt_len
+
     def _grpo_config(self, output_dir: str) -> GRPOConfig:
         t = self.config["training"]
-        max_prompt_len = t.get("max_prompt_length", self._max_seq // 2)
-        max_completion_len = self._max_seq - max_prompt_len
+        max_completion_len = self.completion_budget()
 
         # Bound activation memory: forward/backward completions in small
         # micro-batches and accumulate gradients over `batch_size` whole
@@ -101,6 +108,14 @@ class GRPORunner:
         # length) does not saturate, so the defect hit env-only baselines about
         # twice as hard as the treatment arms they were compared against. A step
         # is dead only when every group in it saturates: 0.46^4 = 4.5%.
+        #
+        # `training.scale_rewards` picks the std those advantages are divided by
+        # (TRL: group | batch | none). Under `group`, a shaped reward's weight
+        # cancels in every group whose task reward is constant - the std of
+        # R_task - lambda*C is lambda*std(C) there, so the advantage is the same
+        # at every lambda (DIET, App. B). A lambda sweep that is meant to be a
+        # dose-response therefore runs under `none` or `batch`; `group` stays the
+        # default so the frozen e30-e36 configs reproduce what they trained under.
         n_rollouts = int(t.get("n_rollouts", DEFAULT_N_ROLLOUTS))
         batch_size = int(t.get("batch_size", DEFAULT_BATCH_SIZE))
         total_completions = batch_size * n_rollouts
@@ -157,11 +172,12 @@ class GRPORunner:
             # Phase-2 A/B knobs at TRL's defaults (LAB_NOTES "recipe defaults").
             num_iterations=int(t.get("num_iterations", 1)),
             use_liger_kernel=bool(t.get("use_liger_kernel", False)),
+            scale_rewards=str(t.get("scale_rewards", "group")),
         )
         print(f"Recipe: optim={kwargs['optim']}  lr_scheduler_type={kwargs['lr_scheduler_type']}  "
               f"kl_beta={kwargs['beta']}  learning_rate={kwargs['learning_rate']}  "
               f"num_iterations={kwargs['num_iterations']}  use_liger_kernel={kwargs['use_liger_kernel']}  "
-              f"vllm_enable_sleep_mode={self._sleep_mode}")
+              f"scale_rewards={kwargs['scale_rewards']}  vllm_enable_sleep_mode={self._sleep_mode}")
         # Cap the tool-calling loop. TRL treats an unset
         # max_tool_calling_iterations as sys.maxsize, so leaving it off for
         # single-step domains left the loop unbounded: a reasoning_gym rollout

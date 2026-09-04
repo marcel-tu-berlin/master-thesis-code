@@ -31,6 +31,11 @@ training:
   kl_beta: 0.0                 # TRL default; >0 adds a ref-model forward per step
   optim: adamw_torch_fused     # LoRA state is ~140 MB, 8-bit paging buys nothing
   lr_scheduler_type: constant_with_warmup   # cosine wasted the tail of a 150-step run
+  # Which std TRL divides group advantages by: group (TRL default) | batch | none.
+  # Under `group` a shaped reward's weight cancels in every prompt-group whose
+  # task reward is constant (DIET, App. B), so a lambda sweep run as a
+  # dose-response sets `none` or `batch`.
+  scale_rewards: group
 
 rewards:
   compose_method: advantage_weighted   # advantage_weighted | naive_sum
@@ -51,6 +56,18 @@ rewards:
     r_correct_long: 0.5
     r_wrong_short: -1.0
     r_wrong_long: -0.5
+    # placebo: true shuffles this signal within each prompt-group - same scale
+    # and variance, no link to the rollout. A control arm, not a condition.
+    placebo: false
+
+  # E3: -1 per episode that ran out of budget (turn cap or completion budget)
+  # without the env reporting done. Stopping early is NOT penalized - it is the
+  # off-target behavior the panel measures. lambda is `weight`; run the sweep
+  # under compose_method naive_sum and scale_rewards none|batch.
+  non_termination:
+    enabled: false
+    weight: 1.0
+    placebo: false
 
 eval:
   temperature: 0.0
