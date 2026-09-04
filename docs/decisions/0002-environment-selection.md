@@ -1,5 +1,8 @@
 # Adding OpenEnv environments: finqa and repl
 
+Decided: 2026-08-07 (removal; integration mid-2026-07). Status: accepted. Moved
+verbatim from `DECISIONS.md` on 2026-09-04.
+
 Decisions and trade-offs from integrating two new agentic environments, for review.
 
 **Status, 2026-08-07: both environments have since been removed, as has

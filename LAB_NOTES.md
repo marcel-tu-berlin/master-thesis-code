@@ -310,190 +310,27 @@ contract is not: an env that misses either one breaks GRPO rather than the env.
 
 ## Standing rule: recipe defaults since 2026-08-24
 
-Three `grpo_runner` defaults changed on 2026-08-24, none of them a measurement,
-all of them the optimizer recipe a new run trains under:
-
-| Knob | Before | After | Why |
-|---|---|---|---|
-| `optim` | `paged_adamw_8bit` (hardcoded) | `adamw_torch_fused` | LoRA r=16 on Qwen3-1.7B is ~17M params, so fp32 Adam state is ~140 MB. 8-bit paging saved nothing and quantised the moments of exactly the parameters being trained. |
-| `lr_scheduler_type` | `cosine` (hardcoded) | `constant_with_warmup` | Over 150 steps cosine spent the last ~40 steps near zero LR; the average LR was about half the stated one. The setup is step-starved, so every step should carry the full LR. |
-| `kl_beta` | 0.001 | 0.0 (TRL's default) | At 0.001 the KL term was ~1e-4 of the loss (KL ends near 0.1) while `beta > 0` costs a full ref-model forward every step. |
-
-`optim` and `lr_scheduler_type` are config keys now, so the frozen config records
-them. **The seed-42 browsergym campaign (e30-e36) trained under the old recipe**,
-and its `configs/` copies pin all three old values explicitly, so a re-run of
-any of them reproduces the run on disk. The frozen `runs/<exp>/config.yaml`
-copies written before this date do not carry the two new keys; a re-run from a
-frozen copy would resolve to the new defaults. Use the `configs/` copy.
-
-**The old-recipe campaign is closed (decision 2026-08-24).** The seed-43
-replication of e0m/e30/e31/e32/e36/e33 is dropped, not deferred: everything
-from here runs on the improved pipeline, and no seed replication of anything
-is planned until the new setup produces a first result worth replicating.
-Nothing already on disk is invalidated - no arm is compared across the recipe
-boundary - and e30-e36 stay citable as the single-seed campaign they are.
-
-Also closed the same day: `model.*` had no key whitelist (`training.*`,
-`rewards.*`, `eval.*` all did), so `model.lora_rnk: 8` validated, trained at the
-registry rank, and froze the 8. `_KNOWN_MODEL_KEYS` rejects it now.
-
-**Phase-2 knobs (A/B, not defaults).** Three more passthroughs landed the same
-day, all at TRL's defaults unless a config sets them, so no run changes without
-a key in its frozen config: `training.num_iterations` (mu, optimizer steps per
-rollout batch), `training.use_liger_kernel` (fused linear GRPO loss; BACKLOG 1)
-and `model.vllm_enable_sleep_mode` (the colocated engine sleeps at level 2
-during the policy update, so `gpu_memory_utilization` can exceed what the
-backward leaves free; the runner drops `expandable_segments` for it, which
-torch cannot combine with vLLM's memory pool). Each passed a browsergym
-`--smoke` with train + eval on 2026-08-24; the 50-step A/B against
-`probe-p2-base` (seed 42, new recipe, e30's task and geometry) is what decides
-whether any of them becomes a default. Read with `python -m probes.p2_compare`.
-
-Where the step goes, finally measured: the `num_iterations: 2` smoke logged a
-generation step at 50.6 s and the reuse step that follows it (policy update
-only, same batch) at 5.3 s. The update is about a tenth of a step; the rest is
-rollout - vLLM sampling plus eight synchronous playwright turns. So a kernel
-speedup (liger, unsloth) can move at most that tenth, `num_iterations: 2` buys
-a second optimizer step for about +10% wall clock, and the rollout side
-(sleep mode -> more concurrent sequences) is where step time lives.
+Moved to `docs/decisions/0007-recipe-defaults-2026-08-24.md`.
 
 ## Standing rule: batch_size 4 everywhere
 
-Every arm of every comparison runs `batch_size: 4`, `n_rollouts: 8`, and the same
-`max_steps`. Fixing only one of the three rebuilds the confound: a treatment arm
-that sees more prompts, or more updates, than its baseline is not a reward
-ablation. `grpo_runner.py` now defaults `batch_size` to 4 (a19b1ff) so a config
-that omits it can no longer silently train at 1, and `train.py` prints the
-geometry at startup so the value is in every log.
-
-**`batch_size` is not the memory knob - `micro_batch_size` is.** Worth stating
-plainly because the two get conflated. At `batch_size: 4`, `n_rollouts: 8`,
-`micro_batch_size: 1`, a step is 32 completions pushed through the model **one at
-a time** with `gradient_accumulation_steps=32`. Training-side memory therefore
-never constrains `batch_size`; only vLLM's generation pool grows with it, and
-that is capped by `gpu_memory_utilization`, so it queues rather than OOMs. 4 is
-not a memory-forced half of 8.
-
-**Why 4 and not 8.** Coverage gains almost nothing above 4 (0.46^4 = 4.5% dead
-steps, 0.46^8 = 0.2%) and the step costs exactly double: the live poly run
-measures 210 s/it at 32 completions, so 8 would be ~420. At a fixed prompt budget
-a larger batch also buys gradient quality by spending optimizer steps - 600
-prompts is 150 LoRA updates at bs=4 and 75 at bs=8, and this setup is
-step-starved, not noise-starved. bs=1 was pathological; 4 is past the knee.
-
-The evidence is asymmetric, which settles it. `bs=8` is measured only on
-browsergym (`e27bs8probe`: 40/40 steps with gradient, 674 s/it, no OOM). `bs=4`
-is measured only on poly (live, 210 s/it, 20.3 of 23 GB). `bs=4` on browsergym is
-*dominated* - strictly fewer concurrent sequences than the bs=8 that already
-passed - so it needs no probe. `bs=8` on poly is the one cell nothing backs: 64
-sequences at 5120 tokens into 2.7 GB of vLLM headroom. Choosing 4 is the only
-option that is measured or dominated everywhere it runs.
-
-Remaining campaign at bs=4, from the 674 s/it measured at bs=8 on browsergym
-(~340 s/it at bs=4): e27/e28/e29 are about 14h/arm at 150 steps, 43h for the
-three, against 84h had they run at bs=8.
+Moved to `docs/decisions/0001-batch-size-4-everywhere.md`.
 
 ## Standing rule: truncation is a reported outcome, not a confound to remove
 
-The 4096-token completion cap is the L4's hardware ceiling, not a design choice
-(the memory arithmetic is in `e24bs4`'s config description; Liger is the only
-route past it and is unverified, BACKLOG item 1). So some episodes will always end
-by filling the budget rather than by finishing, and the decision as of 2026-08-07
-is to measure that rather than engineer around it: every accuracy is reported
-with its `stop_reason` breakdown beside it, and truncation becomes a signal of
-the experiment rather than noise inside the accuracy number.
-
-**Whether the cap corrupts accuracy is a per-environment fact, so check it per
-environment.** Measured from the reports on disk, wrong episodes by `stop_reason`:
-
-```
-poly       e24bs4 agentic   env_done 86 | cap 14                        wrong: 14 cap,  0 terminated
-           e25bs4 agentic   env_done 91 | cap  9                        wrong:  9 cap,  0 terminated
-browsergym e27    held_out  env_done 85 | cap 4  turns 3  no_tool 8     wrong: 20 terminated, 15 other
-           e27    shifted   env_done 82 | cap 0  turns 1  no_tool 17    wrong:  0 cap,  18 other
-           e0     held_out  env_done 86 | cap 0            no_tool 14   wrong: 11 terminated, 14 no_tool
-           e0     shifted   env_done 90 | cap 0            no_tool 10   wrong:  3 terminated, 10 no_tool
-```
-
-On polynomial_equations the two are the same measurement: every wrong episode is a
-truncation and every terminated one is correct, so `accuracy == 1 - truncation
-rate` to the episode. A length reward that shortens completions mechanically
-lifts that accuracy, which is why the pair's accuracy gain is not independent
-evidence about task success. `runs/e24bs4_e25bs4_pair_findings.md` says so at
-length; do not quote a poly accuracy without it.
-
-On browsergym they are not. Wrong-and-terminated is a populated cell (20, 11, 3),
-truncation runs 0-4%, and the dominant off-target mode is `no_tool_call` at 8-17
-per hundred. The live campaign's accuracy therefore carries information the cap
-does not supply, and the interesting signal there is the whole breakdown, not
-truncation on its own.
-
-Already on disk in every report: `stop_reasons` as a raw per-split counter, and
-`non_termination_rate` with a Wilson interval (`_offtarget_panel`,
-`eval/metrics.py`). What does not exist yet is a per-reason rate with its own
-interval. That is the open design step, not something the current numbers are
-missing.
+Moved to `docs/decisions/0003-truncation-is-a-reported-outcome.md`.
 
 ## Standing decision: the campaign trains click-menu-2 only (C4, 2026-08-13)
 
-click-dialog-2 leaves the training mix and no family replaces it. The check
-behind the decision, run against `browsergym_difficulty_correction.md`'s
-fifteen families: the only mid-band candidate, click-checkboxes-large (0.60
-greedy at a 4096 budget), has a 6066-token median trajectory and would train
-truncated in 16 of 20 episodes - the e9-e21 artifact moved to the training
-side - and every other family is saturated (>= 0.85) or dead-by-looping
-(<= 0.10). Nothing both sits in the 40-80 band and fits the box. dialog-2
-itself runs ~0.875 per sampled rollout, above the band, contributing
-near-dead prompt groups; the B3 probe showed menu-2 owning the batch produces
-the audit's first positive within-run slope. Consequences: the campaign
-configs are menu-only (e30 onward, paired against `e0m-browsergym-base-menu`),
-dialog-2 moves to the shifted eval split - as an untrained 0.80-base family it
-now reads substitution in both directions instead of degradation only - and
-single-family training narrows external validity to one family, which the
-write-up must say. Selecting any new family later requires a sampled probe at
-the training temperature first (greedy difficulty is not sampled difficulty).
+Moved to `docs/decisions/0004-train-click-menu-2-only.md`.
 
 ## Standing decision: no poly re-runs; reasoning_gym is calibration only (2026-08-17)
 
-The thesis (section 6.4) fixes reasoning_gym's role: method development and
-difficulty calibration, explicitly not a source of headline results. The
-headline efficiency claims live on browsergym, where e31 delivered the clean
-compression result the poly campaign never could. Consequences: the
-e24bs4/e25bs4 seed-43/44 replication is dropped (its single-seed CIs all
-crossed zero anyway, and the pair trained under the `sequence_mask` ISR filter,
-so a straight replication would replicate a filtered experiment), and no poly
-compression claim goes in the write-up - e24/e25 numbers are citable only as
-method-development history with their caveats attached
-(`pipeline/runs/e24_e25_4k_pair_findings.md`). Do not re-add a poly arm without
-a thesis-level reason.
+Moved to `docs/decisions/0005-reasoning-gym-is-calibration-only.md`.
 
 ## Standing rule: the dependency stack is pinned (2026-08-22)
 
-`setup.sh` used to install `trl>=0.26` plus a bare list of package names, so
-every fresh environment resolved whatever was newest that week, and the OpenEnv
-clone floated on upstream HEAD. Nothing recorded which versions a run trained
-against - e9 through e36 all sit on "whatever was installed at the time". That
-is the same failure mode as an unrecorded `batch_size`: a library changes, the
-numbers move, and nothing on disk says why.
-
-Since 2026-08-22 `requirements.lock.txt` is the only install source and
-`pipeline/OPENENV_COMMIT` pins the clone. The live values are in those two files;
-do not copy them here, or this section becomes a second, stale answer to the same
-question. What e30-e36 trained on was trl 1.6.0 / transformers 5.12.0 / torch
-2.10.0+cu130 / vllm 0.19.1+cu130, on OpenEnv `024eedc` - recorded here because
-those runs predate the stamp file and nothing else holds it.
-
-Upgrading is a deliberate act, not a side effect of re-running setup: install,
-verify against a real reset, then re-freeze the lock in the same commit. A
-version bump landing silently between two arms of a comparison confounds them
-exactly like a geometry change would. Runs before 2026-08-22 have no recorded
-stack; that is a caveat on their reproducibility, not on their numbers.
-
-Two things now enforce the pin outside setup, because setup only runs when
-someone runs it: a launch refuses to serve a run from a clone that has moved off
-`pipeline/OPENENV_COMMIT`, and each phase writes `runs/<exp>/env_stamp.json` with
-the clone HEAD and the load-bearing package versions it actually had. From e37 on,
-the run directory answers "which stack produced this" on its own.
+Moved to `docs/decisions/0006-pinned-dependency-stack.md`.
 
 ## Reading a campaign: the paired stats and the cross-arm figures (2026-09-01)
 

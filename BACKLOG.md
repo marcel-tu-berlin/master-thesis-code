@@ -6,9 +6,9 @@ is what has not started yet.
 Delete an item the moment it is done or decided against. This file answers "what
 could we pick up next", and a finished item answers nothing while still costing a
 read. If the reasoning behind a dropped item is worth keeping, move it to the file
-that owns it - `DECISIONS.md` for environment choices, `LAB_NOTES.md` for traps
-and standing decisions, `pipeline/runs/*_findings.md` for numbers - and then
-delete it here. Git holds what nobody moved.
+that owns it - `docs/decisions/` for standing decisions (environment choices
+included), `LAB_NOTES.md` for traps, `pipeline/runs/*_findings.md` for numbers -
+and then delete it here. Git holds what nobody moved.
 
 ## 1. Liger fused GRPO loss - lift the 4096 completion-token training ceiling
 
@@ -90,7 +90,8 @@ whether a trained 4B arm is worth the geometry re-run.
 ## 3. Criterion 3 - confirm the training family before the campaign
 
 Gates the lambda campaign. The two environment bars recorded so far
-(`probes/README.md`, `DECISIONS.md`) are pre-training: base accuracy in the
+(`probes/README.md`, `docs/decisions/0002-environment-selection.md`) are
+pre-training: base accuracy in the
 40-80% band and a success/termination gap. Both are measured on the base model.
 Criterion 3 (thesis chapter 6, Environment Selection) is post-training and only
 an E1 run can answer it: the cost a shaped reward targets must still be there
