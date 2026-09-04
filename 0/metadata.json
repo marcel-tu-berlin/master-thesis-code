@@ -22,6 +22,71 @@
     "output_tokens": 1069,
     "api_call_count": 2
   },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01MStqDWpn9aaQiiS2W415CL",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "humanizer"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "6c988cef15ce",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1706,
+        "end": 1707,
+        "entry_ids": [
+          "d2ad928d-af14-4fa6-ba60-ab0bc1f141bf"
+        ],
+        "tool_use_id": "toolu_01MStqDWpn9aaQiiS2W415CL"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01MStqDWpn9aaQiiS2W415CL"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: humanizer",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01UES9hddwtEfRZLuR62mhWS",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "writing-clearly-and-concisely"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "6c988cef15ce",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1707,
+        "end": 1708,
+        "entry_ids": [
+          "121db342-10df-459b-bf8a-2b4c7a0bb7c2"
+        ],
+        "tool_use_id": "toolu_01UES9hddwtEfRZLuR62mhWS"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01UES9hddwtEfRZLuR62mhWS"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: writing-clearly-and-concisely",
+        "default_collapsed": true
+      }
+    }
+  ],
   "session_metrics": {
     "turn_count": 3
   },
