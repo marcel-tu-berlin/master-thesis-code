@@ -38,6 +38,10 @@ The eval report already stores Wilson (accuracy) and bootstrap (tokens) CIs, so
 the bar plots just read them; only "mean tokens on correct" is recomputed here,
 reusing eval.metrics._bootstrap_ci.
 
+Palette, type and spines come from eval.plot_style, applied once at import: the
+figures are read side by side in a thesis, so an arm keeps its colour and a
+colour keeps its meaning across the whole set.
+
 CLI:
   python -m eval.plots runs/e5-... runs/e6-... -o runs/plots
   python -m eval.plots --glob 'runs/e*' -o runs/plots
@@ -52,10 +56,16 @@ import re
 import matplotlib
 
 matplotlib.use("Agg")
+import matplotlib.patheffects as patheffects
 import matplotlib.pyplot as plt
 import numpy as np
 
+from eval import plot_style as style
 from eval.metrics import _bootstrap_ci
+
+# House style for every figure below (palette, spines, grid, type). Set once,
+# at import, so a figure built by hand in a notebook looks the same.
+style.apply()
 
 _SPLIT = "agentic"
 
@@ -130,10 +140,10 @@ _COUNT_KEYS = [
 # Fixed colours so `hit_generation_cap` - a budget artifact, never a behaviour -
 # never shares a colour with the reasons that are behaviour.
 _STOP_COLORS = {
-    "env_done": "#55A868",
-    "max_turns": "#DD8452",
-    "no_tool_call": "#8172B3",
-    "hit_generation_cap": "#C44E52",
+    "env_done": style.CORRECT,
+    "max_turns": style.PALETTE[1],
+    "no_tool_call": style.PALETTE[4],
+    "hit_generation_cap": style.WRONG,
 }
 
 
@@ -211,110 +221,184 @@ def _err(center, lo, hi):
     return [max(0.0, center - lo), max(0.0, hi - center)]
 
 
+def _value_labels(ax, xs, vals, tops, fmt):
+    """Print each bar's value just above its error bar.
+
+    Reading a height off a gridline is an estimate; the number is the claim.
+    Anchoring on the CI cap keeps the label out of the interval it belongs to.
+    """
+    span = (max(tops) - min(0.0, min(vals))) or 1.0
+    for x, v, t in zip(xs, vals, tops, strict=True):
+        ax.annotate(
+            fmt.format(v),
+            (x, t + 0.03 * span),
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color="#4A4A4A",
+        )
+
+
 def plot_comparison(reports, fig=None):
     """Two bar panels: success rate (Wilson CI) and mean tokens (bootstrap CI)."""
     if fig is None:
-        fig = plt.figure(figsize=(max(7.0, 1.6 * len(reports) + 4), 4.3))
+        fig = plt.figure(
+            figsize=(max(6.2, 0.72 * len(reports) + 3.4), 3.8), layout="constrained"
+        )
     ax_acc, ax_tok = fig.subplots(1, 2)
     labels = [_short(r["experiment_id"]) for r in reports]
     x = np.arange(len(reports))
 
-    acc = [r["agentic"]["accuracy"] for r in reports]
-    acc_err = np.array(
-        [
-            _err(
-                r["agentic"]["accuracy"],
-                r["agentic"]["accuracy_ci_low"],
-                r["agentic"]["accuracy_ci_high"],
-            )
-            for r in reports
-        ]
-    ).T
-    ax_acc.bar(x, acc, color="#4C72B0")
-    ax_acc.errorbar(x, acc, yerr=acc_err, fmt="none", ecolor="black", capsize=4)
-    ax_acc.set_xticks(x), ax_acc.set_xticklabels(labels)
-    ax_acc.set_ylim(0, 1), ax_acc.set_ylabel("success rate")
-    ax_acc.set_title("Success rate (Wilson 95%)")
-
-    tok = [r["agentic"]["mean_token_count"] for r in reports]
-    tok_err = np.array(
-        [
-            _err(
-                r["agentic"]["mean_token_count"],
-                r["agentic"]["mean_token_count_ci_low"],
-                r["agentic"]["mean_token_count_ci_high"],
-            )
-            for r in reports
-        ]
-    ).T
-    ax_tok.bar(x, tok, color="#C44E52")
-    ax_tok.errorbar(x, tok, yerr=tok_err, fmt="none", ecolor="black", capsize=4)
-    ax_tok.set_xticks(x), ax_tok.set_xticklabels(labels)
-    ax_tok.set_ylabel("mean completion tokens")
-    ax_tok.set_title("Token cost (bootstrap 95%)")
+    for ax, key, color, title, ylabel, fmt in (
+        (
+            ax_acc,
+            "accuracy",
+            style.PRIMARY,
+            "Success rate (Wilson 95%)",
+            "success rate",
+            "{:.2f}",
+        ),
+        (
+            ax_tok,
+            "mean_token_count",
+            style.COST,
+            "Token cost (bootstrap 95%)",
+            "mean completion tokens",
+            "{:.0f}",
+        ),
+    ):
+        vals = [r["agentic"][key] for r in reports]
+        lo = [r["agentic"][f"{key}_ci_low"] for r in reports]
+        hi = [r["agentic"][f"{key}_ci_high"] for r in reports]
+        err = np.array([_err(*t) for t in zip(vals, lo, hi, strict=True)]).T
+        ax.bar(x, vals, width=0.62, color=color)
+        ax.errorbar(x, vals, yerr=err, fmt="none", ecolor=style.RULE, linewidth=0.9)
+        _value_labels(ax, x, vals, hi, fmt)
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        ax.grid(True, axis="y")
+        # Headroom for the value labels, which sit above the CI cap.
+        ax.set_ylim(0, (max(hi) or 1.0) * 1.14)
+    ax_acc.set_ylim(0, 1.1)
 
     fig.suptitle("Ablation: success vs token cost")
-    fig.tight_layout()
     return fig
 
 
 def plot_distributions(reports, fig=None):
-    """One token histogram per experiment, correct (green) vs wrong (red)."""
+    """One token histogram per experiment, correct (green) vs wrong (vermillion).
+
+    Every panel shares one set of bin edges and one x-range, and so do the two
+    series inside a panel. Per-panel bins are what made this figure lie: an arm
+    whose episodes run 300-800 tokens and one that runs 500-2300 both filled
+    their panel edge to edge, so the pair looked alike at a glance and the arms
+    could not be compared at all - which is the only thing this figure is for.
+    """
     n = len(reports)
     ncols = min(3, n) or 1
     nrows = (n + ncols - 1) // ncols
     if fig is None:
-        fig = plt.figure(figsize=(4.6 * ncols, 3.5 * nrows))
+        fig = plt.figure(figsize=(4.4 * ncols, 3.0 * nrows), layout="constrained")
+    pooled = [v for r in reports for v in _correct_wrong_tokens(r["samples"]) if len(v)]
+    bins = (
+        np.histogram_bin_edges(np.concatenate(pooled), bins=24)
+        if pooled
+        else np.linspace(0.0, 1.0, 25)
+    )
+    handles, keys = [], []
     for i, r in enumerate(reports):
         ax = fig.add_subplot(nrows, ncols, i + 1)
         c, w = _correct_wrong_tokens(r["samples"])
-        if len(c):
-            ax.hist(
-                c, bins=20, alpha=0.6, color="#55A868", label=f"correct (n={len(c)})"
-            )
-        if len(w):
-            ax.hist(w, bins=20, alpha=0.6, color="#C44E52", label=f"wrong (n={len(w)})")
-        ax.set_title(_short(r["experiment_id"]))
-        ax.set_xlabel("completion tokens"), ax.set_ylabel("episodes")
-        if len(c) or len(w):
-            ax.legend(fontsize=8)
+        for vals, color, lbl in (
+            (c, style.CORRECT, "correct"),
+            (w, style.WRONG, "wrong"),
+        ):
+            if len(vals):
+                ax.hist(
+                    vals,
+                    bins=bins,
+                    color=color,
+                    alpha=0.8,
+                    label=lbl,
+                    edgecolor="white",
+                    linewidth=0.4,
+                )
+        ax.set_title(
+            f"{_short(r['experiment_id'])}   {len(c)} correct / {len(w)} wrong"
+        )
+        ax.set_xlabel("completion tokens")
+        ax.set_ylabel("episodes")
+        ax.set_xlim(bins[0], bins[-1])
+        ax.grid(True, axis="y")
+        for h, lbl in zip(*ax.get_legend_handles_labels(), strict=True):
+            if lbl not in keys:
+                handles.append(h)
+                keys.append(lbl)
+    style.figure_legend(fig, handles, keys)
     fig.suptitle("Token distribution: correct vs wrong")
-    fig.tight_layout()
     return fig
 
 
 def plot_efficiency(reports, fig=None):
     """Scatter: success rate vs mean tokens on correct episodes (the frontier)."""
     if fig is None:
-        fig = plt.figure(figsize=(6.6, 5.0))
+        fig = plt.figure(figsize=(6.2, 4.6), layout="constrained")
     ax = fig.subplots(1, 1)
-    for r in reports:
-        acc = r["agentic"]["accuracy"]
-        mean_c, lo, hi = _mean_ci_on_correct(r["samples"])
+    pts = [
+        (
+            _mean_ci_on_correct(r["samples"]),
+            r["agentic"]["accuracy"],
+            r["agentic"]["accuracy_ci_low"],
+            r["agentic"]["accuracy_ci_high"],
+            _short(r["experiment_id"]),
+        )
+        for r in reports
+    ]
+    # Two arms that land on the same point print their names on top of each
+    # other, which is exactly what happens when a dose saturates - the case the
+    # figure exists to show. Ranges first, so "same point" is measured in the
+    # units the reader sees.
+    xr = (max(p[0][0] for p in pts) - min(p[0][0] for p in pts)) or 1.0
+    yr = (max(p[1] for p in pts) - min(p[1] for p in pts)) or 1.0
+    placed = []
+    for i, ((mean_c, lo, hi), acc, acc_lo, acc_hi, name) in enumerate(pts):
+        c = style.color(i)
         ax.errorbar(
             mean_c,
             acc,
             xerr=[[max(0.0, mean_c - lo)], [max(0.0, hi - mean_c)]],
-            yerr=[
-                [max(0.0, acc - r["agentic"]["accuracy_ci_low"])],
-                [max(0.0, r["agentic"]["accuracy_ci_high"] - acc)],
-            ],
-            fmt="o",
-            capsize=3,
-            markersize=8,
+            yerr=[[max(0.0, acc - acc_lo)], [max(0.0, acc_hi - acc)]],
+            fmt=style.marker(i),
+            color=c,
+            ecolor=c,
+            elinewidth=1.0,
+            markersize=7,
+            markeredgecolor="white",
+            markeredgewidth=0.9,
         )
+        crowded = any(
+            abs(mean_c - px) / xr < 0.07 and abs(acc - py) / yr < 0.07
+            for px, py in placed
+        )
+        # The label sits on the data, so it carries a white stroke: without it a
+        # dense frontier turns the arm names into a pile.
         ax.annotate(
-            _short(r["experiment_id"]),
+            name,
             (mean_c, acc),
             textcoords="offset points",
-            xytext=(7, 4),
-            fontsize=9,
+            xytext=(9, -13) if crowded else (9, 5),
+            fontsize=8.5,
+            color=style.INK,
+            path_effects=[patheffects.withStroke(linewidth=2.6, foreground="white")],
         )
+        placed.append((mean_c, acc))
     ax.set_xlabel("mean tokens on correct episodes")
     ax.set_ylabel("success rate")
     ax.set_title("Token-efficiency frontier (up-and-left is better)")
-    ax.grid(True, alpha=0.3)
-    fig.tight_layout()
+    ax.margins(0.15)
+    ax.grid(True, axis="both")
     return fig
 
 
@@ -334,7 +418,6 @@ def _grouped_bars(ax, reports, keys, with_ci):
     ]
     if not present:
         return False
-    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
     width = 0.8 / max(1, len(reports))
     x = np.arange(len(present))
     for j, r in enumerate(reports):
@@ -354,20 +437,28 @@ def _grouped_bars(ax, reports, keys, with_ci):
             )
         if not xs:
             continue
-        ax.bar(xs, ys, width=width, color=colors[j % len(colors)], label=labels[j])
+        ax.bar(
+            xs,
+            ys,
+            width=width,
+            color=style.color(j),
+            label=labels[j],
+            edgecolor="white",
+            linewidth=0.4,
+        )
         if with_ci:
             ax.errorbar(
                 xs,
                 ys,
                 yerr=np.array(errs).T,
                 fmt="none",
-                ecolor="black",
+                ecolor=style.RULE,
                 capsize=2,
-                linewidth=0.8,
+                linewidth=0.7,
             )
     ax.set_xticks(x)
-    ax.set_xticklabels([lbl for _, lbl in present], rotation=20, ha="right")
-    ax.grid(True, axis="y", alpha=0.3)
+    ax.set_xticklabels([lbl for _, lbl in present], rotation=15, ha="right")
+    ax.grid(True, axis="y")
     return True
 
 
@@ -385,22 +476,22 @@ def plot_offtarget(reports, fig=None):
     before termination tracking existed).
     """
     if fig is None:
-        fig = plt.figure(figsize=(max(9.0, 1.1 * len(reports) + 7.0), 4.4))
+        fig = plt.figure(
+            figsize=(max(8.2, 0.5 * len(reports) + 6.0), 4.0), layout="constrained"
+        )
     ax_rate, ax_cnt = fig.subplots(1, 2)
     if not _grouped_bars(ax_rate, reports, _OFFTARGET_KEYS, with_ci=True):
         plt.close(fig)
         return None
     ax_rate.set_ylabel("fraction of episodes")
     ax_rate.set_title("Off-target rates (Wilson 95%)")
-    if ax_rate.get_legend_handles_labels()[0]:
-        ax_rate.legend(fontsize=8, ncol=2)
     if _grouped_bars(ax_cnt, reports, _COUNT_KEYS, with_ci=False):
         ax_cnt.set_ylabel("count per episode")
         ax_cnt.set_title("Trajectory shape")
     else:
         ax_cnt.set_visible(False)
+    style.figure_legend(fig, *ax_rate.get_legend_handles_labels())
     fig.suptitle("Off-target behaviour (RQ2)")
-    fig.tight_layout()
     return fig
 
 
@@ -423,7 +514,9 @@ def plot_stop_reasons(reports, fig=None):
         k for k in seen if k not in _STOP_COLORS
     )
     if fig is None:
-        fig = plt.figure(figsize=(max(6.0, 1.1 * len(reports) + 3.5), 4.2))
+        fig = plt.figure(
+            figsize=(max(5.6, 0.9 * len(reports) + 3.4), 4.0), layout="constrained"
+        )
     ax = fig.subplots(1, 1)
     x = np.arange(len(reports))
     bottom = np.zeros(len(reports))
@@ -431,15 +524,37 @@ def plot_stop_reasons(reports, fig=None):
         vals = np.array(
             [c.get(reason, 0) / max(1, sum(c.values())) for c in counts], dtype=float
         )
-        ax.bar(x, vals, bottom=bottom, label=reason, color=_STOP_COLORS.get(reason))
+        color = _STOP_COLORS.get(reason, style.PALETTE[7])
+        ax.bar(
+            x,
+            vals,
+            bottom=bottom,
+            label=reason,
+            color=color,
+            width=0.62,
+            edgecolor="white",
+            linewidth=0.6,
+        )
+        # A share below ~7% has no room for its own number; the legend and the
+        # segment height still carry it.
+        for xi, v, b in zip(x, vals, bottom, strict=True):
+            if v >= 0.07:
+                ax.text(
+                    xi,
+                    b + v / 2,
+                    f"{v:.0%}",
+                    ha="center",
+                    va="center",
+                    fontsize=7.5,
+                    color=style.on_color(color),
+                )
         bottom += vals
     ax.set_xticks(x)
     ax.set_xticklabels([_short(r["experiment_id"]) for r in reports])
     ax.set_ylim(0, 1)
     ax.set_ylabel("fraction of episodes")
     ax.set_title("Why episodes ended")
-    ax.legend(fontsize=8, loc="upper left", bbox_to_anchor=(1.01, 1.0))
-    fig.tight_layout()
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0))
     return fig
 
 
@@ -467,20 +582,19 @@ def plot_turn_profile(series, fig=None):
     if not series:
         return None
     if fig is None:
-        fig = plt.figure(figsize=(11.5, 4.2))
+        fig = plt.figure(figsize=(10.6, 4.0), layout="constrained")
     ax_turn, ax_split = fig.subplots(1, 2)
-    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
     width = 0.8 / len(series)
     has_split = False
     for j, (lbl, eps) in enumerate(series):
-        c = colors[j % len(colors)]
+        c = style.color(j)
         xs, ys = [], []
         for i in range(max(len(t) for t in eps)):
             vals = [float(t[i].get("n_tokens", 0)) for t in eps if len(t) > i]
             if vals:
                 xs.append(i + 1)
                 ys.append(float(np.mean(vals)))
-        ax_turn.plot(xs, ys, "o-", color=c, label=lbl)
+        ax_turn.plot(xs, ys, marker=style.marker(j), color=c, label=lbl)
         if not any(x.get("n_reasoning_tokens") is not None for t in eps for x in t):
             continue  # counted only when a tokenizer was passed
         has_split = True
@@ -493,23 +607,37 @@ def plot_turn_profile(series, fig=None):
             width=width,
             color=c,
             label=lbl,
+            edgecolor="white",
+            linewidth=0.4,
         )
     ax_turn.set_xlabel("turn")
     ax_turn.set_ylabel("mean tokens in the turn")
     ax_turn.set_title("Token profile across the trajectory")
-    ax_turn.grid(True, alpha=0.3)
-    ax_turn.legend(fontsize=8)
+    ax_turn.grid(True, axis="both")
     if has_split:
         ax_split.set_xticks([0, 1])
         ax_split.set_xticklabels(["reasoning", "content"])
         ax_split.set_ylabel("mean tokens per episode")
         ax_split.set_title("Where the tokens are")
-        ax_split.grid(True, axis="y", alpha=0.3)
+        ax_split.grid(True, axis="y")
     else:
         ax_split.set_visible(False)
+    style.figure_legend(fig, *ax_turn.get_legend_handles_labels())
     fig.suptitle("Per-turn trajectory profile")
-    fig.tight_layout()
     return fig
+
+
+def _clamp_flat(ax, values):
+    """Keep a perfectly flat series off an invented axis.
+
+    Autoscale expands a constant series into a window around it, so
+    `clipped policy-ratio fraction`, which is 0.000 at every step of every
+    arm, renders on a -0.04 to 0.04 axis - a range that cannot occur and that
+    reads as variation. Pinning the bottom at zero for a flat non-negative
+    series drops the impossible half without inventing a top.
+    """
+    if values and min(values) == max(values) >= 0:
+        ax.set_ylim(bottom=0.0)
 
 
 def _series(log, key):
@@ -545,25 +673,31 @@ def plot_training_curves(log_history, fig=None):
     ncols = min(3, total)
     nrows = (total + ncols - 1) // ncols
     if fig is None:
-        fig = plt.figure(figsize=(5.4 * ncols, 3.2 * nrows))
+        fig = plt.figure(figsize=(4.5 * ncols, 2.9 * nrows), layout="constrained")
     idx = 1
+    # The metric name is the panel title and nothing else: repeating it as the
+    # y-axis label costs a tenth of every panel and says the same thing twice.
     for key, label in panels:
         ax = fig.add_subplot(nrows, ncols, idx)
         idx += 1
         xs, ys = _series(log_history, key)
-        ax.plot(xs, ys, color="#4C72B0")
-        ax.set_xlabel("step"), ax.set_ylabel(label), ax.set_title(label)
-        ax.grid(True, alpha=0.3)
+        ax.plot(xs, ys, color=style.PRIMARY, linewidth=1.4)
+        ax.set_xlabel("step")
+        ax.set_title(label)
+        ax.grid(True, axis="both")
+        ax.margins(x=0.02)
+        _clamp_flat(ax, ys)
     if comp_keys:
         ax = fig.add_subplot(nrows, ncols, idx)
         for k in comp_keys:
             xs, ys = _series(log_history, k)
-            ax.plot(xs, ys, label=k.split("/")[1])
-        ax.set_xlabel("step"), ax.set_ylabel("raw reward mean")
-        ax.set_title("reward components"), ax.legend(fontsize=8)
-        ax.grid(True, alpha=0.3)
+            ax.plot(xs, ys, label=k.split("/")[1], linewidth=1.4)
+        ax.set_xlabel("step")
+        ax.set_title("reward components (raw mean)")
+        ax.legend()
+        ax.grid(True, axis="both")
+        ax.margins(x=0.02)
     fig.suptitle("Training curves")
-    fig.tight_layout(rect=(0, 0, 1, 0.98))
     return fig
 
 
@@ -619,22 +753,32 @@ def plot_training_overlay(logs, keys=None, smooth=10, fig=None):
     ncols = min(3, total)
     nrows = (total + ncols - 1) // ncols
     if fig is None:
-        fig = plt.figure(figsize=(5.2 * ncols, 3.4 * nrows))
-    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+        fig = plt.figure(figsize=(4.4 * ncols, 3.0 * nrows), layout="constrained")
+    arm_handles, arm_labels = [], []
     for i, (key, label) in enumerate(panels):
         ax = fig.add_subplot(nrows, ncols, i + 1)
+        panel_ys = []
         for j, (lbl, log) in enumerate(logs):
             xs, ys = _series(log, key)
             if not ys:
                 continue
-            c = colors[j % len(colors)]
-            ax.plot(xs, ys, color=c, alpha=0.22, linewidth=0.8)
+            panel_ys.extend(ys)
+            c = style.color(j)
+            # The raw trace stays, faint: the bucket mean is the trend, and
+            # without the scatter behind it there is no telling a real split
+            # from two lines wandering inside their own step-to-step noise.
+            ax.plot(xs, ys, color=c, alpha=0.16, linewidth=0.7)
             sx, sy = _smooth(xs, ys, smooth)
-            ax.plot(sx, sy, color=c, linewidth=1.8, label=lbl)
-        ax.set_xlabel("step"), ax.set_ylabel(label), ax.set_title(label)
-        ax.grid(True, alpha=0.3)
-        if i == 0 and ax.get_legend_handles_labels()[0]:
-            ax.legend(fontsize=8)
+            ax.plot(sx, sy, color=c, linewidth=1.7, label=lbl)
+        ax.set_xlabel("step")
+        ax.set_title(label)
+        ax.grid(True, axis="both")
+        ax.margins(x=0.02)
+        _clamp_flat(ax, panel_ys)
+        for h, hl in zip(*ax.get_legend_handles_labels(), strict=True):
+            if hl not in arm_labels:
+                arm_handles.append(h)
+                arm_labels.append(hl)
     if comp_keys:
         ax = fig.add_subplot(nrows, ncols, total)
         for j, (lbl, log) in enumerate(logs):
@@ -646,14 +790,19 @@ def plot_training_overlay(logs, keys=None, smooth=10, fig=None):
                 ax.plot(
                     sx,
                     sy,
-                    color=colors[j % len(colors)],
+                    color=style.color(j),
                     label=f"{lbl}: {k.split('/')[1]}",
                 )
-        ax.set_xlabel("step"), ax.set_ylabel("|contribution| to the advantage")
-        ax.set_title("shaped component contribution"), ax.legend(fontsize=7)
-        ax.grid(True, alpha=0.3)
+        ax.set_xlabel("step")
+        ax.set_ylabel("|contribution| to the advantage")
+        # This panel keeps its own key: its series are arm x component pairs,
+        # which the figure-level arm legend cannot name.
+        ax.set_title("shaped component contribution")
+        ax.legend(fontsize=7)
+        ax.grid(True, axis="both")
+        ax.margins(x=0.02)
+    style.figure_legend(fig, arm_handles, arm_labels, ncol_max=8)
     fig.suptitle("Training dynamics across arms")
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
     return fig
 
 
@@ -681,12 +830,15 @@ def plot_dose_response(rows, panels, refs=None, fig=None):
     ncols = min(2, n) or 1
     nrows = (n + ncols - 1) // ncols
     if fig is None:
-        fig = plt.figure(figsize=(5.6 * ncols, 3.8 * nrows))
+        fig = plt.figure(figsize=(4.9 * ncols, 3.1 * nrows), layout="constrained")
     conditions = []
     for r in rows:
         if r["condition"] not in conditions:
             conditions.append(r["condition"])
-    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    # Tick where the sweep actually sampled. Matplotlib's even spacing invites
+    # the reader to interpolate between lambdas nobody ran.
+    lams = sorted({r["lam"] for r in rows})
+    cond_handles, cond_labels = [], []
     for i, (key, label) in enumerate(panels):
         ax = fig.add_subplot(nrows, ncols, i + 1)
         for j, cond in enumerate(conditions):
@@ -703,15 +855,18 @@ def plot_dose_response(rows, panels, refs=None, fig=None):
                     pts.setdefault(r["lam"], []).append((v, err))
             if not pts:
                 continue
-            c = colors[j % len(colors)]
+            c = style.color(j)
             xs = sorted(pts)
             ax.plot(
                 xs,
                 [float(np.mean([v for v, _ in pts[x]])) for x in xs],
-                "o-",
+                linestyle="-",
+                marker=style.marker(j),
                 color=c,
                 label=cond,
                 markersize=6,
+                markeredgecolor="white",
+                markeredgewidth=0.8,
             )
             for x in xs:
                 vals = pts[x]
@@ -721,10 +876,11 @@ def plot_dose_response(rows, panels, refs=None, fig=None):
                     ax.plot(
                         [x] * len(vals),
                         [v for v, _ in vals],
-                        "o",
+                        linestyle="None",
+                        marker=style.marker(j),
                         color=c,
                         markersize=4,
-                        alpha=0.45,
+                        alpha=0.5,
                     )
                 elif vals[0][1] is not None:
                     ax.errorbar(
@@ -737,21 +893,27 @@ def plot_dose_response(rows, panels, refs=None, fig=None):
                     )
         if refs and key in (refs or {}):
             rlabel, rval = refs[key]
-            ax.axhline(rval, linestyle="--", color="#666666", linewidth=1)
+            ax.axhline(rval, linestyle="--", color=style.MUTED, linewidth=1)
             ax.annotate(
                 rlabel,
-                (0.02, rval),
+                (0.99, rval),
                 xycoords=("axes fraction", "data"),
                 fontsize=8,
-                color="#666666",
+                color=style.MUTED,
+                ha="right",
                 va="bottom",
             )
-        ax.set_xlabel("shaping weight lambda"), ax.set_ylabel(label)
-        ax.set_title(label), ax.grid(True, alpha=0.3)
-        if i == 0 and ax.get_legend_handles_labels()[0]:
-            ax.legend(fontsize=8)
+        ax.set_xlabel("shaping weight lambda")
+        ax.set_title(label)
+        ax.set_xticks(lams)
+        ax.grid(True, axis="both")
+        ax.margins(x=0.08)
+        for h, hl in zip(*ax.get_legend_handles_labels(), strict=True):
+            if hl not in cond_labels:
+                cond_handles.append(h)
+                cond_labels.append(hl)
+    style.figure_legend(fig, cond_handles, cond_labels)
     fig.suptitle("Dose-response: what the shaping weight buys and costs")
-    fig.tight_layout()
     return fig
 
 
@@ -769,26 +931,48 @@ def plot_paired_deltas(series, fig=None):
     ncols = min(3, len(series))
     nrows = (len(series) + ncols - 1) // ncols
     if fig is None:
-        fig = plt.figure(figsize=(4.6 * ncols, 3.4 * nrows))
+        fig = plt.figure(figsize=(4.3 * ncols, 3.1 * nrows), layout="constrained")
+    # One y-scale across the panels. Per-panel autoscale draws a 70-token arm
+    # and a 1270-token arm at the same visual size, which is the comparison
+    # this figure is placed next to the others to make.
+    flat = [v for _, d in series for v in d]
+    pad = 0.05 * ((max(flat) - min(flat)) or 1.0)
+    ylim = (min(flat) - pad, max(flat) + pad)
     for i, (label, diffs) in enumerate(series):
         ax = fig.add_subplot(nrows, ncols, i + 1)
         d = np.sort(np.asarray(diffs, dtype=float))
+        # Gapless bars: the shape of the sorted difference is the message, and
+        # a gap between episodes carries nothing.
         ax.bar(
-            np.arange(d.size), d, color=["#55A868" if v <= 0 else "#C44E52" for v in d]
+            np.arange(d.size),
+            d,
+            width=1.0,
+            color=[style.CORRECT if v <= 0 else style.WRONG for v in d],
         )
-        ax.axhline(0, color="black", linewidth=0.8)
+        ax.axhline(0, color=style.RULE, linewidth=0.9)
         ax.axhline(
             float(np.median(d)),
-            color="#4C72B0",
+            color=style.PRIMARY,
             linestyle="--",
-            linewidth=1,
+            linewidth=1.2,
             label=f"median {np.median(d):.0f}",
         )
-        ax.set_title(f"{label} (n={d.size})")
-        ax.set_xlabel("episodes, sorted"), ax.set_ylabel("tokens vs control")
-        ax.legend(fontsize=8), ax.grid(True, alpha=0.3)
+        ax.set_title(f"{label}   n={d.size}")
+        ax.set_xlabel("episodes, sorted")
+        ax.set_ylabel("tokens vs control")
+        ax.set_xlim(-0.5, d.size - 0.5)
+        ax.set_ylim(*ylim)
+        # The bars fill the area between zero and the curve, so the only
+        # reliably empty corner is under the deepest cut.
+        ax.legend(
+            loc="lower right",
+            frameon=True,
+            framealpha=0.85,
+            facecolor="white",
+            edgecolor="none",
+        )
+        ax.grid(True, axis="y")
     fig.suptitle("Per-episode token difference on jointly correct episodes")
-    fig.tight_layout()
     return fig
 
 
@@ -821,7 +1005,7 @@ def _report_splits(path: str) -> list[str]:
         return list(json.load(f).get("results") or {})
 
 
-def make_figures(report_paths, out_dir, dpi=130, split=None):
+def make_figures(report_paths, out_dir, dpi=200, split=None):
     """Render all figures for the given run dirs / report paths into out_dir.
 
     Without `split`, renders one figure set per split name found across the
@@ -919,7 +1103,7 @@ def make_dose_figures(
     base,
     runs,
     out_dir,
-    dpi=130,
+    dpi=200,
     ref=None,
     family=None,
     held_out="held_out",
