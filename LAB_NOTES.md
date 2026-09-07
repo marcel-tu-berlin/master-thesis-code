@@ -347,8 +347,12 @@ python -m eval.paired --base runs/<control> runs/<arm> ... --split shifted --by-
 
 # figures; --base adds the dose-response and per-episode paired views
 python -m eval.plots --glob 'runs/e3*' -o runs/plots_<campaign> \
-  --base runs/<control> --ref runs/<E0 run> --family click-dialog-2
+  --base runs/<control> --ref runs/<E0 run>
 ```
+
+`--family` is a filter, not a requirement: without it the dose figure gets one
+accuracy panel per family in the shifted split, which is what the three-family
+split needs. Pass it only to narrow the figure to a single family.
 
 Two habits it is there to enforce. First, read `training_overlay.png` before the
 eval report: the arms are on one axis, so "diverged at step 40 and stayed" is
@@ -361,6 +365,27 @@ learning" does not clear it (0.806 +- 0.153 against e30's 0.891 +- 0.095).
 already prefers over the mean of `frac_reward_zero_std`: e30 0.880, every E2 arm
 1.000, E3 arms 0.90-0.95. The "reward plus more gradient" caveat is an E2-column
 property at every lambda, and near-absent for E3.
+
+Which figure answers which question:
+
+| Question | Figure |
+|---|---|
+| RQ1: does the shaping buy tokens, and at what task cost | `comparison_<split>`, `efficiency_<split>`, `dose_response`, `paired_deltas` |
+| RQ1: is the compression uniform or a few collapsed episodes | `paired_deltas` (sorted per-episode bars, not the median) |
+| RQ2: what did it cost off-target | `offtarget_<split>` (the substitution rates, Wilson CIs) |
+| Is a "wrong answer" really a truncation | `stop_reasons_<split>` (hit_generation_cap is its own colour) |
+| Which tokens did the arm remove | `turn_profile_<split>` (per-turn, reasoning vs content) |
+| Did the arms diverge, and when | `training_overlay` |
+| Did this run go wrong | `training_curves_<exp>` (the diagnostics rows) |
+| Is a delta bigger than seed noise | `dose_response` (replicates drawn individually) |
+
+`turn_profile` needs the per-turn records the eval loop writes into
+`episodes_<split>.jsonl`; runs evaluated before that existed (e30-e36 included)
+simply get no such figure. The diagnostics rows of `training_curves_<exp>` are
+`reward_std` (collapse), `clip_ratio/region_mean` (the update being clipped
+away), `sampling/importance_sampling_ratio/mean` (a generation-vs-training
+mismatch on the vLLM colocate path), `tools/failure_frequency` (the agent
+breaking its own tool calls) and `step_time` (a stall).
 
 The full read of e30-e36 through these views is in
 `pipeline/runs/e30_e36_training_dynamics_findings.md`.

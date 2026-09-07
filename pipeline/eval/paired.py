@@ -27,9 +27,11 @@ CLI (data to stdout, diagnostics to stderr):
   python -m eval.paired --base runs/e30-... runs/e31-... --split held_out
   python -m eval.paired --base runs/e30-... runs/e3[1-6]-* --by-family -o out.md
 """
+
 import argparse
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 
@@ -52,15 +54,16 @@ TAIL_STEPS = 30
 @dataclass
 class PairedComparison:
     """One arm against one control, on the episodes both actually ran."""
+
     base_id: str
     arm_id: str
     split: str
-    family: str | None = None          # None = all families pooled
+    family: str | None = None  # None = all families pooled
     n_paired: int = 0
     base_correct: int = 0
     arm_correct: int = 0
-    wins: int = 0                      # arm correct, control wrong
-    losses: int = 0                    # control correct, arm wrong
+    wins: int = 0  # arm correct, control wrong
+    losses: int = 0  # control correct, arm wrong
     mcnemar_p: float | None = None
     n_joint_correct: int = 0
     median_token_diff: float | None = None
@@ -98,8 +101,9 @@ def sign_test_p(diffs) -> float:
     return exact_binomial_p(int((nz < 0).sum()), int(nz.size))
 
 
-def bootstrap_median_ci(diffs, n_bootstrap: int = N_BOOTSTRAP,
-                        seed: int = BOOTSTRAP_SEED, ci: float = 0.95):
+def bootstrap_median_ci(
+    diffs, n_bootstrap: int = N_BOOTSTRAP, seed: int = BOOTSTRAP_SEED, ci: float = 0.95
+):
     """(median, lo, hi) for the median of paired differences.
 
     Resamples the PAIRS, not the two arms independently: the pairing is the whole
@@ -114,14 +118,22 @@ def bootstrap_median_ci(diffs, n_bootstrap: int = N_BOOTSTRAP,
     idx = rng.integers(0, d.size, size=(n_bootstrap, d.size))
     boot = np.median(d[idx], axis=1)
     alpha = (1 - ci) / 2
-    return (float(np.median(d)),
-            float(np.percentile(boot, 100 * alpha)),
-            float(np.percentile(boot, 100 * (1 - alpha))))
+    return (
+        float(np.median(d)),
+        float(np.percentile(boot, 100 * alpha)),
+        float(np.percentile(boot, 100 * (1 - alpha))),
+    )
 
 
-def compare(base_episodes: dict, arm_episodes: dict, *, base_id: str = "base",
-            arm_id: str = "arm", split: str = "?",
-            family: str | None = None) -> PairedComparison:
+def compare(
+    base_episodes: dict,
+    arm_episodes: dict,
+    *,
+    base_id: str = "base",
+    arm_id: str = "arm",
+    split: str = "?",
+    family: str | None = None,
+) -> PairedComparison:
     """Pair two runs' episodes on their seeds and compute the paired statistics.
 
     Both arguments map seed -> episode record (`load_episodes` produces them).
@@ -142,16 +154,22 @@ def compare(base_episodes: dict, arm_episodes: dict, *, base_id: str = "base",
             diffs.append(float(a["n_tokens"] - b["n_tokens"]))
     med, lo, hi = bootstrap_median_ci(diffs)
     return PairedComparison(
-        base_id=base_id, arm_id=arm_id, split=split, family=family,
+        base_id=base_id,
+        arm_id=arm_id,
+        split=split,
+        family=family,
         n_paired=len(seeds),
         base_correct=sum(1 for s in seeds if base_episodes[s]["correct"]),
         arm_correct=sum(1 for s in seeds if arm_episodes[s]["correct"]),
-        wins=wins, losses=losses,
+        wins=wins,
+        losses=losses,
         # k = wins among the discordant pairs: the McNemar statistic is exactly
         # the fair-coin question about which direction the flips went.
         mcnemar_p=exact_binomial_p(wins, wins + losses),
         n_joint_correct=len(diffs),
-        median_token_diff=med, median_ci_low=lo, median_ci_high=hi,
+        median_token_diff=med,
+        median_ci_low=lo,
+        median_ci_high=hi,
         mean_token_diff=float(np.mean(diffs)) if diffs else None,
         sign_p=sign_test_p(diffs) if diffs else None,
         base_nonterm=_nonterm_rate(base_episodes, seeds),
@@ -201,18 +219,31 @@ def training_tail(log_history, keys=None, window: int = TAIL_STEPS) -> dict:
     entries = [e for e in (log_history or []) if isinstance(e, dict)]
     tail = entries[-window:] if window else entries
     if keys is None:
-        keys = sorted({k for e in tail for k, v in e.items()
-                       if isinstance(v, (int, float)) and not isinstance(v, bool)})
+        keys = sorted(
+            {
+                k
+                for e in tail
+                for k, v in e.items()
+                if isinstance(v, (int, float)) and not isinstance(v, bool)
+            }
+        )
     out = {}
     for k in keys:
-        pts = [(float(e.get("step", i)), float(e[k])) for i, e in enumerate(tail)
-               if isinstance(e.get(k), (int, float)) and not isinstance(e.get(k), bool)]
+        pts = [
+            (float(e.get("step", i)), float(e[k]))
+            for i, e in enumerate(tail)
+            if isinstance(e.get(k), (int, float)) and not isinstance(e.get(k), bool)
+        ]
         if len(pts) < 2:
             continue
         xs = np.array([p[0] for p in pts])
         ys = np.array([p[1] for p in pts])
-        out[k] = {"mean": float(ys.mean()), "sd": float(ys.std(ddof=1)),
-                  "slope": float(np.polyfit(xs, ys, 1)[0]), "n": len(pts)}
+        out[k] = {
+            "mean": float(ys.mean()),
+            "sd": float(ys.std(ddof=1)),
+            "slope": float(np.polyfit(xs, ys, 1)[0]),
+            "n": len(pts),
+        }
     return out
 
 
@@ -226,18 +257,25 @@ def gradient_liveness(log_history) -> dict | None:
     steps where at least one group had reward variance, i.e. where the optimizer
     saw anything at all. None when the series is absent.
     """
-    vals = [float(e["frac_reward_zero_std"]) for e in (log_history or [])
-            if isinstance(e, dict) and isinstance(e.get("frac_reward_zero_std"), (int, float))
-            and not isinstance(e.get("frac_reward_zero_std"), bool)]
+    vals = [
+        float(e["frac_reward_zero_std"])
+        for e in (log_history or [])
+        if isinstance(e, dict)
+        and isinstance(e.get("frac_reward_zero_std"), (int, float))
+        and not isinstance(e.get("frac_reward_zero_std"), bool)
+    ]
     if not vals:
         return None
     a = np.array(vals)
-    return {"mean_frac_zero_std": float(a.mean()),
-            "frac_steps_live": float((a < 1.0).mean()),
-            "n_steps": int(a.size)}
+    return {
+        "mean_frac_zero_std": float(a.mean()),
+        "frac_steps_live": float((a < 1.0).mean()),
+        "n_steps": int(a.size),
+    }
 
 
 # --- disk boundary -----------------------------------------------------------
+
 
 def load_episodes(run_dir: str, split: str) -> dict:
     """seed -> episode record from runs/<exp>/episodes_<split>.jsonl.
@@ -282,13 +320,15 @@ def split_tasks(config: dict, split: str) -> list:
     pure function of the seed, and storing a derived value in the episode record
     would give it a second source of truth that can disagree.
     """
-    for s in (((config.get("eval") or {}).get("agentic") or {}).get("splits") or []):
+    for s in ((config.get("eval") or {}).get("agentic") or {}).get("splits") or []:
         if str(s.get("name")) == split:
             tasks = (s.get("env_config") or {}).get("tasks")
             if tasks:
                 return list(tasks)
             break
-    return list(((config.get("training") or {}).get("env_config") or {}).get("tasks") or [])
+    return list(
+        ((config.get("training") or {}).get("env_config") or {}).get("tasks") or []
+    )
 
 
 def episode_families(config: dict, split: str, seeds) -> dict:
@@ -305,6 +345,7 @@ def episode_families(config: dict, split: str, seeds) -> dict:
     if len(tasks) < 2:
         return {}
     from domains.browsergym.adapter import task_for_seed
+
     return {int(s): task_for_seed(tasks, s) for s in seeds}
 
 
@@ -325,8 +366,11 @@ def arm_condition(config: dict) -> tuple:
     for a config enabling more than one shaped reward, which has no single dose.
     """
     rewards = config.get("rewards") or {}
-    on = [(k, (rewards.get(k) or {}).get("weight", 1.0))
-          for k in _SHAPED_CONDITIONS if (rewards.get(k) or {}).get("enabled")]
+    on = [
+        (k, (rewards.get(k) or {}).get("weight", 1.0))
+        for k in _SHAPED_CONDITIONS
+        if (rewards.get(k) or {}).get("enabled")
+    ]
     if not on:
         return "control (task reward only)", 0.0
     if len(on) == 1:
@@ -341,8 +385,12 @@ def _split_accuracy(episodes: dict, seeds=None) -> float | None:
     return sum(1 for s in seeds if episodes[s]["correct"]) / len(seeds)
 
 
-def dose_panel(run_dir: str, shifted: str = "shifted", family: str | None = None,
-               config: dict | None = None) -> dict:
+def dose_panel(
+    run_dir: str,
+    shifted: str = "shifted",
+    family: str | None = None,
+    config: dict | None = None,
+) -> dict:
     """Off-target readings for one arm: shifted non-termination and one family's
     accuracy. Missing pieces come back as None so an arm that never ran the
     shifted split still contributes its held-out numbers.
@@ -352,20 +400,34 @@ def dose_panel(run_dir: str, shifted: str = "shifted", family: str | None = None
     its run dir, and without a task list its episodes cannot be grouped by family.
     Passing the control's config is sound exactly because the splits are the same
     object in both runs' eval configs - never pass one from a differently split run.
+
+    Every family in the split also gets a `family_acc:<family>` key, so a figure
+    can panel all of them; `family` only decides which one is repeated under the
+    plain `family_acc` key.
     """
     try:
         eps = load_episodes(run_dir, shifted)
     except OSError:
         return {"shifted_nonterm": None, "family_acc": None}
     cfg = load_config(run_dir) if config is None else config
-    fams = episode_families(cfg, shifted, eps) if family else {}
-    seeds = [s for s, f in fams.items() if f == family] if family else None
-    return {"shifted_nonterm": _nonterm_rate(eps, list(eps)),
-            "family_acc": _split_accuracy(eps, seeds)}
+    fams = episode_families(cfg, shifted, eps)
+    out = {"shifted_nonterm": _nonterm_rate(eps, list(eps)), "family_acc": None}
+    for fam in sorted(set(fams.values())):
+        out[f"family_acc:{fam}"] = _split_accuracy(
+            eps, [s for s, f in fams.items() if f == fam]
+        )
+    if family:
+        out["family_acc"] = out.get(f"family_acc:{family}")
+    return out
 
 
-def dose_rows(base_dir: str, arm_dirs, held_out: str = "held_out",
-              shifted: str = "shifted", family: str | None = None) -> list:
+def dose_rows(
+    base_dir: str,
+    arm_dirs,
+    held_out: str = "held_out",
+    shifted: str = "shifted",
+    family: str | None = None,
+) -> list:
     """Rows for the dose-response figure: one per arm, plus the control at lambda=0.
 
     The control is emitted once per condition present among the arms, because it
@@ -385,21 +447,44 @@ def dose_rows(base_dir: str, arm_dirs, held_out: str = "held_out",
         except OSError as exc:
             print(f"skip {_short(d)}: {exc}", file=sys.stderr)
             continue
-        c = compare(base_eps, arm_eps, base_id=_short(base_dir), arm_id=_short(d),
-                    split=held_out)
+        c = compare(
+            base_eps,
+            arm_eps,
+            base_id=_short(base_dir),
+            arm_id=_short(d),
+            split=held_out,
+        )
         if cond not in conditions:
             conditions.append(cond)
-        rows.append({"condition": cond, "lam": lam, "arm": _short(d),
-                     "losses": c.losses, "wins": c.wins,
-                     "median_dtok": (c.median_token_diff, c.median_ci_low, c.median_ci_high),
-                     **dose_panel(d, shifted, family)})
-    control = {"lam": 0.0, "arm": _short(base_dir), "losses": 0, "wins": 0,
-               "median_dtok": 0.0, **dose_panel(base_dir, shifted, family)}
+        rows.append(
+            {
+                "condition": cond,
+                "lam": lam,
+                "arm": _short(d),
+                "losses": c.losses,
+                "wins": c.wins,
+                "median_dtok": (c.median_token_diff, c.median_ci_low, c.median_ci_high),
+                **dose_panel(d, shifted, family),
+            }
+        )
+    control = {
+        "lam": 0.0,
+        "arm": _short(base_dir),
+        "losses": 0,
+        "wins": 0,
+        "median_dtok": 0.0,
+        **dose_panel(base_dir, shifted, family),
+    }
     return [{**control, "condition": c} for c in conditions] + rows
 
 
-def dose_refs(ref_dir: str, shifted: str = "shifted", family: str | None = None,
-              label: str = "E0 base", config: dict | None = None) -> dict:
+def dose_refs(
+    ref_dir: str,
+    shifted: str = "shifted",
+    family: str | None = None,
+    label: str = "E0 base",
+    config: dict | None = None,
+) -> dict:
     """Dashed reference lines for the dose figure, from a run with no lambda
     (the E0 base-model eval). `config` supplies the family mapping that a
     never-trained run has no frozen config to provide."""
@@ -408,11 +493,20 @@ def dose_refs(ref_dir: str, shifted: str = "shifted", family: str | None = None,
 
 
 def _short(run_dir: str) -> str:
-    """Compact arm label: the leading handle of the run dir, e.g. e31."""
-    return os.path.basename(os.path.normpath(run_dir)).split("-")[0]
+    """Compact arm label: the leading handle of the run dir, e.g. e31.
+
+    A seed replicate (`<exp>-s43`) keeps its seed, or every seed of one arm
+    lands on the same row label and a seed sweep reads as one arm reported
+    several times.
+    """
+    parts = os.path.basename(os.path.normpath(run_dir)).split("-")
+    if len(parts) > 1 and re.fullmatch(r"s\d+", parts[-1]):
+        return f"{parts[0]}-{parts[-1]}"
+    return parts[0]
 
 
 # --- reporting ---------------------------------------------------------------
+
 
 def _fmt(x, nd=1):
     return "n/a" if x is None else f"{x:.{nd}f}"
@@ -424,26 +518,35 @@ def _fmt_p(p):
 
 def comparison_rows(comparisons) -> str:
     """Markdown table: one row per comparison (pooled rows first, then families)."""
-    head = ("| arm | split | family | n | acc base | acc arm | wins | losses | McNemar p "
-            "| n joint | median dtok | 95% CI | sign p | nonterm base | nonterm arm |\n"
-            "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+    head = (
+        "| arm | split | family | n | acc base | acc arm | wins | losses | McNemar p "
+        "| n joint | median dtok | 95% CI | sign p | nonterm base | nonterm arm |\n"
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+    )
     rows = []
     for c in comparisons:
-        ci = ("n/a" if c.median_ci_low is None
-              else f"[{c.median_ci_low:.0f}, {c.median_ci_high:.0f}]")
+        ci = (
+            "n/a"
+            if c.median_ci_low is None
+            else f"[{c.median_ci_low:.0f}, {c.median_ci_high:.0f}]"
+        )
         rows.append(
             f"| {c.arm_id} | {c.split} | {c.family or 'all'} | {c.n_paired} "
             f"| {c.base_correct / c.n_paired:.3f} | {c.arm_correct / c.n_paired:.3f} "
             f"| {c.wins} | {c.losses} | {_fmt_p(c.mcnemar_p)} | {c.n_joint_correct} "
             f"| {_fmt(c.median_token_diff, 0)} | {ci} | {_fmt_p(c.sign_p)} "
             f"| {_fmt(c.base_nonterm, 3)} | {_fmt(c.arm_nonterm, 3)} |"
-            if c.n_paired else
-            f"| {c.arm_id} | {c.split} | {c.family or 'all'} | 0 | - | - | - | - | - | - | - | - | - | - | - |")
+            if c.n_paired
+            else f"| {c.arm_id} | {c.split} | {c.family or 'all'} | 0 | - | - | - | - | - | - | - | - | - | - | - |"
+        )
     return head + "\n".join(rows) + "\n"
 
 
 _NOISE_KEYS = [
-    "reward", "reward/EnvReward/raw_mean", "completions/mean_length", "kl",
+    "reward",
+    "reward/EnvReward/raw_mean",
+    "completions/mean_length",
+    "kl",
 ]
 
 
@@ -453,9 +556,11 @@ def noise_rows(run_dirs, window: int = TAIL_STEPS) -> str:
     Skips runs with no train_log.json (an eval-only run, or one killed before
     the log was written - grpo_runner writes it after trainer.train() returns).
     """
-    head = (f"| run | series | last-{window} mean | SD | slope/step "
-            "| mean frac_zero_std | frac steps live |\n"
-            "|---|---|---|---|---|---|---|\n")
+    head = (
+        f"| run | series | last-{window} mean | SD | slope/step "
+        "| mean frac_zero_std | frac steps live |\n"
+        "|---|---|---|---|---|---|---|\n"
+    )
     rows = []
     for d in run_dirs:
         log = load_train_log(d)
@@ -468,7 +573,8 @@ def noise_rows(run_dirs, window: int = TAIL_STEPS) -> str:
                 f"| {_short(d) if i == 0 else ''} | `{k}` | {v['mean']:.4g} "
                 f"| {v['sd']:.3g} | {v['slope']:+.3g} "
                 f"| {_fmt(live.get('mean_frac_zero_std'), 3) if i == 0 else ''} "
-                f"| {_fmt(live.get('frac_steps_live'), 3) if i == 0 else ''} |")
+                f"| {_fmt(live.get('frac_steps_live'), 3) if i == 0 else ''} |"
+            )
     return head + "\n".join(rows) + "\n"
 
 
@@ -493,10 +599,17 @@ def main():
     ap.add_argument("arms", nargs="+", help="arm run dirs")
     ap.add_argument("--base", required=True, help="control run dir (e.g. the E1 arm)")
     ap.add_argument("--split", default="held_out", help="eval split (default held_out)")
-    ap.add_argument("--by-family", action="store_true",
-                    help="also break each comparison down by task family")
-    ap.add_argument("--window", type=int, default=TAIL_STEPS,
-                    help=f"training tail length for the noise floor (default {TAIL_STEPS})")
+    ap.add_argument(
+        "--by-family",
+        action="store_true",
+        help="also break each comparison down by task family",
+    )
+    ap.add_argument(
+        "--window",
+        type=int,
+        default=TAIL_STEPS,
+        help=f"training tail length for the noise floor (default {TAIL_STEPS})",
+    )
     ap.add_argument("-o", "--out", help="write markdown here instead of stdout")
     args = ap.parse_args()
 
@@ -505,23 +618,37 @@ def main():
     for arm in args.arms:
         try:
             arm_eps = load_episodes(arm, args.split)
-        except OSError as exc:                       # arm never ran this split
+        except OSError as exc:  # arm never ran this split
             print(f"skip {arm}: {exc}", file=sys.stderr)
             continue
-        comparisons.append(compare(base_eps, arm_eps, base_id=_short(args.base),
-                                   arm_id=_short(arm), split=args.split))
+        comparisons.append(
+            compare(
+                base_eps,
+                arm_eps,
+                base_id=_short(args.base),
+                arm_id=_short(arm),
+                split=args.split,
+            )
+        )
         if not args.by_family:
             continue
         fams = episode_families(load_config(arm), args.split, arm_eps)
         for fam in sorted(set(fams.values())):
             keep = {s for s, f in fams.items() if f == fam}
-            comparisons.append(compare(
-                {s: e for s, e in base_eps.items() if s in keep},
-                {s: e for s, e in arm_eps.items() if s in keep},
-                base_id=_short(args.base), arm_id=_short(arm), split=args.split, family=fam))
+            comparisons.append(
+                compare(
+                    {s: e for s, e in base_eps.items() if s in keep},
+                    {s: e for s, e in arm_eps.items() if s in keep},
+                    base_id=_short(args.base),
+                    arm_id=_short(arm),
+                    split=args.split,
+                    family=fam,
+                )
+            )
 
-    md = render_markdown(comparisons, [args.base] + list(args.arms), args.base,
-                         args.split, args.window)
+    md = render_markdown(
+        comparisons, [args.base] + list(args.arms), args.base, args.split, args.window
+    )
     if args.out:
         with open(args.out, "w") as f:
             f.write(md)

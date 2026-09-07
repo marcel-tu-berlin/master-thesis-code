@@ -221,3 +221,27 @@ def test_render_markdown_contains_a_row_per_comparison(tmp_path):
     md = paired.render_markdown([c], [base, arm], base, "held_out")
     assert "| e31 | held_out | all | 4 |" in md
     assert "frac steps live" in md and "`reward`" in md
+
+
+# --- seed replicates and per-family panels ---
+
+def test_short_keeps_a_seed_suffix(tmp_path):
+    # Without the suffix both seeds of one arm land on the same table row label.
+    assert paired._short("runs/e30-browsergym-e1-menu-qwen3-1_7b") == "e30"
+    assert paired._short("runs/e30-browsergym-e1-menu-qwen3-1_7b-s43") == "e30-s43"
+
+
+def test_dose_panel_emits_an_accuracy_for_every_family(tmp_path):
+    cfg = {"training": {"env": "browsergym", "env_config": {"tasks": ["m"]}},
+           "eval": {"agentic": {"splits": [
+               {"name": "shifted", "env_config": {"tasks": ["x", "y"]}}]}}}
+    # seeds 0, 2 -> "x" (both correct); seeds 1, 3 -> "y" (one correct).
+    d = _write_run(tmp_path, "e33-cos", "shifted",
+                   [_ep(0, True, 10), _ep(1, False, 20), _ep(2, True, 30), _ep(3, True, 40)],
+                   config=cfg)
+    panel = paired.dose_panel(d, "shifted")
+    assert panel["family_acc:x"] == pytest.approx(1.0)
+    assert panel["family_acc:y"] == pytest.approx(0.5)
+    # No family named, so the plain key stays empty and the figure panels them all.
+    assert panel["family_acc"] is None
+    assert paired.dose_panel(d, "shifted", "y")["family_acc"] == pytest.approx(0.5)

@@ -282,3 +282,131 @@ def test_make_figures_skips_a_run_missing_the_split(tmp_path):
                plots.make_figures([both, only], str(tmp_path / "out"))}
     assert "comparison_held_out.png" in written
     assert "comparison_shifted.png" in written
+
+
+# --- off-target panel (RQ2), stop reasons, per-turn profile, seed replicates ---
+
+def _offtarget_results(n_done, n_cap, invalid=0, repeated=0):
+    """Episodes carrying the termination and action-level fields the RQ2 panel
+    reads, built through the production SampleResult shape."""
+    out = [SampleResult(correct=True, n_tokens=300, n_steps=2, terminated=True,
+                        stop_reason="env_done", tool_calls=["click", "click"],
+                        n_actions=2, n_invalid_actions=invalid,
+                        n_repeated_actions=repeated)
+           for _ in range(n_done)]
+    out += [SampleResult(correct=False, n_tokens=4096, n_steps=1, terminated=False,
+                         stop_reason="hit_generation_cap", tool_calls=["click"],
+                         n_actions=1, n_invalid_actions=0, n_repeated_actions=0)
+            for _ in range(n_cap)]
+    return out
+
+
+def _offtarget_run(tmp_path, exp_id, n_done, n_cap, invalid=0, repeated=0, turns=None):
+    d = tmp_path / exp_id
+    d.mkdir()
+    m = compute_metrics(_offtarget_results(n_done, n_cap, invalid, repeated))
+    (d / "eval_report.json").write_text(json.dumps(
+        {"experiment_id": exp_id, "results": {"agentic": _metrics_to_dict(m)}}))
+    if turns is not None:
+        (d / "episodes_agentic.jsonl").write_text("".join(
+            json.dumps({"seed": i, "correct": True, "n_tokens": 300, "turns": t}) + "\n"
+            for i, t in enumerate(turns)))
+    return str(d)
+
+
+def _turn(n_tokens, reasoning=None, content=None):
+    rec = {"n_tokens": n_tokens, "reasoning": "r", "content": "c", "tool_calls": []}
+    if reasoning is not None:
+        rec["n_reasoning_tokens"] = reasoning
+        rec["n_content_tokens"] = content
+    return rec
+
+
+def test_short_keeps_a_seed_suffix():
+    # Without it every seed of one arm draws an identically-labelled line, in
+    # the figure whose whole job is separating an effect from seed noise.
+    assert plots._short("e30-browsergym-e1-menu-qwen3-1_7b") == "e30"
+    assert plots._short("e30-browsergym-e1-menu-qwen3-1_7b-s43") == "e30-s43"
+
+
+def test_plot_offtarget_draws_a_group_per_present_rate(tmp_path):
+    reports = [plots.load_report(_offtarget_run(tmp_path, "e30", 8, 2, invalid=1)),
+               plots.load_report(_offtarget_run(tmp_path, "e31", 6, 4))]
+    fig = plots.plot_offtarget(reports)
+    assert fig is not None
+    ticks = [t.get_text() for t in fig.axes[0].get_xticklabels()]
+    assert "non-termination" in ticks and "wrong termination" in ticks
+    assert "invalid action" in ticks and "repeated action" in ticks
+
+
+def test_plot_offtarget_none_when_no_report_carries_a_rate(tmp_path):
+    # A dataset-mode report has no termination records at all.
+    r = plots.load_report(_write_run(tmp_path, "e5", [200], [1024]))
+    assert plots.plot_offtarget([r]) is None
+
+
+def test_plot_stop_reasons_stacks_to_one_per_arm(tmp_path):
+    reports = [plots.load_report(_offtarget_run(tmp_path, "e30", 8, 2)),
+               plots.load_report(_offtarget_run(tmp_path, "e31", 5, 5))]
+    fig = plots.plot_stop_reasons(reports)
+    ax = fig.axes[0]
+    totals = {}
+    for p in ax.patches:
+        totals[round(p.get_x(), 3)] = totals.get(round(p.get_x(), 3), 0) + p.get_height()
+    assert all(abs(v - 1.0) < 1e-9 for v in totals.values())
+    labels = [t.get_text() for t in ax.get_legend().get_texts()]
+    assert "hit_generation_cap" in labels and "env_done" in labels
+
+
+def test_plot_stop_reasons_none_without_records(tmp_path):
+    r = plots.load_report(_write_run(tmp_path, "e5", [200], [1024]))
+    assert plots.plot_stop_reasons([r]) is None
+
+
+def test_plot_turn_profile_averages_only_episodes_that_reached_the_turn():
+    # Arm e31: one episode of two turns (100, 200), one of a single turn (400).
+    # Turn 1 averages both (250); turn 2 sees only the first episode (200).
+    fig = plots.plot_turn_profile([("e31", [[_turn(100), _turn(200)], [_turn(400)]])])
+    line = fig.axes[0].lines[0]
+    assert list(line.get_xdata()) == [1, 2]
+    assert list(line.get_ydata()) == [250.0, 200.0]
+
+
+def test_plot_turn_profile_hides_the_split_panel_without_a_tokenizer_count():
+    fig = plots.plot_turn_profile([("e31", [[_turn(100)]])])
+    assert fig.axes[1].get_visible() is False
+    fig = plots.plot_turn_profile([("e31", [[_turn(100, reasoning=80, content=5)]])])
+    assert fig.axes[1].get_visible() is True
+
+
+def test_plot_turn_profile_none_without_records():
+    assert plots.plot_turn_profile([("e31", [])]) is None
+
+
+def test_plot_dose_response_averages_seed_replicates():
+    rows = [{"condition": "E2", "lam": 0.0, "losses": 0},
+            {"condition": "E2", "lam": 1.0, "losses": 10},
+            {"condition": "E2", "lam": 1.0, "losses": 20}]
+    fig = plots.plot_dose_response(rows, [("losses", "losses")])
+    ax = fig.axes[0]
+    mean_line = [l for l in ax.lines if l.get_linestyle() == "-"][0]
+    assert list(mean_line.get_ydata()) == [0.0, 15.0]
+    # Both replicates are still drawn, so the seed spread stays visible.
+    scatter = [l for l in ax.lines if l.get_linestyle() == "None"]
+    assert scatter and sorted(scatter[0].get_ydata()) == [10.0, 20.0]
+
+
+def test_make_figures_writes_the_offtarget_and_stop_reason_views(tmp_path):
+    runs = [_offtarget_run(tmp_path, "e30", 8, 2), _offtarget_run(tmp_path, "e31", 5, 5)]
+    names = {os.path.basename(p) for p in plots.make_figures(runs, str(tmp_path / "out"))}
+    assert {"offtarget.png", "stop_reasons.png"} <= names
+
+
+def test_make_figures_turn_profile_only_when_episodes_carry_turns(tmp_path):
+    plain = _offtarget_run(tmp_path, "e30", 4, 1)
+    names = {os.path.basename(p) for p in plots.make_figures([plain], str(tmp_path / "o1"))}
+    assert "turn_profile.png" not in names
+    withturns = _offtarget_run(tmp_path, "e31", 4, 1, turns=[[_turn(100), _turn(50)]])
+    names = {os.path.basename(p) for p in
+             plots.make_figures([plain, withturns], str(tmp_path / "o2"))}
+    assert "turn_profile.png" in names
