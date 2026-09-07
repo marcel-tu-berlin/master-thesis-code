@@ -188,6 +188,9 @@ Edit and run tests on the Mac. Training and eval run on the GPU box
 `/workspace/master-thesis-code`.
 
 ```bash
+# the whole gate in one command - what CI runs, and what the commit hook runs
+./.claude/check.sh
+
 # tests: CPU-only, a few seconds, no GPU stack required
 cd pipeline && ../.venv-test/bin/python -m pytest tests/ -q
 
