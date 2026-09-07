@@ -1,0 +1,1 @@
+close everything obviously. the goal should be that we are able to answer all of our research questions with the visuals AND to be able to analyze training processes afterwards to spot error or weird behaviors
