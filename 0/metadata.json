@@ -1,0 +1,138 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M1XGQV7GYT674H2WHG1R0X0Z",
+  "session_id": "b674d39c-3aca-4583-b6e6-d9fe1f966d65",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-07T08:46:17.046246Z",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "CLAUDE.md",
+    "pipeline/domains/__init__.py",
+    "pipeline/domains/browsergym/adapter.py",
+    "pipeline/domains/browsergym/domain.py",
+    "pipeline/eval/agentic_eval.py",
+    "pipeline/eval/metrics.py",
+    "pipeline/eval/paired.py",
+    "pipeline/eval/plots.py",
+    "pipeline/eval/runner.py",
+    "pipeline/probes/bg_probe.py",
+    "pipeline/probes/bg_seed_check.py",
+    "pipeline/probes/env_check.py",
+    "pipeline/probes/p2_compare.py",
+    "pipeline/tests/test_agentic_episode_eval.py",
+    "pipeline/tests/test_agentic_eval.py",
+    "pipeline/tests/test_agentic_schema.py",
+    "pipeline/tests/test_batch_seeds.py",
+    "pipeline/tests/test_batch_skips.py",
+    "pipeline/tests/test_browsergym_adapter.py",
+    "pipeline/tests/test_compose_metrics.py",
+    "pipeline/tests/test_cosine_length_ids.py",
+    "pipeline/tests/test_env_adapter.py",
+    "pipeline/tests/test_env_domain.py",
+    "pipeline/tests/test_env_server.py",
+    "pipeline/tests/test_env_stamp.py",
+    "pipeline/tests/test_guardrail.py",
+    "pipeline/tests/test_metrics_callback.py",
+    "pipeline/tests/test_model_token_count.py",
+    "pipeline/tests/test_multiturn_eval.py",
+    "pipeline/tests/test_non_termination_reward.py",
+    "pipeline/tests/test_offtarget_metrics.py",
+    "pipeline/tests/test_paired.py",
+    "pipeline/tests/test_placebo.py",
+    "pipeline/tests/test_plots.py",
+    "pipeline/tests/test_response_parsing.py",
+    "pipeline/tests/test_reward_builders.py",
+    "pipeline/tests/test_stats_ci.py",
+    "pipeline/tests/test_validate_config.py",
+    "pipeline/training/batch.py",
+    "pipeline/training/config_schema.py",
+    "pipeline/training/env_server.py",
+    "pipeline/training/env_stamp.py",
+    "pipeline/training/grpo_runner.py",
+    "pipeline/training/registry.py",
+    "pipeline/training/rewards/__init__.py",
+    "pipeline/training/rewards/compose.py",
+    "pipeline/training/rewards/non_termination.py",
+    "pipeline/training/rewards/placebo.py",
+    "pipeline/training/rewards/utils.py",
+    "pipeline/training/train.py",
+    "pyproject.toml",
+    "requirements-test.lock.txt"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5[1m]",
+  "turn_id": "b71fdf93c1dc",
+  "checkpoint_transcript_start": 1013,
+  "transcript_lines_at_start": 1013,
+  "compact_transcript_start": 118,
+  "token_usage": {
+    "input_tokens": 82,
+    "cache_creation_tokens": 132686,
+    "cache_read_tokens": 5465622,
+    "output_tokens": 32087,
+    "api_call_count": 41
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01SFXtTdKuyrSk3S4e9VuH18",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "ci-setup"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b71fdf93c1dc",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 850,
+        "end": 851,
+        "entry_ids": [
+          "10dfb8f5-9ad6-4afe-a16c-dc3e5c0f6a2f"
+        ],
+        "tool_use_id": "toolu_01SFXtTdKuyrSk3S4e9VuH18"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01SFXtTdKuyrSk3S4e9VuH18"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: ci-setup",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-07T08:46:16.832773Z",
+    "agent_lines": 2189,
+    "agent_removed": 876,
+    "human_added": 10,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 2199,
+    "total_lines_changed": 3081,
+    "agent_percentage": 99.48068808828302,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+ok now i want you to do the following things:
+- polish our visuals to the best possible for a paper. i want the diagrams to be looking super good. so no new info/semantics -> just better design
+- add linting, type checking and formatting etc. - wire it all as needed with our gates and pipelines. dont mind the results on disk. we cant use them anyway since we changed a lot in the code since then
