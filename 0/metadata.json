@@ -25,6 +25,40 @@
     "output_tokens": 50388,
     "api_call_count": 72
   },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01SFXtTdKuyrSk3S4e9VuH18",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "ci-setup"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "588b55800089",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 850,
+        "end": 851,
+        "entry_ids": [
+          "10dfb8f5-9ad6-4afe-a16c-dc3e5c0f6a2f"
+        ],
+        "tool_use_id": "toolu_01SFXtTdKuyrSk3S4e9VuH18"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01SFXtTdKuyrSk3S4e9VuH18"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: ci-setup",
+        "default_collapsed": true
+      }
+    }
+  ],
   "session_metrics": {
     "turn_count": 1
   },
