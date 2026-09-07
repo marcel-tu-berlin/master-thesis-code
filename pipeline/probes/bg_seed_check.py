@@ -5,7 +5,9 @@ rollout slots; if reset(seed=N) is not a pure function of N the slots get
 different pages and the group is not a group. FinQA needed a patch for exactly
 this.
 """
-import sys, time, subprocess, os, urllib.request
+
+import sys
+
 sys.path.insert(0, "/workspace/OpenEnv/envs")
 sys.path.insert(0, "/tmp")
 from bg_probe import start_server

@@ -64,18 +64,22 @@ class NonTerminationPenalty:
                 "kwargs['completion_ids'] from the agentic environment_factory "
                 "path (TRL GRPOTrainer)."
             )
-        if len(environments) != len(completions) or len(completion_ids) != len(completions):
+        if len(environments) != len(completions) or len(completion_ids) != len(
+            completions
+        ):
             raise ValueError(
                 f"environments {len(environments)} / completion_ids {len(completion_ids)} "
                 f"!= completions {len(completions)}"
             )
         out = []
-        for env, completion, ids in zip(environments, completions, completion_ids):
+        for env, completion, ids in zip(
+            environments, completions, completion_ids, strict=True
+        ):
             if getattr(env, "done", False):
                 out.append(0.0)
                 continue
             if len(ids) >= self.max_completion_tokens:
-                out.append(-1.0)            # filled the completion budget
+                out.append(-1.0)  # filled the completion budget
                 continue
             out.append(0.0 if _stopped_on_its_own(completion) else -1.0)
         return out
@@ -94,5 +98,8 @@ def _stopped_on_its_own(completion) -> bool:
     if not completion:
         return False
     last = completion[-1]
-    return (isinstance(last, dict) and last.get("role") == "assistant"
-            and not last.get("tool_calls"))
+    return (
+        isinstance(last, dict)
+        and last.get("role") == "assistant"
+        and not last.get("tool_calls")
+    )

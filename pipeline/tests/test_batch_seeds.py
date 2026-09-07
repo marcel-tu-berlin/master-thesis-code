@@ -5,6 +5,7 @@ materialized config file: each seed gets its own seed value and a suffixed
 experiment_id (hence its own run dir), while the rest of the config — crucially
 model.slug, which keeps baseline dedup working — is preserved unchanged.
 """
+
 import yaml
 
 from training.batch import _materialize_seed_config
@@ -28,7 +29,7 @@ def test_materialize_overrides_seed_and_id_without_mutating_base(tmp_path, monke
         out = yaml.safe_load(f)
     assert out["seed"] == 44
     assert out["experiment_id"] == "e2-multi-cosine-qwen-7b-vllm-s44"
-    assert out["model"]["slug"] == "qwen-7b"        # rest preserved
+    assert out["model"]["slug"] == "qwen-7b"  # rest preserved
     assert out["rewards"]["accuracy"]["enabled"] is True
 
 
@@ -48,8 +49,10 @@ def test_seed_coerced_to_int(tmp_path, monkeypatch):
 # is greedy, so the shared ones decode identically - pooling three such runs
 # counts the same questions three times.
 
+
 def _blocks(seed, size=500, n_eval=100, offsets=(100_000, 200_000)):
     from eval.agentic_eval import seed_block
+
     base = seed_block(seed)
     out = {"train": set(range(base, base + size))}
     for off in offsets:
@@ -80,6 +83,7 @@ def test_block_size_exceeds_every_split_offset():
     # land inside seed 43's questions.
     from eval.agentic_eval import _EVAL_SEED_OFFSET
     from training.config_schema import SEED_BLOCK
+
     assert SEED_BLOCK > 2 * _EVAL_SEED_OFFSET
 
 

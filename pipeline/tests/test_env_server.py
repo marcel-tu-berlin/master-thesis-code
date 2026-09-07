@@ -14,11 +14,17 @@ class _VarDom(EnvDomain):
     server_module = "browsergym_env.server.app"
 
     def server_env(self, env_config=None):
-        return {"BROWSERGYM_TASK_NAME": (env_config or {}).get("tasks", ["click-option"])[0]}
+        return {
+            "BROWSERGYM_TASK_NAME": (env_config or {}).get("tasks", ["click-option"])[0]
+        }
 
 
 def _agentic_cfg(**training):
-    t = {"mode": "agentic", "env": "reasoning_gym", "env_config": {"dataset": "chain_sum"}}
+    t = {
+        "mode": "agentic",
+        "env": "reasoning_gym",
+        "env_config": {"dataset": "chain_sum"},
+    }
     t.update(training)
     return {"training": t}
 
@@ -37,7 +43,13 @@ def _srv(**over):
 
 def test_command_shape():
     cmd = _srv().command()
-    assert cmd == ["/venv/bin/python", "-m", "reasoning_gym_env.server.app", "--port", "8077"]
+    assert cmd == [
+        "/venv/bin/python",
+        "-m",
+        "reasoning_gym_env.server.app",
+        "--port",
+        "8077",
+    ]
 
 
 def test_base_url():
@@ -74,12 +86,18 @@ def test_wait_until_ready_times_out():
 
     with pytest.raises(TimeoutError):
         _srv().wait_until_ready(
-            timeout=3, interval=1, _ready=lambda: False, _sleep=lambda *_: None, _now=now
+            timeout=3,
+            interval=1,
+            _ready=lambda: False,
+            _sleep=lambda *_: None,
+            _now=now,
         )
 
 
 def test_build_env_server_defaults():
-    srv = build_env_server(_agentic_cfg(n_rollouts=8, batch_size=1), _Dom(), python="/p")
+    srv = build_env_server(
+        _agentic_cfg(n_rollouts=8, batch_size=1), _Dom(), python="/p"
+    )
     assert srv.command()[:3] == ["/p", "-m", "reasoning_gym_env.server.app"]
     # 8000 is every OpenEnv server's own default; four of the five domain
     # servers bind it unconditionally and ignore the --port argv, so a default
@@ -111,7 +129,9 @@ def test_build_env_server_config_overrides():
 
 
 def test_env_merges_server_env_vars():
-    srv = _srv(server_env={"BROWSERGYM_BENCHMARK": "miniwob", "BROWSERGYM_HEADLESS": "true"})
+    srv = _srv(
+        server_env={"BROWSERGYM_BENCHMARK": "miniwob", "BROWSERGYM_HEADLESS": "true"}
+    )
     env = srv._env()
     assert env["BROWSERGYM_BENCHMARK"] == "miniwob"
     assert env["BROWSERGYM_HEADLESS"] == "true"

@@ -1,7 +1,7 @@
 import inspect
 
-from domains.reasoning_gym.domain import ReasoningGymDomain
 from domains.reasoning_gym.adapter import ReasoningGymEnvAdapter
+from domains.reasoning_gym.domain import ReasoningGymDomain
 
 
 class _FakeStep:
@@ -68,6 +68,7 @@ def test_build_seed_dataset_distinct_seeds_and_prompt():
 
 def test_base_defaults_server_env_empty_and_single_turn():
     from domains.env_base import EnvDomain
+
     d = EnvDomain()
     assert d.server_env({"anything": 1}) == {}
     assert d.multi_turn is False
@@ -75,7 +76,9 @@ def test_base_defaults_server_env_empty_and_single_turn():
 
 def test_reasoning_gym_eval_tools_is_answer():
     d = ReasoningGymDomain()
-    factory = d.make_env_factory("http://x", {"dataset": "chain_sum"}, client_factory=_FakeClient)
+    factory = d.make_env_factory(
+        "http://x", {"dataset": "chain_sum"}, client_factory=_FakeClient
+    )
     env = factory()
     tools = d.eval_tools(env)
     assert tools == [env.answer]
@@ -89,6 +92,7 @@ def test_reasoning_gym_eval_tools_is_answer():
 # server-side cap at all, so for it the key is enforced client-side only (TRL's
 # max_tool_calling_iterations and the eval turn loop, both via
 # resolve_max_turns - covered in test_validate_config).
+
 
 def test_browsergym_server_env_carries_no_turn_cap():
     # Asserting the absence on purpose: browsergym's server has no step cap, so
@@ -105,12 +109,19 @@ def test_schema_rejects_the_old_per_domain_cap_aliases():
     # the same cap; both domains are deleted, but the aliases must stay rejected
     # rather than silently ignored, or a config carrying one caps nothing.
     import pytest
+
     from training.config_schema import validate_config
 
     for stale in ("max_steps", "max_iterations"):
         with pytest.raises(ValueError, match="env_config"):
-            validate_config({
-                "experiment_id": "x", "model": {"slug": "qwen3-1.7b"},
-                "training": {"mode": "agentic", "env": "browsergym",
-                             "env_config": {stale: 12}},
-            })
+            validate_config(
+                {
+                    "experiment_id": "x",
+                    "model": {"slug": "qwen3-1.7b"},
+                    "training": {
+                        "mode": "agentic",
+                        "env": "browsergym",
+                        "env_config": {stale: 12},
+                    },
+                }
+            )

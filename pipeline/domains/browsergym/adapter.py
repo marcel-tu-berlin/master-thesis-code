@@ -17,8 +17,9 @@ _MAX_OBS_CHARS = 2000
 
 def _obs_text(observation) -> str:
     """The page as the model should see it: accessibility tree, bids included."""
-    text = (getattr(observation, "axtree_txt", "") or
-            getattr(observation, "text", "") or "")
+    text = (
+        getattr(observation, "axtree_txt", "") or getattr(observation, "text", "") or ""
+    )
     text = str(text).strip()
     if len(text) > _MAX_OBS_CHARS:
         text = text[:_MAX_OBS_CHARS] + "\n...[truncated]"
@@ -76,7 +77,9 @@ class BrowserGymEnvAdapter:
         tasks = _DEFAULT_TASKS if tasks is None else tasks
         self._tasks = tuple(str(t) for t in tasks)
         if not self._tasks:
-            raise ValueError("browsergym env_config['tasks'] must name at least one task")
+            raise ValueError(
+                "browsergym env_config['tasks'] must name at least one task"
+            )
         self._client = client if client is not None else self._connect(base_url)
         self.reward = 0.0
         self.done = False

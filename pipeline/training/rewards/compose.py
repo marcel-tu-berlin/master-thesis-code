@@ -1,4 +1,4 @@
-from typing import Callable
+from collections.abc import Callable
 
 # torch is imported lazily inside AdvantageWeightedComposer.__call__ so this
 # module can be imported (and the torch-free NaiveSumComposer / metric draining
@@ -59,8 +59,9 @@ class AdvantageWeightedComposer:
     different prompts, distorting the relative ranking inside each group.
     """
 
-    def __init__(self, components: list[tuple[Callable, float]],
-                 num_generations: int) -> None:
+    def __init__(
+        self, components: list[tuple[Callable, float]], num_generations: int
+    ) -> None:
         self.components = components
         self.num_generations = int(num_generations)
         self.__name__ = "advantage_weighted_composer"
@@ -138,8 +139,10 @@ class NaiveSumComposer:
                 var = sum((x - mean) ** 2 for x in raw) / n
                 name = type(fn).__name__
                 call_metrics[f"reward/{name}/raw_mean"] = float(mean)
-                call_metrics[f"reward/{name}/raw_std"] = float(var ** 0.5)
-                call_metrics[f"reward/{name}/contrib_l1"] = float(sum(abs(weight * x) for x in raw) / n)
+                call_metrics[f"reward/{name}/raw_std"] = float(var**0.5)
+                call_metrics[f"reward/{name}/contrib_l1"] = float(
+                    sum(abs(weight * x) for x in raw) / n
+                )
 
         self._step_metrics.append(call_metrics)
         return total
@@ -157,4 +160,6 @@ def build_composer(
         return AdvantageWeightedComposer(components, num_generations)
     if method == "naive_sum":
         return NaiveSumComposer(components)
-    raise ValueError(f"Unknown compose_method: {method!r}. Choose advantage_weighted | naive_sum")
+    raise ValueError(
+        f"Unknown compose_method: {method!r}. Choose advantage_weighted | naive_sum"
+    )

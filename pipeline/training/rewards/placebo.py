@@ -51,6 +51,6 @@ class WithinGroupShuffle:
         for idx in _group_indices(len(raw), self.num_generations):
             vals = [raw[i] for i in idx]
             self._rng.shuffle(vals)
-            for i, v in zip(idx, vals):
+            for i, v in zip(idx, vals, strict=True):
                 raw[i] = v
         return raw

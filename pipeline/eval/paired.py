@@ -196,7 +196,7 @@ def stop_reason_transitions(base_episodes: dict, arm_episodes: dict) -> dict:
     stop-reason counts in the report cannot tell those apart because they do not
     follow individual episodes.
     """
-    out = {}
+    out: dict[tuple, int] = {}
     for s in sorted(set(base_episodes) & set(arm_episodes)):
         key = (base_episodes[s].get("stop_reason"), arm_episodes[s].get("stop_reason"))
         out[key] = out.get(key, 0) + 1
@@ -647,7 +647,7 @@ def main():
             )
 
     md = render_markdown(
-        comparisons, [args.base] + list(args.arms), args.base, args.split, args.window
+        comparisons, [args.base, *args.arms], args.base, args.split, args.window
     )
     if args.out:
         with open(args.out, "w") as f:

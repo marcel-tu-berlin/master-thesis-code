@@ -59,12 +59,17 @@ def test_reset_passes_seed_dataset_and_size_one():
     a = _adapter(client=c, env_config={"dataset": "chain_sum"})
     a.reset(seed=7)
     call = c.reset_calls[0]
-    assert call["seed"] == 7 and call["dataset_name"] == "chain_sum" and call["size"] == 1
+    assert (
+        call["seed"] == 7 and call["dataset_name"] == "chain_sum" and call["size"] == 1
+    )
 
 
 def test_reset_forwards_dataset_config():
     c = _FakeClient()
-    a = _adapter(client=c, env_config={"dataset": "chain_sum", "dataset_config": {"min_value": 1}})
+    a = _adapter(
+        client=c,
+        env_config={"dataset": "chain_sum", "dataset_config": {"min_value": 1}},
+    )
     a.reset(seed=1)
     assert c.reset_calls[0]["dataset_config"] == {"min_value": 1}
 
@@ -96,8 +101,11 @@ def test_minimal_public_surface_only_reset_and_answer():
     # Critical: TRL turns every public method (except reset) into a tool the
     # model can call. The adapter must expose exactly {reset, answer}.
     a = _adapter()
-    public = {n for n, _ in inspect.getmembers(a, predicate=inspect.ismethod)
-              if not n.startswith("_")}
+    public = {
+        n
+        for n, _ in inspect.getmembers(a, predicate=inspect.ismethod)
+        if not n.startswith("_")
+    }
     assert public == {"reset", "answer"}
 
 
@@ -109,6 +117,7 @@ def test_answer_tool_schema_is_generatable():
         from transformers.utils.chat_template_utils import get_json_schema
     except Exception:
         import pytest
+
         pytest.skip("transformers not available in this venv")
     fn = get_json_schema(_adapter().answer)["function"]
     assert fn["name"] == "answer"
@@ -121,6 +130,7 @@ def test_answer_tool_schema_is_generatable():
 # while eval - which reads the first call - scored it correct. Two plausible
 # numbers, disagreeing about the same trajectory. The sibling adapter
 # (browsergym._act) guards too.
+
 
 class _ScoringClient(_FakeClient):
     """Scores each submitted answer against a map, so order is observable."""
@@ -140,9 +150,9 @@ def test_second_answer_does_not_overwrite_the_reward():
     a.reset(seed=1)
     a.answer("x=3")
     assert a.reward == 1.0
-    a.answer("x=4")                      # the model second-guesses itself
-    assert a.reward == 1.0               # first answer stands
-    assert len(client.step_calls) == 1   # the env was never re-stepped
+    a.answer("x=4")  # the model second-guesses itself
+    assert a.reward == 1.0  # first answer stands
+    assert len(client.step_calls) == 1  # the env was never re-stepped
 
 
 def test_second_answer_returns_a_terminated_notice():
@@ -157,7 +167,7 @@ def test_reset_reopens_the_episode():
     a = _adapter(client=client)
     a.reset(seed=1)
     a.answer("x=3")
-    a.reset(seed=2)                      # next episode
+    a.reset(seed=2)  # next episode
     assert a.done is False and a.reward == 0.0
     a.answer("x=9")
     assert a.reward == 1.0

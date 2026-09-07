@@ -76,7 +76,9 @@ class EvalMetrics:
     underthinking_rate: float | None = None
     underthinking_rate_ci_low: float | None = None
     underthinking_rate_ci_high: float | None = None
-    underthinking_threshold: float | None = None  # absolute token threshold (P10 of all samples)
+    underthinking_threshold: float | None = (
+        None  # absolute token threshold (P10 of all samples)
+    )
     # Fraction of correct completions whose token count exceeds the per-split
     # P75 (configurable). Captures "correct answer with wasted reasoning" -
     # the inverse failure mode to underthinking. None when there are no
@@ -84,7 +86,9 @@ class EvalMetrics:
     overthinking_rate: float | None = None
     overthinking_rate_ci_low: float | None = None
     overthinking_rate_ci_high: float | None = None
-    overthinking_threshold: float | None = None  # absolute token threshold (P75 of all samples)
+    overthinking_threshold: float | None = (
+        None  # absolute token threshold (P75 of all samples)
+    )
     pearson_difficulty_length: float | None = None
     pearson_p_value: float | None = None
     # Mean env steps per episode (agentic eval); None for dataset eval.
@@ -129,7 +133,9 @@ class EvalMetrics:
     raw: list[SampleResult] = field(default_factory=list)
 
 
-def _bootstrap_ci(values: np.ndarray, n_bootstrap: int = N_BOOTSTRAP, ci: float = 0.95) -> tuple[float, float]:
+def _bootstrap_ci(
+    values: np.ndarray, n_bootstrap: int = N_BOOTSTRAP, ci: float = 0.95
+) -> tuple[float, float]:
     """Bootstrap CI for the mean of continuous `values` (e.g. token counts).
     Vectorized: one (n_bootstrap, n) index draw instead of a Python loop, so
     10k replicates cost about what 2k used to. Deterministic via fixed RNG seed.
@@ -146,7 +152,9 @@ def _bootstrap_ci(values: np.ndarray, n_bootstrap: int = N_BOOTSTRAP, ci: float 
     idx = rng.integers(0, n, size=(n_bootstrap, n))
     boot = values[idx].mean(axis=1)
     alpha = (1 - ci) / 2
-    return float(np.percentile(boot, 100 * alpha)), float(np.percentile(boot, 100 * (1 - alpha)))
+    return float(np.percentile(boot, 100 * alpha)), float(
+        np.percentile(boot, 100 * (1 - alpha))
+    )
 
 
 def _wilson_ci(n_success: int, n: int, ci: float = 0.95) -> tuple[float, float]:
@@ -197,7 +205,11 @@ def _thinking_rate(
     if n_correct == 0:
         return None, None, None, None
 
-    thr = float(override) if override is not None else float(np.percentile(all_tokens, percentile))
+    thr = (
+        float(override)
+        if override is not None
+        else float(np.percentile(all_tokens, percentile))
+    )
     flagged = (all_tokens <= thr) if side == "under" else (all_tokens > thr)
     rate = float(flagged[corrects].mean())
 
@@ -210,8 +222,8 @@ def _thinking_rate(
     # replicate, then the rate over the resampled correct subset.
     rng = np.random.default_rng(42)
     idx = rng.integers(0, n, size=(n_bootstrap, n))
-    bt = all_tokens[idx]                                   # (B, n)
-    bc = corrects[idx]                                     # (B, n)
+    bt = all_tokens[idx]  # (B, n)
+    bc = corrects[idx]  # (B, n)
     thr_b = np.percentile(bt, percentile, axis=1, keepdims=True)  # (B, 1)
     flag_b = (bt <= thr_b) if side == "under" else (bt > thr_b)
     num = (flag_b & bc).sum(axis=1)
@@ -221,7 +233,12 @@ def _thinking_rate(
         return rate, thr, rate, rate
     rates = num[valid] / den[valid]
     alpha = (1 - ci) / 2
-    return rate, thr, float(np.percentile(rates, 100 * alpha)), float(np.percentile(rates, 100 * (1 - alpha)))
+    return (
+        rate,
+        thr,
+        float(np.percentile(rates, 100 * alpha)),
+        float(np.percentile(rates, 100 * (1 - alpha))),
+    )
 
 
 def _offtarget_panel(results: list[SampleResult]) -> dict:
@@ -246,16 +263,20 @@ def _offtarget_panel(results: list[SampleResult]) -> dict:
         "non_termination_rate": n_nonterm / n,
         "non_termination_rate_ci_low": lo,
         "non_termination_rate_ci_high": hi,
-        "stop_reasons": dict(sorted(Counter(
-            r.stop_reason for r in known if r.stop_reason is not None
-        ).items())),
+        "stop_reasons": dict(
+            sorted(
+                Counter(
+                    r.stop_reason for r in known if r.stop_reason is not None
+                ).items()
+            )
+        ),
     }
 
     # Verification depth is only defined for episodes that actually finished:
     # an episode that ran out of turns never had the chance to claim completion.
     finished = [r for r in known if r.terminated and r.tool_calls is not None]
     if finished:
-        depths = [max(len(r.tool_calls) - 1, 0) for r in finished]
+        depths = [max(len(r.tool_calls or []) - 1, 0) for r in finished]
         n_bare = sum(1 for d in depths if d == 0)
         lo_b, hi_b = _wilson_ci(n_bare, len(finished))
         panel.update(
@@ -278,8 +299,10 @@ def _offtarget_panel(results: list[SampleResult]) -> dict:
 
     counted = [r for r in known if r.n_invalid_actions is not None]
     if counted:
-        for field_name, key in (("n_invalid_actions", "invalid_action_rate"),
-                                ("n_repeated_actions", "repeated_action_rate")):
+        for field_name, key in (
+            ("n_invalid_actions", "invalid_action_rate"),
+            ("n_repeated_actions", "repeated_action_rate"),
+        ):
             k = sum(1 for r in counted if (getattr(r, field_name) or 0) > 0)
             lo_a, hi_a = _wilson_ci(k, len(counted))
             panel[key] = k / len(counted)
@@ -369,17 +392,29 @@ def compute_metrics(
     underthinking_rate = underthinking_threshold = None
     under_ci_low = under_ci_high = None
     if correct_results and (n >= 4 or under_override is not None):
-        underthinking_rate, underthinking_threshold, under_ci_low, under_ci_high = _thinking_rate(
-            all_tokens, corrects_mask, underthinking_percentile, under_override, "under",
-            n_bootstrap=n_bootstrap,
+        underthinking_rate, underthinking_threshold, under_ci_low, under_ci_high = (
+            _thinking_rate(
+                all_tokens,
+                corrects_mask,
+                underthinking_percentile,
+                under_override,
+                "under",
+                n_bootstrap=n_bootstrap,
+            )
         )
 
     overthinking_rate = overthinking_threshold = None
     over_ci_low = over_ci_high = None
     if correct_results and (n >= 4 or over_override is not None):
-        overthinking_rate, overthinking_threshold, over_ci_low, over_ci_high = _thinking_rate(
-            all_tokens, corrects_mask, overthinking_percentile, over_override, "over",
-            n_bootstrap=n_bootstrap,
+        overthinking_rate, overthinking_threshold, over_ci_low, over_ci_high = (
+            _thinking_rate(
+                all_tokens,
+                corrects_mask,
+                overthinking_percentile,
+                over_override,
+                "over",
+                n_bootstrap=n_bootstrap,
+            )
         )
 
     # Accuracy CI: Wilson, not a percentile bootstrap on the binary vector (which
@@ -388,10 +423,12 @@ def compute_metrics(
 
     pearson_val = None
     pearson_p = None
-    with_difficulty = [(r.difficulty, r.n_tokens) for r in results if r.difficulty is not None]
+    with_difficulty = [
+        (r.difficulty, r.n_tokens) for r in results if r.difficulty is not None
+    ]
     if len(with_difficulty) >= 10:
         difficulties = [d for d, _ in with_difficulty]
-        lengths = [l for _, l in with_difficulty]
+        lengths = [n for _, n in with_difficulty]
         # pearsonr returns NaN with a warning when either input is constant.
         # Skip the call entirely so the report stays free of NaNs.
         if len(set(difficulties)) > 1 and len(set(lengths)) > 1:

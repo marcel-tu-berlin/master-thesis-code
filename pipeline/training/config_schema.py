@@ -64,23 +64,36 @@ _KNOWN_REWARD_KEYS = {
 # is derived from batch_size / micro_batch_size, and the dataset size comes from
 # env_config.size. Setting either now fails loudly instead of doing nothing.
 _KNOWN_TRAINING_KEYS = {
-    "mode", "env", "env_config", "env_server",
-    "max_prompt_length", "max_steps", "save_steps",
-    "n_rollouts", "batch_size", "micro_batch_size",
-    "learning_rate", "kl_beta", "temperature", "weight_decay", "warmup_ratio",
+    "mode",
+    "env",
+    "env_config",
+    "env_server",
+    "max_prompt_length",
+    "max_steps",
+    "save_steps",
+    "n_rollouts",
+    "batch_size",
+    "micro_batch_size",
+    "learning_rate",
+    "kl_beta",
+    "temperature",
+    "weight_decay",
+    "warmup_ratio",
     "vllm_importance_sampling_mode",
     # Optimizer and LR schedule, passed through to GRPOConfig, which rejects an
     # unknown name itself. Config keys rather than runner constants since the
     # 2026-08-24 recipe change (LAB_NOTES): the seed-42 browsergym campaign
     # trained under paged_adamw_8bit / cosine and its configs pin those so a
     # seed replication trains under the same recipe.
-    "optim", "lr_scheduler_type",
+    "optim",
+    "lr_scheduler_type",
     # Phase-2 A/B knobs (2026-08-24), all TRL GRPOConfig passthroughs at TRL's
     # own defaults when absent: num_iterations (mu, optimizer steps per
     # rollout batch; >1 is off-policy and engages the PPO clip) and
     # use_liger_kernel (fused linear GRPO loss, never materialises the
     # [T, vocab] logits - the 4096-token training ceiling, BACKLOG 1).
-    "num_iterations", "use_liger_kernel",
+    "num_iterations",
+    "use_liger_kernel",
     # Which std TRL divides advantages by (group | batch | none). `group` cancels
     # a shaping weight in constant-task-reward groups; a dose-valid lambda sweep
     # sets `none` or `batch`. See grpo_runner._grpo_config.
@@ -91,8 +104,13 @@ _KNOWN_TRAINING_KEYS = {
 # validated, the runner trained at the registry rank, and the frozen config
 # recorded 8. Every key here is read by grpo_runner, train.py or agentic_eval.
 _KNOWN_MODEL_KEYS = {
-    "slug", "lora_r", "lora_alpha", "load_in_4bit", "max_seq_length",
-    "use_vllm", "gpu_memory_utilization",
+    "slug",
+    "lora_r",
+    "lora_alpha",
+    "load_in_4bit",
+    "max_seq_length",
+    "use_vllm",
+    "gpu_memory_utilization",
     # vLLM sleep mode: the colocated engine releases its weights and KV cache
     # (sleep level 2) during the policy update and reloads them before the
     # next generation, so gpu_memory_utilization can exceed what the backward
@@ -108,7 +126,11 @@ _KNOWN_MODEL_KEYS = {
 # TRL modes pass through; "off" disables the correction. Absent key = TRL's
 # default, so frozen pre-fix configs keep their recorded semantics.
 _KNOWN_VLLM_IS_MODES = {
-    "token_truncate", "token_mask", "sequence_truncate", "sequence_mask", "off",
+    "token_truncate",
+    "token_mask",
+    "sequence_truncate",
+    "sequence_mask",
+    "off",
 }
 
 _KNOWN_SCALE_REWARDS = {"group", "batch", "none"}
@@ -119,12 +141,17 @@ _KNOWN_ENV_SERVER_KEYS = {"repo_path", "port"}
 # typos like `datsaet` that would otherwise pass through and use the default).
 _KNOWN_ENV_CONFIG_KEYS = {
     # reasoning_gym
-    "dataset", "dataset_name", "dataset_config", "size",
+    "dataset",
+    "dataset_name",
+    "dataset_config",
+    "size",
     # browsergym: `tasks` is the MiniWoB family list the seed cycles through
     # (`tasks[seed % len]`), so it also sets the training task mix. `miniwob_url`
     # points at the served miniwob-plusplus HTML, which browsergym-miniwob does
     # not ship - without it the env raises "core is not defined" at first reset.
-    "tasks", "benchmark", "miniwob_url",
+    "tasks",
+    "benchmark",
+    "miniwob_url",
     # Every multi-turn domain: the ONE turn cap. Read by training
     # (max_tool_calling_iterations) and by the eval loop, and mapped by
     # `server_env` to the server's own var for any env that has a server-side
@@ -142,8 +169,13 @@ _KNOWN_ENV_CONFIG_KEYS = {
 # uses its own P10/P75, which makes the rates invariant to a uniform change in
 # length - so they cannot detect the compression E2 exists to produce, and two
 # arms' rates are measured against two different yardsticks.
-_KNOWN_EVAL_KEYS = {"temperature", "do_sample", "max_new_tokens", "agentic",
-                    "reference_report"}
+_KNOWN_EVAL_KEYS = {
+    "temperature",
+    "do_sample",
+    "max_new_tokens",
+    "agentic",
+    "reference_report",
+}
 _KNOWN_EVAL_AGENTIC_KEYS = {"n_episodes", "splits"}
 # Per-split keys. `env_config` is merged over training.env_config, so a split
 # overrides only what shifts; `seed_offset` moves the split to a disjoint region
@@ -158,12 +190,16 @@ _COMMON_REWARD_SUBKEYS = {"enabled", "weight"}
 # link to the rollout. Only the shaped signals take it - a shuffled task reward
 # would be a training bug, not a control.
 _KNOWN_REWARD_SUBKEYS: dict[str, set[str]] = {
-    "token_length":  _COMMON_REWARD_SUBKEYS | {
+    "token_length": _COMMON_REWARD_SUBKEYS
+    | {
         "max_len",
-        "r_correct_short", "r_correct_long", "r_wrong_short", "r_wrong_long",
+        "r_correct_short",
+        "r_correct_long",
+        "r_wrong_short",
+        "r_wrong_long",
         "placebo",
     },
-    "env_reward":    _COMMON_REWARD_SUBKEYS,
+    "env_reward": _COMMON_REWARD_SUBKEYS,
     # E3 has no knobs: lambda is `weight`, the signal is budget exhaustion
     # (turn cap or completion budget) without the env reporting done.
     "non_termination": _COMMON_REWARD_SUBKEYS | {"placebo"},
@@ -186,8 +222,9 @@ _NUMERIC_COERCIONS = {
 }
 
 
-def warn_inert_scalars(rewards_cfg: dict, compose_method: str,
-                       scale_rewards: str = "group") -> list[str]:
+def warn_inert_scalars(
+    rewards_cfg: dict, compose_method: str, scale_rewards: str = "group"
+) -> list[str]:
     """Return warnings for reward knobs that do nothing as configured.
 
     Under `advantage_weighted` every component is z-scored per prompt-group, so
@@ -199,7 +236,11 @@ def warn_inert_scalars(rewards_cfg: dict, compose_method: str,
     rc = rewards_cfg or {}
     warnings: list[str] = []
 
-    shaped = [k for k in ("token_length", "non_termination") if (rc.get(k) or {}).get("enabled")]
+    shaped = [
+        k
+        for k in ("token_length", "non_termination")
+        if (rc.get(k) or {}).get("enabled")
+    ]
     if compose_method == "naive_sum" and scale_rewards == "group" and shaped:
         warnings.append(
             f"rewards {shaped} are summed into the task reward and TRL then divides "
@@ -209,18 +250,19 @@ def warn_inert_scalars(rewards_cfg: dict, compose_method: str,
             "App. B). Set training.scale_rewards: none or batch for a dose-valid sweep."
         )
 
-    if compose_method == "advantage_weighted":
-        # E3 is a binary flag, so it has zero within-group variance in any group
-        # where every rollout terminates - and there it contributes exactly 0.
-        # The penalty then goes silent precisely where behavior is already good,
-        # which is not the shaped reward the expose specifies.
-        if (rc.get("non_termination") or {}).get("enabled"):
-            warnings.append(
-                "rewards.non_termination is binary, so advantage_weighted silences it in "
-                "every prompt-group where all rollouts terminate (zero within-group "
-                "variance contributes 0). Use compose_method: naive_sum for the lambda "
-                "sweep, where weight is the penalty coefficient the expose defines."
-            )
+    # E3 is a binary flag, so it has zero within-group variance in any group
+    # where every rollout terminates - and there it contributes exactly 0.
+    # The penalty then goes silent precisely where behavior is already good,
+    # which is not the shaped reward the expose specifies.
+    if compose_method == "advantage_weighted" and (rc.get("non_termination") or {}).get(
+        "enabled"
+    ):
+        warnings.append(
+            "rewards.non_termination is binary, so advantage_weighted silences it in "
+            "every prompt-group where all rollouts terminate (zero within-group "
+            "variance contributes 0). Use compose_method: naive_sum for the lambda "
+            "sweep, where weight is the penalty coefficient the expose defines."
+        )
 
     return warnings
 
@@ -240,13 +282,16 @@ def _max_turns_error(env_cfg: dict, label: str):
     except (TypeError, ValueError):
         return f"{label}.max_turns={mt!r} is not an int"
     if mt_i < 1:
-        return (f"{label}.max_turns={mt_i} must be >= 1: resolve_max_turns "
-                f"would run 1 turn while the frozen config records {mt_i}")
+        return (
+            f"{label}.max_turns={mt_i} must be >= 1: resolve_max_turns "
+            f"would run 1 turn while the frozen config records {mt_i}"
+        )
     return None
 
 
-def _split_errors(splits, train_size: int = 500,
-                  default_n_episodes: int = 100) -> list[str]:
+def _split_errors(
+    splits, train_size: int = 500, default_n_episodes: int = 100
+) -> list[str]:
     """Validate eval.agentic.splits.
 
     Split names key the report and the per-split episodes file, so a missing or
@@ -358,7 +403,9 @@ def validate_config(config: dict) -> None:
     if mode != "agentic":
         errors.append(f"training.mode={mode!r}: only 'agentic' is supported")
     if _get_nested(config, "training.env") is None:
-        errors.append("Missing required field: training.env (str) - OpenEnv environment id")
+        errors.append(
+            "Missing required field: training.env (str) - OpenEnv environment id"
+        )
 
     for key, (lo, hi) in _NUMERIC_COERCIONS.items():
         val = _get_nested(config, key)
@@ -375,6 +422,7 @@ def validate_config(config: dict) -> None:
     slug = _get_nested(config, "model.slug")
     if slug is not None:
         from training.registry import MODEL_REGISTRY
+
         if slug not in MODEL_REGISTRY:
             errors.append(
                 f"model.slug={slug!r} not in registry. Available: {list(MODEL_REGISTRY)}"
@@ -406,7 +454,7 @@ def validate_config(config: dict) -> None:
             f"Unknown rewards keys: {sorted(unknown_rewards)}. Known: {sorted(_KNOWN_REWARD_KEYS)}"
         )
 
-    for reward_name in _KNOWN_REWARD_SUBKEYS:        # excludes compose_method (a string)
+    for reward_name in _KNOWN_REWARD_SUBKEYS:  # excludes compose_method (a string)
         val = rewards.get(reward_name)
         if val is not None and not isinstance(val, dict):
             errors.append(
@@ -494,7 +542,9 @@ def validate_config(config: dict) -> None:
             # questions occupy [0, env_config.size) with train.py's default of
             # 500, and a split without n_episodes falls back to
             # eval.agentic.n_episodes (agentic_eval defaults it to 100).
-            size_val = env_config.get("size", 500) if isinstance(env_config, dict) else 500
+            size_val = (
+                env_config.get("size", 500) if isinstance(env_config, dict) else 500
+            )
             try:
                 train_size = int(size_val)
             except (TypeError, ValueError):
@@ -503,9 +553,13 @@ def validate_config(config: dict) -> None:
                 default_n = int(agentic.get("n_episodes", 100))
             except (TypeError, ValueError):
                 default_n = 100
-            errors.extend(_split_errors(agentic.get("splits"),
-                                        train_size=train_size,
-                                        default_n_episodes=default_n))
+            errors.extend(
+                _split_errors(
+                    agentic.get("splits"),
+                    train_size=train_size,
+                    default_n_episodes=default_n,
+                )
+            )
 
     unknown_top = set(config.keys()) - _KNOWN_TOP_LEVEL_KEYS
     if unknown_top:

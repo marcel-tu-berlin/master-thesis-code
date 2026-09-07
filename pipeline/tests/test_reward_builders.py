@@ -1,4 +1,7 @@
 """The token_length builder always returns the cosine length reward."""
+
+from typing import ClassVar
+
 from training.rewards import _build_token_length
 from training.rewards.cosine_length import CosineLengthReward
 
@@ -15,7 +18,7 @@ class StubDomain:
 
 class StubRunner:
     tokenizer = StubTok()
-    config = {"model": {"max_seq_length": 2048}}
+    config: ClassVar[dict] = {"model": {"max_seq_length": 2048}}
 
 
 def test_builds_cosine_reward_with_defaults():
@@ -25,5 +28,7 @@ def test_builds_cosine_reward_with_defaults():
 
 
 def test_max_len_is_configurable():
-    fn = _build_token_length(StubDomain(), StubRunner(), {"max_steps": 500}, {"max_len": 512})
+    fn = _build_token_length(
+        StubDomain(), StubRunner(), {"max_steps": 500}, {"max_len": 512}
+    )
     assert fn.max_len == 512

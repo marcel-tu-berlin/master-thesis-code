@@ -13,13 +13,14 @@ composer (no torch/trl needed beyond the import guard), so they fail on the old
 code and pass on the fix. They skip where the training stack is absent (CPU
 .venv-test) and run on the GPU box where transformers/trl/peft exist.
 """
+
 import pytest
 
 pytest.importorskip("transformers")
 pytest.importorskip("trl")
 pytest.importorskip("peft")
 
-from training.train import _ComponentMetricsCallback  # noqa: E402
+from training.train import _ComponentMetricsCallback
 
 
 class _StubComposer:
@@ -50,8 +51,9 @@ def _replay_log(state, logs, callback):
 def test_component_metrics_reach_log_history():
     # The persisted entry (what _save_train_log dumps to train_log.json) must
     # carry the per-component keys, not just the live `logs` dict.
-    composer = _StubComposer({"reward/EnvReward/raw_mean": 0.7,
-                              "reward/CosineLengthReward/raw_mean": -0.2})
+    composer = _StubComposer(
+        {"reward/EnvReward/raw_mean": 0.7, "reward/CosineLengthReward/raw_mean": -0.2}
+    )
     state = _FakeState()
     logs = {"reward": 0.5, "kl": 0.01}
     _replay_log(state, logs, _ComponentMetricsCallback(composer))
@@ -65,8 +67,8 @@ def test_live_logs_updated_and_drained_once():
     state = _FakeState()
     logs = {"reward": 0.0}
     _replay_log(state, logs, _ComponentMetricsCallback(composer))
-    assert logs["reward/EnvReward/raw_mean"] == 1.0   # live loggers still see it
-    assert composer.pops == 1                          # buffer drained exactly once
+    assert logs["reward/EnvReward/raw_mean"] == 1.0  # live loggers still see it
+    assert composer.pops == 1  # buffer drained exactly once
 
 
 def test_empty_metrics_is_noop():

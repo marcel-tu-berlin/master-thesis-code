@@ -10,6 +10,7 @@ naive_sum TRL's group std scaling cancels the weight in constant-task-reward
 groups (DIET, App. B), so the sweep also has to run under scale_rewards none or
 batch.
 """
+
 from training.config_schema import warn_inert_scalars
 
 
@@ -27,7 +28,7 @@ def test_non_termination_quiet_under_naive_sum_without_group_scaling():
 
 def test_naive_sum_under_group_scaling_warns_that_the_weight_cancels():
     cfg = {"token_length": {"enabled": True, "weight": 0.5}}
-    w = warn_inert_scalars(cfg, "naive_sum")          # scale_rewards defaults to group
+    w = warn_inert_scalars(cfg, "naive_sum")  # scale_rewards defaults to group
     assert any("token_length" in s and "scale_rewards" in s for s in w)
 
 

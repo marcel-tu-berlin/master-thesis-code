@@ -9,18 +9,22 @@ import yaml
 # Allow running as: python -m training.train
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+from transformers import TrainerCallback, set_seed
+
 from domains import build_domain
 from eval.agentic_eval import seed_block
 from training.batch import mark_smoke_checkpoint
-from training.grpo_runner import GRPORunner
+from training.config_schema import (
+    DEFAULT_N_ROLLOUTS,
+    validate_config,
+    warn_inert_scalars,
+)
 from training.env_server import build_env_server
 from training.env_stamp import write_env_stamp
+from training.grpo_runner import GRPORunner
 from training.rewards import REWARD_REGISTRY
 from training.rewards.compose import build_composer
 from training.rewards.placebo import maybe_placebo
-from training.config_schema import (DEFAULT_N_ROLLOUTS, validate_config,
-                                    warn_inert_scalars)
-from transformers import TrainerCallback, set_seed
 
 
 class _ComponentMetricsCallback(TrainerCallback):
@@ -59,8 +63,6 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
-
-
 def build_reward_components(config: dict, domain, runner: GRPORunner) -> list:
     """Build (reward_fn, weight) pairs from config using REWARD_REGISTRY."""
     rewards_cfg = config.get("rewards", {}) or {}
@@ -80,8 +82,12 @@ def build_reward_components(config: dict, domain, runner: GRPORunner) -> list:
         weight = float(cfg.get("weight", default_weight))
         # Placebo arm: the same term at the same weight, shuffled within each
         # prompt-group so it carries no information about its rollout.
-        component = maybe_placebo(builder(domain, runner, training_cfg, cfg), cfg,
-                                  training_cfg, config.get("seed", 42))
+        component = maybe_placebo(
+            builder(domain, runner, training_cfg, cfg),
+            cfg,
+            training_cfg,
+            config.get("seed", 42),
+        )
         components.append((component, weight))
 
     return components
@@ -126,9 +132,11 @@ def apply_smoke_overrides(config: dict) -> dict:
     config.setdefault("eval", {})
     config["eval"]["max_new_tokens"] = 256
     config["_smoke"] = True
-    print(f"⚠  Smoke mode: max_steps=3, n_rollouts=2, max_seq_length={seq} (<=2048), "
-          f"gpu_memory_utilization={config['model']['gpu_memory_utilization']}, "
-          f"max_prompt_length={config['training']['max_prompt_length']}, eval=4/split")
+    print(
+        f"⚠  Smoke mode: max_steps=3, n_rollouts=2, max_seq_length={seq} (<=2048), "
+        f"gpu_memory_utilization={config['model']['gpu_memory_utilization']}, "
+        f"max_prompt_length={config['training']['max_prompt_length']}, eval=4/split"
+    )
     return config
 
 
@@ -136,9 +144,21 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--eval", action="store_true", help="Run eval after training")
-    parser.add_argument("--smoke", action="store_true", help="Override config for fast smoke test (3 steps, 2 rollouts, 512 seq)")
-    parser.add_argument("--overwrite", action="store_true", help="Allow overwriting an existing run directory")
-    parser.add_argument("--vllm", action="store_true", help="Route GRPO rollouts through vLLM fast inference")
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Override config for fast smoke test (3 steps, 2 rollouts, 512 seq)",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Allow overwriting an existing run directory",
+    )
+    parser.add_argument(
+        "--vllm",
+        action="store_true",
+        help="Route GRPO rollouts through vLLM fast inference",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -190,12 +210,13 @@ def main() -> None:
     n_rollouts = int(config["training"].get("n_rollouts", DEFAULT_N_ROLLOUTS))
     reward_fn = build_composer(components, method, n_rollouts)
 
-    callbacks = []
     # The callback holds the same composer instance passed as the reward fn, so
     # it drains the very buffer the trainer's reward calls populate (T2.1).
-    if hasattr(reward_fn, "pop_step_metrics"):
-        callbacks.append(_ComponentMetricsCallback(reward_fn))
-    callbacks = callbacks or None
+    callbacks: list[TrainerCallback] = (
+        [_ComponentMetricsCallback(reward_fn)]
+        if hasattr(reward_fn, "pop_step_metrics")
+        else []
+    )
 
     print(f"Experiment: {exp_id}  (agentic)")
     print(f"Reward components: {[type(fn).__name__ for fn, _ in components]}")
@@ -210,24 +231,34 @@ def main() -> None:
     n_prompts = int(env_config.get("size", 500))
     # Each seed trains on its own block of the seed -> question mapping. Passing
     # the raw seed through made --seeds 42 43 44 share 499 of 500 questions.
-    dataset = domain.build_seed_dataset(env_config, n=n_prompts,
-                                        seed_base=seed_block(seed))
+    dataset = domain.build_seed_dataset(
+        env_config, n=n_prompts, seed_base=seed_block(seed)
+    )
     server = build_env_server(config, domain, python=sys.executable)
     # The frozen config records what the run asked for; this records what the box
     # actually had installed while it trained. A hand-installed package between
     # two arms is otherwise invisible.
     write_env_stamp(run_dir, "train", server.repo_envs_path)
     make_factory = lambda base_url: domain.make_env_factory(base_url, env_config)  # noqa: E731
-    print(f"Agentic env: {config['training']['env']}  seed-rows: {len(dataset)}  "
-          f"server: {server.base_url} (max_concurrent={server.max_concurrent})")
-    runner.train(dataset, reward_fn, output_dir=run_dir, callbacks=callbacks,
-                 server=server, make_factory=make_factory)
+    print(
+        f"Agentic env: {config['training']['env']}  seed-rows: {len(dataset)}  "
+        f"server: {server.base_url} (max_concurrent={server.max_concurrent})"
+    )
+    runner.train(
+        dataset,
+        reward_fn,
+        output_dir=run_dir,
+        callbacks=callbacks or None,
+        server=server,
+        make_factory=make_factory,
+    )
 
     runner.save_lora(checkpoint_dir)
     mark_smoke_checkpoint(checkpoint_dir, bool(config.get("_smoke")))
 
     if args.eval:
         from eval.agentic_eval import run_agentic_eval
+
         run_agentic_eval(config, checkpoint_dir, domain, run_dir)
 
 

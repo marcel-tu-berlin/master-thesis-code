@@ -52,10 +52,10 @@ import re
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
 
-from eval.metrics import _bootstrap_ci  # noqa: E402
+from eval.metrics import _bootstrap_ci
 
 _SPLIT = "agentic"
 
@@ -818,7 +818,7 @@ def _report_splits(path: str) -> list[str]:
     """Split names a report carries, in file order."""
     jp = os.path.join(path, "eval_report.json") if os.path.isdir(path) else path
     with open(jp) as f:
-        return list((json.load(f).get("results") or {}))
+        return list(json.load(f).get("results") or {})
 
 
 def make_figures(report_paths, out_dir, dpi=130, split=None):
@@ -884,7 +884,7 @@ def make_figures(report_paths, out_dir, dpi=130, split=None):
 
         # Trajectory text lives beside the report, not inside it.
         turns = []
-        for p, r in zip(kept, reports):
+        for p, r in zip(kept, reports, strict=True):
             eps = _episode_turns(p if os.path.isdir(p) else os.path.dirname(p), sp)
             if eps:
                 turns.append((_short(r["experiment_id"]), eps))
@@ -998,8 +998,7 @@ def main():
     )
     ap.add_argument(
         "--base",
-        help="control run dir; adds the dose-response and "
-        "per-episode paired figures",
+        help="control run dir; adds the dose-response and per-episode paired figures",
     )
     ap.add_argument(
         "--ref", help="reference run dir for the dashed E0 line (with --base)"

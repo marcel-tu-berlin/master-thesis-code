@@ -24,7 +24,11 @@ def test_agentic_requires_env():
 
 
 def test_dataset_mode_still_requires_dataset():
-    cfg = {"experiment_id": "e0", "model": {"slug": "qwen3-1.7b"}, "training": {"mode": "dataset"}}
+    cfg = {
+        "experiment_id": "e0",
+        "model": {"slug": "qwen3-1.7b"},
+        "training": {"mode": "dataset"},
+    }
     with pytest.raises(ValueError, match="dataset"):
         validate_config(cfg)
 
@@ -48,6 +52,7 @@ from domains import build_domain
 
 def test_build_domain_dispatches_reasoning_gym():
     from domains.reasoning_gym import ReasoningGymDomain
+
     d = build_domain({"training": {"env": "reasoning_gym"}})
     assert isinstance(d, ReasoningGymDomain)
 
@@ -57,6 +62,7 @@ def test_build_domain_dispatches_browsergym():
     # break on: the stale copy in eval/runner.py never learned the later ones,
     # so `python -m eval.runner` raised NotImplementedError on exactly this one.
     from domains.browsergym import BrowserGymDomain
+
     d = build_domain({"training": {"env": "browsergym"}})
     assert isinstance(d, BrowserGymDomain)
 

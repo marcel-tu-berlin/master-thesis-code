@@ -5,6 +5,7 @@ deterministic (task, page) pair - every rollout slot in a GRPO group resets with
 the same seed and must land on the same page, and (b) the terminal reward
 surviving any tool call the model makes after the episode ends.
 """
+
 import inspect
 
 import pytest
@@ -53,6 +54,7 @@ def _adapter(client, **cfg):
 
 # --- seed -> task is deterministic and cycles the mix ---
 
+
 def test_reset_forwards_seed_and_derives_task_from_it():
     c = _FakeClient()
     a = _adapter(c, tasks=["click-option", "click-checkboxes"])
@@ -66,7 +68,11 @@ def test_seed_cycles_the_task_mix_evenly():
     for s in range(4):
         a.reset(seed=s)
     assert [k["task_name"] for k in c.reset_calls] == [
-        "click-option", "click-checkboxes", "click-option", "click-checkboxes"]
+        "click-option",
+        "click-checkboxes",
+        "click-option",
+        "click-checkboxes",
+    ]
 
 
 def test_same_seed_is_the_same_task():
@@ -86,7 +92,10 @@ def test_default_task_mix_pairs_headroom_with_axis_separation():
     a = _adapter(c)
     a.reset(seed=0)
     a.reset(seed=1)
-    assert {k["task_name"] for k in c.reset_calls} == {"click-option", "click-checkboxes"}
+    assert {k["task_name"] for k in c.reset_calls} == {
+        "click-option",
+        "click-checkboxes",
+    }
 
 
 def test_empty_task_list_is_rejected():
@@ -95,6 +104,7 @@ def test_empty_task_list_is_rejected():
 
 
 # --- reset payload ---
+
 
 def test_reset_returns_goal_and_page():
     a = _adapter(_FakeClient(goal="Select cp and click Submit."))
@@ -106,8 +116,11 @@ def test_reset_returns_goal_and_page():
 
 # --- reward and the done guard ---
 
+
 def test_click_records_terminal_reward_and_done():
-    c = _FakeClient(steps=[_Result(_Obs(axtree_txt="submitted"), reward=1.0, done=True)])
+    c = _FakeClient(
+        steps=[_Result(_Obs(axtree_txt="submitted"), reward=1.0, done=True)]
+    )
     a = _adapter(c)
     a.reset(seed=0)
     a.click(bid="24")
@@ -115,10 +128,12 @@ def test_click_records_terminal_reward_and_done():
 
 
 def test_calls_after_done_cannot_overwrite_the_reward():
-    c = _FakeClient(steps=[
-        _Result(_Obs(), reward=1.0, done=True),
-        _Result(_Obs(), reward=0.0, done=True),   # must never be reached
-    ])
+    c = _FakeClient(
+        steps=[
+            _Result(_Obs(), reward=1.0, done=True),
+            _Result(_Obs(), reward=0.0, done=True),  # must never be reached
+        ]
+    )
     a = _adapter(c)
     a.reset(seed=0)
     a.click(bid="24")
@@ -155,11 +170,15 @@ def test_long_observation_is_truncated():
 
 # --- the tool surface TRL will expose ---
 
+
 def test_public_surface_is_exactly_reset_click_noop():
     # TRL turns every public method except reset into a tool, so an accidental
     # public helper would silently become a tool the model can call.
-    public = {n for n, _ in inspect.getmembers(BrowserGymEnvAdapter, inspect.isfunction)
-              if not n.startswith("_")}
+    public = {
+        n
+        for n, _ in inspect.getmembers(BrowserGymEnvAdapter, inspect.isfunction)
+        if not n.startswith("_")
+    }
     assert public == {"reset", "click", "noop"}
 
 

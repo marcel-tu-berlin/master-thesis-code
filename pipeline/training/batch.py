@@ -23,7 +23,6 @@ import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
 
 import yaml
 
@@ -40,11 +39,11 @@ STATUS_FAIL = "fail"
 
 @dataclass
 class PhaseResult:
-    status: str            # ok | skip | fail
+    status: str  # ok | skip | fail
     duration_s: float = 0.0
     attempts: int = 0
-    log_path: Optional[str] = None
-    note: str = ""         # e.g. "checkpoint exists", "canonical baseline for <slug> exists"
+    log_path: str | None = None
+    note: str = ""  # e.g. "checkpoint exists", "canonical baseline for <slug> exists"
 
 
 @dataclass
@@ -52,7 +51,7 @@ class ExperimentResult:
     config_path: str
     experiment_id: str
     model_slug: str
-    phases: dict = field(default_factory=dict)   # phase -> PhaseResult
+    phases: dict = field(default_factory=dict)  # phase -> PhaseResult
 
 
 def _load_config(path: str) -> dict:
@@ -76,7 +75,7 @@ def _materialize_seed_config(base_cfg: dict, seed: int, exp_id: str) -> str:
     rather than argv. Only the two top-level scalars change; the run dir keys
     on experiment_id, so a distinct suffixed id gives each seed its own dir.
     """
-    cfg = dict(base_cfg)          # shallow copy: only top-level scalars change
+    cfg = dict(base_cfg)  # shallow copy: only top-level scalars change
     cfg["seed"] = int(seed)
     cfg["experiment_id"] = exp_id
     os.makedirs(_SEED_CONFIG_DIR, exist_ok=True)
@@ -173,7 +172,9 @@ def _is_real_report(path: str) -> bool:
             data = json.load(f)
     except (json.JSONDecodeError, OSError):
         return False
-    return data.get("status") not in ("skipped", "error") and not data.get("smoke", False)
+    return data.get("status") not in ("skipped", "error") and not data.get(
+        "smoke", False
+    )
 
 
 def _is_real_checkpoint(exp_id: str) -> bool:
@@ -222,7 +223,9 @@ def _write_eval_stub(config_path: str, status: str, note: str = "") -> bool:
         "experiment_id": exp_id,
         "model_slug": (cfg.get("model") or {}).get("slug"),
         "seed": cfg.get("seed", 42),
-        "compose_method": (cfg.get("rewards") or {}).get("compose_method", "advantage_weighted"),
+        "compose_method": (cfg.get("rewards") or {}).get(
+            "compose_method", "advantage_weighted"
+        ),
         "status": status,
         "results": {},
     }
@@ -256,7 +259,9 @@ def _run_train_phase(
 
     log_path = os.path.join(_run_dir(exp_id), "batch_train.log")
     status, attempts, dur = _run_phase(cmd, log_path, retries)
-    return PhaseResult(status=status, duration_s=dur, attempts=attempts, log_path=log_path)
+    return PhaseResult(
+        status=status, duration_s=dur, attempts=attempts, log_path=log_path
+    )
 
 
 def _run_eval_phase(
@@ -269,7 +274,9 @@ def _run_eval_phase(
 ) -> PhaseResult:
     if require_checkpoint and not _checkpoint_exists(exp_id):
         return PhaseResult(status=STATUS_SKIP, note="no checkpoint to eval")
-    if not force and _is_real_report(os.path.join(_run_dir(exp_id), "eval_report.json")):
+    if not force and _is_real_report(
+        os.path.join(_run_dir(exp_id), "eval_report.json")
+    ):
         return PhaseResult(status=STATUS_SKIP, note="eval_report.json exists")
 
     cmd = [sys.executable, "-m", "eval.runner", "--config", config_path]
@@ -278,7 +285,9 @@ def _run_eval_phase(
 
     log_path = os.path.join(_run_dir(exp_id), "batch_eval.log")
     status, attempts, dur = _run_phase(cmd, log_path, retries)
-    return PhaseResult(status=status, duration_s=dur, attempts=attempts, log_path=log_path)
+    return PhaseResult(
+        status=status, duration_s=dur, attempts=attempts, log_path=log_path
+    )
 
 
 def _format_duration(sec: float) -> str:
@@ -309,7 +318,9 @@ def _write_summary(
         f"Experiments: {len(results)}",
         f"Phases: {', '.join(enabled_phases)}",
         "",
-        "| Experiment | Model | " + " | ".join(p.capitalize() for p in enabled_phases) + " | Notes |",
+        "| Experiment | Model | "
+        + " | ".join(p.capitalize() for p in enabled_phases)
+        + " | Notes |",
         "|---|---|" + "|".join([":---:"] * len(enabled_phases)) + "|---|",
     ]
     for r in results:
@@ -342,7 +353,9 @@ def _print_summary(results: list[ExperimentResult], enabled_phases: list[str]) -
     print("\n" + "=" * 80)
     print("Batch summary")
     print("=" * 80)
-    header = f"{'experiment_id':<40} {'model':<12} " + "  ".join(f"{p:<6}" for p in enabled_phases)
+    header = f"{'experiment_id':<40} {'model':<12} " + "  ".join(
+        f"{p:<6}" for p in enabled_phases
+    )
     print(header)
     print("-" * len(header))
     for r in results:
@@ -365,19 +378,42 @@ def _parse_args() -> argparse.Namespace:
         help="Config paths or shell globs (e.g. configs/e5-*.yaml)",
     )
     parser.add_argument("--train", action="store_true", help="Train each config")
-    parser.add_argument("--eval", action="store_true", help="Run eval.runner per config")
-    parser.add_argument("--seeds", nargs="+", type=int, default=None,
-                        help="Replicate each config across these training seeds (e.g. --seeds 42 43 44). "
-                             "Each seed gets its own run dir <experiment_id>-s<seed>. "
-                             "Omit for a single run at the config's own seed.")
-    parser.add_argument("--smoke", action="store_true", help="Pass --smoke to every subprocess")
-    parser.add_argument("--vllm", action="store_true", help="Pass --vllm to training subprocesses (route GRPO rollouts through vLLM)")
-    parser.add_argument("--force", action="store_true",
-                        help="Re-run phases even if their output already exists (train passes --overwrite)")
-    parser.add_argument("--retries", type=int, default=1,
-                        help="Retry count per failed phase before giving up")
-    parser.add_argument("--summary-dir", default="runs",
-                        help="Directory to write batch_summary_<timestamp>.md")
+    parser.add_argument(
+        "--eval", action="store_true", help="Run eval.runner per config"
+    )
+    parser.add_argument(
+        "--seeds",
+        nargs="+",
+        type=int,
+        default=None,
+        help="Replicate each config across these training seeds (e.g. --seeds 42 43 44). "
+        "Each seed gets its own run dir <experiment_id>-s<seed>. "
+        "Omit for a single run at the config's own seed.",
+    )
+    parser.add_argument(
+        "--smoke", action="store_true", help="Pass --smoke to every subprocess"
+    )
+    parser.add_argument(
+        "--vllm",
+        action="store_true",
+        help="Pass --vllm to training subprocesses (route GRPO rollouts through vLLM)",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-run phases even if their output already exists (train passes --overwrite)",
+    )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=1,
+        help="Retry count per failed phase before giving up",
+    )
+    parser.add_argument(
+        "--summary-dir",
+        default="runs",
+        help="Directory to write batch_summary_<timestamp>.md",
+    )
     args = parser.parse_args()
 
     # Default to train+eval when no phase flag is given - the most common
@@ -399,18 +435,24 @@ def main() -> None:
         print("No configs to run.")
         sys.exit(2)
 
-    enabled = [p for p, on in (
-        (PHASE_TRAIN, args.train),
-        (PHASE_EVAL, args.eval),
-    ) if on]
+    enabled = [
+        p
+        for p, on in (
+            (PHASE_TRAIN, args.train),
+            (PHASE_EVAL, args.eval),
+        )
+        if on
+    ]
 
     print(f"Configs ({len(configs)}):")
     for c in configs:
         print(f"  {c}")
     print(f"Phases (in order): {', '.join(enabled)}")
     if args.seeds:
-        print(f"Seeds: {args.seeds}  ({len(configs)} base config(s) × {len(args.seeds)} = "
-              f"{len(configs) * len(args.seeds)} runs)")
+        print(
+            f"Seeds: {args.seeds}  ({len(configs)} base config(s) x {len(args.seeds)} = "
+            f"{len(configs) * len(args.seeds)} runs)"
+        )
     print(f"Retries per phase: {args.retries}; smoke={args.smoke}; force={args.force}")
     print("")
 
@@ -457,19 +499,27 @@ def main() -> None:
         if args.train:
             print(f"\n── TRAIN     {exp_id}  ({slug})")
             r.phases[PHASE_TRAIN] = _run_train_phase(
-                path, exp_id, smoke=args.smoke, force=args.force, retries=args.retries, vllm=args.vllm
+                path,
+                exp_id,
+                smoke=args.smoke,
+                force=args.force,
+                retries=args.retries,
+                vllm=args.vllm,
             )
             # If train failed and eval would need that checkpoint, skip eval rather
             # than launching it pointlessly.
             if args.eval and r.phases[PHASE_TRAIN].status == STATUS_FAIL:
-                r.phases[PHASE_EVAL] = PhaseResult(status=STATUS_SKIP, note="train failed")
+                r.phases[PHASE_EVAL] = PhaseResult(
+                    status=STATUS_SKIP, note="train failed"
+                )
                 _write_eval_stub(path, status="skipped", note="train failed")
                 continue
 
         if args.eval:
             print(f"\n── EVAL      {exp_id}  ({slug})")
             r.phases[PHASE_EVAL] = _run_eval_phase(
-                path, exp_id,
+                path,
+                exp_id,
                 smoke=args.smoke,
                 force=args.force,
                 retries=args.retries,
@@ -481,7 +531,9 @@ def main() -> None:
             # the subprocess ran, or a hard crash that beat runner.py's own stub),
             # drop one so the run still shows up in auto-compare.
             pe = r.phases[PHASE_EVAL]
-            if pe.status in (STATUS_SKIP, STATUS_FAIL) and not _eval_report_exists(exp_id):
+            if pe.status in (STATUS_SKIP, STATUS_FAIL) and not _eval_report_exists(
+                exp_id
+            ):
                 _write_eval_stub(
                     path,
                     status=("error" if pe.status == STATUS_FAIL else "skipped"),

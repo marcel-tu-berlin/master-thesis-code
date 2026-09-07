@@ -36,8 +36,10 @@ def test_agentic_correctness_from_environments():
     # correctness gate.
     r = CosineLengthReward(_Tok(), max_len=10)
     out = r(
-        ["p", "p"], ["a b", "a b"],
-        environments=[_Env(1.0), _Env(0.0)], completion_ids=[[1, 2], [1, 2]],
+        ["p", "p"],
+        ["a b", "a b"],
+        environments=[_Env(1.0), _Env(0.0)],
+        completion_ids=[[1, 2], [1, 2]],
     )
     assert out[0] > out[1]
 
@@ -47,8 +49,10 @@ def test_partial_credit_gates_as_wrong():
     # wrong branch, identical to a hard 0.0 - not in the correct branch.
     r = CosineLengthReward(_Tok(), max_len=10)
     out = r(
-        ["p", "p"], ["a b", "a b"],
-        environments=[_Env(0.05), _Env(0.0)], completion_ids=[[1, 2], [1, 2]],
+        ["p", "p"],
+        ["a b", "a b"],
+        environments=[_Env(0.05), _Env(0.0)],
+        completion_ids=[[1, 2], [1, 2]],
     )
     assert out[0] == out[1]
 
@@ -74,9 +78,9 @@ def test_multiturn_counts_assistant_only_not_completion_ids():
     # count (4), not len(completion_ids) (12).
     r = CosineLengthReward(_Tok(), max_len=100)
     completion = [
-        {"role": "assistant", "content": "guess crane"},          # 2
-        {"role": "tool", "content": "C absent R absent ..."},     # tool -> skip
-        {"role": "assistant", "content": "guess slate"},          # 2
+        {"role": "assistant", "content": "guess crane"},  # 2
+        {"role": "tool", "content": "C absent R absent ..."},  # tool -> skip
+        {"role": "assistant", "content": "guess slate"},  # 2
     ]
     out = r(["p"], [completion], environments=[_Env(1.0)], completion_ids=[[0] * 12])
     assert out[0] == r._reward(4, True)
@@ -99,10 +103,15 @@ def test_same_ruler_for_answered_and_unanswered_rollouts():
     # rollout that never answers always scores wrong, the wrong arm was
     # systematically inflated relative to the correct arm by measurement alone.
     r = CosineLengthReward(_Tok(), max_len=100)
-    answered = [{"role": "assistant", "content": "a b c"},
-                {"role": "tool", "content": "Recorded answer: 42"}]
+    answered = [
+        {"role": "assistant", "content": "a b c"},
+        {"role": "tool", "content": "Recorded answer: 42"},
+    ]
     unanswered = [{"role": "assistant", "content": "a b c"}]
-    out = r(["p", "p"], [answered, unanswered],
-            environments=[_Env(1.0), _Env(1.0)],
-            completion_ids=[[0] * 40, [0] * 9])
+    out = r(
+        ["p", "p"],
+        [answered, unanswered],
+        environments=[_Env(1.0), _Env(1.0)],
+        completion_ids=[[0] * 40, [0] * 9],
+    )
     assert out[0] == out[1] == r._reward(3, True)

@@ -3,13 +3,20 @@
 # will not install here. Recreate with:
 #   uv venv .venv-test --python 3.12.6
 #   uv pip install --python .venv-test/bin/python -r requirements-test.lock.txt
-# Regenerate the same way as the main lock (see its header), from this venv:
-#   uv pip freeze --python .venv-test/bin/python
+# Regenerate the same way as the main lock (see its header), via a temp file so a
+# failed freeze cannot leave an empty lock that still installs cleanly. The sed
+# strips the ANSI bold uv writes even when redirected:
+#   uv pip freeze --python .venv-test/bin/python \
+#     | sed $'s/\033\[[0-9;]*m//g' > /tmp/pins.new \
+#     && grep -q '^torch==' /tmp/pins.new \
+#     && { sed -n '/^#/p' requirements-test.lock.txt; cat /tmp/pins.new; } > /tmp/lock.new \
+#     && mv /tmp/lock.new requirements-test.lock.txt
 aiohappyeyeballs==2.6.2
 aiohttp==3.14.1
 aiosignal==1.4.0
 annotated-doc==0.0.4
 anyio==4.13.0
+ast-serialize==0.9.0
 attrs==26.1.0
 certifi==2026.5.20
 charset-normalizer==3.4.7
@@ -31,6 +38,7 @@ idna==3.18
 iniconfig==2.3.0
 jinja2==3.1.6
 kiwisolver==1.5.0
+librt==0.15.0
 markdown-it-py==4.2.0
 markupsafe==3.0.3
 matplotlib==3.11.0
@@ -38,10 +46,13 @@ mdurl==0.1.2
 mpmath==1.3.0
 multidict==6.7.1
 multiprocess==0.70.19
+mypy==2.3.1
+mypy-extensions==1.1.0
 networkx==3.6.1
 numpy==2.4.6
 packaging==26.2
 pandas==3.0.3
+pathspec==1.1.1
 pillow==12.2.0
 pluggy==1.6.0
 propcache==0.5.2
@@ -53,6 +64,7 @@ python-dateutil==2.9.0.post0
 pyyaml==6.0.3
 requests==2.34.2
 rich==15.0.0
+ruff==0.16.6
 scipy==1.17.1
 setuptools==81.0.0
 shellingham==1.5.4

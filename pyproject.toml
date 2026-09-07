@@ -1,0 +1,44 @@
+# Tooling config only. The pipeline is run as scripts from `pipeline/` and is not
+# installed as a package, so there is no [project] table and no build backend
+# here - only the settings ruff and mypy read. `.claude/check.sh` is what runs
+# them, and CI runs that same script.
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+# Results on disk, never source. The two review documents quote code as it
+# stood at review time; reformatting those snippets falsifies the record.
+extend-exclude = ["pipeline/runs", "*.md"]
+
+[tool.ruff.lint]
+# Pyflakes and pycodestyle errors are the floor; the rest are the rule families
+# that catch a real defect rather than a style preference. Nothing here rewrites
+# working code for taste - the formatter owns layout.
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+  # Long lines are a formatter concern, and the formatter leaves a comment or a
+  # URL over the limit alone rather than mangling it.
+  "E501",
+]
+
+[tool.ruff.lint.isort]
+# `eval`, `training`, `domains` resolve from pipeline/, not from site-packages.
+known-first-party = ["domains", "eval", "training"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests build throwaway fixtures and assert on them; the loop-variable and
+# mutable-default rules fire on patterns that are correct in that context.
+# E402: a few test modules import a symbol mid-file, under the comment that
+# explains why that import is deliberately not at the top.
+"pipeline/tests/*" = ["B008", "B023", "E402"]
+
+[tool.mypy]
+python_version = "3.12"
+# torch, transformers, trl, matplotlib and the OpenEnv clone ship partial or no
+# stubs. Type-checking our own code is the point; chasing third-party stubs is
+# not.
+ignore_missing_imports = true
+# The pipeline is imported as `eval.x` / `training.x` from inside pipeline/, so
+# that directory is the import root.
+mypy_path = "pipeline"
+exclude = ["^pipeline/runs/"]

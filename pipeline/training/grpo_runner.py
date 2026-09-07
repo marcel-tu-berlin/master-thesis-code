@@ -1,14 +1,17 @@
-import os
 import json
+import os
 import sys
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from trl import GRPOConfig, GRPOTrainer
 
-from training.config_schema import (DEFAULT_BATCH_SIZE, DEFAULT_N_ROLLOUTS,
-                                    resolve_max_turns)
+from training.config_schema import (
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_N_ROLLOUTS,
+    resolve_max_turns,
+)
 from training.registry import LORA_TARGET_MODULES, get_model_config
 
 
@@ -24,7 +27,9 @@ class GRPORunner:
         lora_rank = int(config["model"].get("lora_r", model_cfg["max_lora_rank"]))
         lora_alpha = int(config["model"].get("lora_alpha", lora_rank * 2))
         load_4bit = config["model"].get("load_in_4bit", model_cfg["load_in_4bit"])
-        max_seq = int(config["model"].get("max_seq_length", model_cfg["max_seq_length"]))
+        max_seq = int(
+            config["model"].get("max_seq_length", model_cfg["max_seq_length"])
+        )
         # vLLM colocate is the default generation backend for training. It is
         # required for the agentic rollout path and is the only tractable option
         # for GRPO on a single GPU. Set model.use_vllm: false to fall back to HF.
@@ -126,8 +131,10 @@ class GRPORunner:
         max_steps = int(t.get("max_steps", 500))
         # Print the resolved geometry: cross-arm comparisons are only valid
         # between runs that agree on it, and the log is where that is checked.
-        print(f"Batch geometry: batch_size={batch_size}  n_rollouts={n_rollouts}  "
-              f"micro_batch_size={micro}  grad_accum={grad_accum}  max_steps={max_steps}")
+        print(
+            f"Batch geometry: batch_size={batch_size}  n_rollouts={n_rollouts}  "
+            f"micro_batch_size={micro}  grad_accum={grad_accum}  max_steps={max_steps}"
+        )
 
         # Recipe defaults since 2026-08-24 (LAB_NOTES "Standing rule: recipe
         # defaults"). The seed-42 browsergym campaign (e30-e36) ran
@@ -174,10 +181,12 @@ class GRPORunner:
             use_liger_kernel=bool(t.get("use_liger_kernel", False)),
             scale_rewards=str(t.get("scale_rewards", "group")),
         )
-        print(f"Recipe: optim={kwargs['optim']}  lr_scheduler_type={kwargs['lr_scheduler_type']}  "
-              f"kl_beta={kwargs['beta']}  learning_rate={kwargs['learning_rate']}  "
-              f"num_iterations={kwargs['num_iterations']}  use_liger_kernel={kwargs['use_liger_kernel']}  "
-              f"scale_rewards={kwargs['scale_rewards']}  vllm_enable_sleep_mode={self._sleep_mode}")
+        print(
+            f"Recipe: optim={kwargs['optim']}  lr_scheduler_type={kwargs['lr_scheduler_type']}  "
+            f"kl_beta={kwargs['beta']}  learning_rate={kwargs['learning_rate']}  "
+            f"num_iterations={kwargs['num_iterations']}  use_liger_kernel={kwargs['use_liger_kernel']}  "
+            f"scale_rewards={kwargs['scale_rewards']}  vllm_enable_sleep_mode={self._sleep_mode}"
+        )
         # Cap the tool-calling loop. TRL treats an unset
         # max_tool_calling_iterations as sys.maxsize, so leaving it off for
         # single-step domains left the loop unbounded: a reasoning_gym rollout
@@ -213,12 +222,22 @@ class GRPORunner:
                 kwargs["vllm_importance_sampling_correction"] = False
             elif is_mode is not None:
                 kwargs["vllm_importance_sampling_mode"] = str(is_mode)
-            print(f"vLLM importance sampling mode: "
-                  f"{is_mode if is_mode is not None else 'sequence_mask (TRL default)'}")
+            print(
+                f"vLLM importance sampling mode: "
+                f"{is_mode if is_mode is not None else 'sequence_mask (TRL default)'}"
+            )
         return GRPOConfig(**kwargs)
 
-    def train(self, dataset, reward_fn, output_dir: str, callbacks=None,
-              *, server=None, make_factory=None) -> None:
+    def train(
+        self,
+        dataset,
+        reward_fn,
+        output_dir: str,
+        callbacks=None,
+        *,
+        server=None,
+        make_factory=None,
+    ) -> None:
         # Agentic path: the runner owns the env-server subprocess lifecycle.
         # `server` is an unstarted EnvServerProcess; once it is up, build the
         # TRL environment_factory against its base_url. Dataset path: both stay

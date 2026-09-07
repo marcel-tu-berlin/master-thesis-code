@@ -1,10 +1,13 @@
 from eval.agentic_eval import (
-    _answer_from, _run_episodes, _metrics_to_dict, _completion_budget,
+    _answer_from,
+    _completion_budget,
+    _metrics_to_dict,
+    _run_episodes,
 )
 from eval.metrics import SampleResult, compute_metrics
 
-
 # --- _completion_budget: eval must match the training generation budget ---
+
 
 def test_completion_budget_defaults_to_training_budget():
     # max_seq 2048, default max_prompt = 1024 -> completion budget 1024 (NOT 512).
@@ -29,10 +32,18 @@ def test_completion_budget_honors_max_prompt_length():
 # JSON quoted inside a think block) lives in that function and is covered
 # end-to-end in test_response_parsing.py, which needs a real tokenizer.
 
+
 def _answer_msg(value, name="answer"):
-    return {"role": "assistant", "content": "",
-            "tool_calls": [{"type": "function",
-                            "function": {"name": name, "arguments": {"answer": value}}}]}
+    return {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {
+                "type": "function",
+                "function": {"name": name, "arguments": {"answer": value}},
+            }
+        ],
+    }
 
 
 def test_answer_from_simple():
@@ -45,8 +56,12 @@ def test_answer_from_coerces_non_string():
 
 def test_answer_from_takes_first_answer_call():
     msg = _answer_msg("7")
-    msg["tool_calls"].append({"type": "function",
-                              "function": {"name": "answer", "arguments": {"answer": "8"}}})
+    msg["tool_calls"].append(
+        {
+            "type": "function",
+            "function": {"name": "answer", "arguments": {"answer": "8"}},
+        }
+    )
     assert _answer_from(msg) == "7"
 
 
@@ -59,22 +74,31 @@ def test_answer_from_ignores_other_tools():
 
 
 def test_answer_from_none_when_argument_missing():
-    msg = {"role": "assistant", "tool_calls": [
-        {"type": "function", "function": {"name": "answer", "arguments": {}}}]}
+    msg = {
+        "role": "assistant",
+        "tool_calls": [
+            {"type": "function", "function": {"name": "answer", "arguments": {}}}
+        ],
+    }
     assert _answer_from(msg) is None
 
 
 def test_answer_from_none_on_non_dict_arguments():
-    msg = {"role": "assistant", "tool_calls": [
-        {"type": "function", "function": {"name": "answer", "arguments": "42"}}]}
+    msg = {
+        "role": "assistant",
+        "tool_calls": [
+            {"type": "function", "function": {"name": "answer", "arguments": "42"}}
+        ],
+    }
     assert _answer_from(msg) is None
 
 
 # --- _run_episodes: drive env reset/score with an injected generator ---
 
+
 class _FakeEnv:
     def __init__(self, scores):
-        self.scores = scores          # answer string -> score
+        self.scores = scores  # answer string -> score
         self.reward = 0.0
         self.resets = []
 
@@ -105,14 +129,26 @@ def test_run_episodes_handles_none_answer():
 
 # --- _metrics_to_dict: serialize EvalMetrics for the report ---
 
+
 def test_metrics_to_dict_shape():
-    m = compute_metrics([SampleResult(True, 10, n_steps=1, reward=1.0),
-                         SampleResult(False, 20, n_steps=1, reward=0.05)])
+    m = compute_metrics(
+        [
+            SampleResult(True, 10, n_steps=1, reward=1.0),
+            SampleResult(False, 20, n_steps=1, reward=0.05),
+        ]
+    )
     d = _metrics_to_dict(m)
     assert d["accuracy"] == 0.5 and d["n_samples"] == 2 and d["n_correct"] == 1
-    assert d["samples"][0] == {"correct": True, "n_tokens": 10, "n_steps": 1,
-                               "reward": 1.0, "terminated": None,
-                               "stop_reason": None, "tool_calls": None,
-                               "n_actions": None, "n_invalid_actions": None,
-                               "n_repeated_actions": None}
+    assert d["samples"][0] == {
+        "correct": True,
+        "n_tokens": 10,
+        "n_steps": 1,
+        "reward": 1.0,
+        "terminated": None,
+        "stop_reason": None,
+        "tool_calls": None,
+        "n_actions": None,
+        "n_invalid_actions": None,
+        "n_repeated_actions": None,
+    }
     assert "mean_token_count" in d and "mean_steps" in d

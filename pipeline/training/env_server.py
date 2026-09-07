@@ -26,7 +26,9 @@ def clone_head(repo_envs_path) -> str:
     """HEAD of the git clone holding `repo_envs_path` (git walks up from a subdir)."""
     return subprocess.run(
         ["git", "-C", str(repo_envs_path), "rev-parse", "HEAD"],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.strip()
 
 
@@ -65,9 +67,18 @@ class EnvServerProcess:
             runner.train(..., environment_factory=make_factory(srv.base_url))
     """
 
-    def __init__(self, *, env_module, port, repo_envs_path, max_concurrent,
-                 host="127.0.0.1", python=None, server_env=None):
-        self.env_module = env_module          # e.g. "reasoning_gym_env.server.app"
+    def __init__(
+        self,
+        *,
+        env_module,
+        port,
+        repo_envs_path,
+        max_concurrent,
+        host="127.0.0.1",
+        python=None,
+        server_env=None,
+    ):
+        self.env_module = env_module  # e.g. "reasoning_gym_env.server.app"
         self.port = int(port)
         self.repo_envs_path = repo_envs_path  # dir containing the env package
         self.max_concurrent = int(max_concurrent)
@@ -129,8 +140,14 @@ class EnvServerProcess:
         except OSError:
             return False
 
-    def wait_until_ready(self, timeout=60.0, interval=1.0,
-                         _ready=None, _sleep=time.sleep, _now=time.monotonic) -> bool:
+    def wait_until_ready(
+        self,
+        timeout=60.0,
+        interval=1.0,
+        _ready=None,
+        _sleep=time.sleep,
+        _now=time.monotonic,
+    ) -> bool:
         ready = _ready or self.is_ready
         deadline = _now() + timeout
         while _now() < deadline:
@@ -178,8 +195,9 @@ def build_env_server(config, domain, python=None) -> EnvServerProcess:
     # trainer opens batch_size * n_rollouts env sessions, and a server sized
     # from a different default dies with SessionCapacityError on the first
     # rollout slot past its cap.
-    n_envs = (int(t.get("batch_size", DEFAULT_BATCH_SIZE))
-              * int(t.get("n_rollouts", DEFAULT_N_ROLLOUTS)))
+    n_envs = int(t.get("batch_size", DEFAULT_BATCH_SIZE)) * int(
+        t.get("n_rollouts", DEFAULT_N_ROLLOUTS)
+    )
     return EnvServerProcess(
         env_module=domain.server_module,
         # 8000 is every OpenEnv server's own default. browsergym binds it

@@ -10,6 +10,7 @@ Never fatal - a missing package or a clone that is not a git checkout is recorde
 as null. The pin check in env_server.verify_openenv_pin is the loud one.
 """
 
+import contextlib
 import json
 import os
 import platform
@@ -25,8 +26,18 @@ STAMP_FILE = "env_stamp.json"
 # generation path, the quantizer, the envs. Not the full lock - that is what
 # requirements.lock.txt is for.
 STAMPED_PACKAGES = (
-    "trl", "transformers", "torch", "vllm", "peft", "accelerate", "datasets",
-    "bitsandbytes", "reasoning-gym", "browsergym-core", "playwright", "numpy",
+    "trl",
+    "transformers",
+    "torch",
+    "vllm",
+    "peft",
+    "accelerate",
+    "datasets",
+    "bitsandbytes",
+    "reasoning-gym",
+    "browsergym-core",
+    "playwright",
+    "numpy",
     # The fused GRPO loss when training.use_liger_kernel is on; None otherwise
     # says the box did not have it.
     "liger-kernel",
@@ -34,22 +45,18 @@ STAMPED_PACKAGES = (
 
 
 def collect_env_stamp(repo_envs_path=None) -> dict:
-    packages = {}
+    packages: dict[str, str | None] = {}
     for name in STAMPED_PACKAGES:
         try:
             packages[name] = version(name)
         except PackageNotFoundError:
             packages[name] = None
-    openenv = {"pin": None, "head": None}
-    try:
+    openenv: dict[str, str | None] = {"pin": None, "head": None}
+    with contextlib.suppress(OSError):
         openenv["pin"] = openenv_pin()
-    except OSError:
-        pass
     if repo_envs_path:
-        try:
+        with contextlib.suppress(OSError, subprocess.CalledProcessError):
             openenv["head"] = clone_head(repo_envs_path)
-        except (OSError, subprocess.CalledProcessError):
-            pass
     return {
         "python": platform.python_version(),
         "executable": sys.executable,

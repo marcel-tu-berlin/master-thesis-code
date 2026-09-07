@@ -12,10 +12,10 @@ def build_domain(config: dict):
     env = (config.get("training") or {}).get("env")
     if env == "reasoning_gym":
         from domains.reasoning_gym import ReasoningGymDomain
+
         return ReasoningGymDomain()
     if env == "browsergym":
         from domains.browsergym import BrowserGymDomain
+
         return BrowserGymDomain()
-    raise NotImplementedError(
-        f"Env: {env!r} (known: reasoning_gym, browsergym)"
-    )
+    raise NotImplementedError(f"Env: {env!r} (known: reasoning_gym, browsergym)")

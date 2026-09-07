@@ -2,11 +2,11 @@ import pytest
 
 from eval.agentic_eval import _run_multiturn_episodes, _tool_calls
 
-
 # --- _tool_calls: every call, in order, off a parsed assistant message ---
 # The message shape is what trl.chat_template_utils.parse_response returns - the
 # same function TRL applies to a rollout during training. Eval used to re-parse
 # the decoded text with its own regex, which is how the two ended up disagreeing.
+
 
 def _assistant(name=None, args=None, content="", reasoning=None, extra=()):
     """A parse_response-shaped assistant message.
@@ -18,11 +18,13 @@ def _assistant(name=None, args=None, content="", reasoning=None, extra=()):
     if reasoning is not None:
         msg["reasoning_content"] = reasoning
     if name is not None:
-        msg["tool_calls"] = [{"type": "function",
-                              "function": {"name": name, "arguments": args or {}}}]
-        msg["tool_calls"] += [{"type": "function",
-                               "function": {"name": n, "arguments": a or {}}}
-                              for n, a in extra]
+        msg["tool_calls"] = [
+            {"type": "function", "function": {"name": name, "arguments": args or {}}}
+        ]
+        msg["tool_calls"] += [
+            {"type": "function", "function": {"name": n, "arguments": a or {}}}
+            for n, a in extra
+        ]
     return msg
 
 
@@ -33,8 +35,11 @@ def test_tool_calls_returns_name_and_args():
 
 def test_tool_calls_ignores_reasoning():
     # A JSON object quoted inside the think block is reasoning, not a call.
-    msg = _assistant("move", {"message": "slate"},
-                     reasoning='maybe {"name": "answer", "arguments": {"answer": "0"}}')
+    msg = _assistant(
+        "move",
+        {"message": "slate"},
+        reasoning='maybe {"name": "answer", "arguments": {"answer": "0"}}',
+    )
     assert _tool_calls(msg) == [("move", {"message": "slate"})]
 
 
@@ -47,22 +52,35 @@ def test_tool_calls_empty_on_empty_tool_calls():
 
 
 def test_tool_calls_non_dict_args_read_as_empty():
-    msg = {"role": "assistant", "tool_calls": [
-        {"type": "function", "function": {"name": "move", "arguments": "prestringified"}}]}
+    msg = {
+        "role": "assistant",
+        "tool_calls": [
+            {
+                "type": "function",
+                "function": {"name": "move", "arguments": "prestringified"},
+            }
+        ],
+    }
     assert _tool_calls(msg) == [("move", {})]
 
 
 def test_tool_calls_returns_every_call_in_order():
     # Not just the first. TRL executes all of them during training, and a turn
     # requesting four clicks is the normal shape on browsergym.
-    msg = _assistant("click", {"bid": "30"},
-                     extra=[("click", {"bid": "24"}), ("click", {"bid": "36"})])
-    assert _tool_calls(msg) == [("click", {"bid": "30"}),
-                                ("click", {"bid": "24"}),
-                                ("click", {"bid": "36"})]
+    msg = _assistant(
+        "click",
+        {"bid": "30"},
+        extra=[("click", {"bid": "24"}), ("click", {"bid": "36"})],
+    )
+    assert _tool_calls(msg) == [
+        ("click", {"bid": "30"}),
+        ("click", {"bid": "24"}),
+        ("click", {"bid": "36"}),
+    ]
 
 
 # --- _run_multiturn_episodes: drive a scripted game with an injected turn fn ---
+
 
 class _FakeGameEnv:
     """Solves when move == solution; self-dones on solve or after fail_after moves."""
@@ -113,9 +131,17 @@ def _scripted(*turns):
 def test_multiturn_solves_in_two_turns():
     env = _FakeGameEnv("slate")
     rs = _run_multiturn_episodes(
-        env, 1, 0, _scripted(_turn("move", {"message": "crane"}, 10),
-                             _turn("move", {"message": "slate"}, 8)),
-        max_turns=6, make_messages=_msgs, tool_names={"move"})
+        env,
+        1,
+        0,
+        _scripted(
+            _turn("move", {"message": "crane"}, 10),
+            _turn("move", {"message": "slate"}, 8),
+        ),
+        max_turns=6,
+        make_messages=_msgs,
+        tool_names={"move"},
+    )
     assert rs[0].correct is True and rs[0].n_steps == 2 and rs[0].n_tokens == 18
     assert env.resets == [0]
 
@@ -123,9 +149,14 @@ def test_multiturn_solves_in_two_turns():
 def test_multiturn_stops_when_model_stops_calling_move():
     env = _FakeGameEnv("slate")
     rs = _run_multiturn_episodes(
-        env, 1, 0, _scripted(_turn("move", {"message": "crane"}, 5),
-                             _turn(None, None, 3)),
-        max_turns=6, make_messages=_msgs, tool_names={"move"})
+        env,
+        1,
+        0,
+        _scripted(_turn("move", {"message": "crane"}, 5), _turn(None, None, 3)),
+        max_turns=6,
+        make_messages=_msgs,
+        tool_names={"move"},
+    )
     # Turn 1 is a move (counted, stepped); turn 2 is no-move -> counted then stop.
     assert rs[0].n_steps == 1 and rs[0].n_tokens == 8 and rs[0].correct is False
 
@@ -133,8 +164,14 @@ def test_multiturn_stops_when_model_stops_calling_move():
 def test_multiturn_caps_at_max_turns():
     env = _FakeGameEnv("zzzzz", fail_after=99)  # never solves, never early-dones
     rs = _run_multiturn_episodes(
-        env, 1, 0, _scripted(*[_turn("move", {"message": "aaaaa"}, 4)] * 10),
-        max_turns=3, make_messages=_msgs, tool_names={"move"})
+        env,
+        1,
+        0,
+        _scripted(*[_turn("move", {"message": "aaaaa"}, 4)] * 10),
+        max_turns=3,
+        make_messages=_msgs,
+        tool_names={"move"},
+    )
     assert rs[0].n_steps == 3 and rs[0].n_tokens == 12 and rs[0].correct is False
 
 
@@ -146,8 +183,9 @@ def test_multiturn_appends_assistant_and_tool_messages():
         seen.append([m["role"] for m in messages])
         return _turn("move", {"message": "slate"}, 7)
 
-    _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=6,
-                            make_messages=_msgs, tool_names={"move"})
+    _run_multiturn_episodes(
+        env, 1, 0, turn_fn, max_turns=6, make_messages=_msgs, tool_names={"move"}
+    )
     # First turn sees just the user lead-in; episode ends on the solving move.
     assert seen == [["user"]]
 
@@ -162,11 +200,14 @@ def test_multiturn_keeps_the_models_own_reasoning_in_context():
     def turn_fn(messages, budget):
         seen.append(list(messages))
         if len(seen) == 1:
-            return _turn("move", {"message": "crane"}, 5, reasoning="crane splits vowels")
+            return _turn(
+                "move", {"message": "crane"}, 5, reasoning="crane splits vowels"
+            )
         return _turn("move", {"message": "slate"}, 5)
 
-    _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=6,
-                            make_messages=_msgs, tool_names={"move"})
+    _run_multiturn_episodes(
+        env, 1, 0, turn_fn, max_turns=6, make_messages=_msgs, tool_names={"move"}
+    )
     assert len(seen) == 2
     assistant = [m for m in seen[1] if m.get("role") == "assistant"]
     assert assistant and assistant[0].get("reasoning_content") == "crane splits vowels"
@@ -181,6 +222,7 @@ def test_multiturn_keeps_the_models_own_reasoning_in_context():
 # 19 of 100 shifted episodes were lost that way, every one a loss and none a
 # gain. TRL dispatches every call during training (grpo_trainer.py, "Call the
 # tools, and build the new prompt"), so this is also what the policy trained on.
+
 
 class _ClickEnv:
     """Done once every required bid has been clicked, in any order."""
@@ -205,28 +247,40 @@ class _ClickEnv:
 def test_every_call_in_a_turn_is_dispatched():
     env = _ClickEnv({"30", "24", "36"})
     rs = _run_multiturn_episodes(
-        env, 1, 0,
-        _scripted(_turn("click", {"bid": "30"}, 40,
-                        extra=[("click", {"bid": "24"}), ("click", {"bid": "36"})])),
-        max_turns=8, make_messages=_msgs, tool_names={"click"})
+        env,
+        1,
+        0,
+        _scripted(
+            _turn(
+                "click",
+                {"bid": "30"},
+                40,
+                extra=[("click", {"bid": "24"}), ("click", {"bid": "36"})],
+            )
+        ),
+        max_turns=8,
+        make_messages=_msgs,
+        tool_names={"click"},
+    )
     assert env.clicked == {"30", "24", "36"}
     assert rs[0].correct is True and rs[0].stop_reason == "env_done"
-    assert rs[0].n_steps == 3          # three calls reached the env, in one turn
+    assert rs[0].n_steps == 3  # three calls reached the env, in one turn
     assert rs[0].tool_calls == ["click", "click", "click"]
 
 
 def test_each_dispatched_call_gets_its_own_tool_response():
     # N calls advertised, N responses. The transcript the next turn sees must not
     # leave a call unanswered, or the model treats it as having succeeded.
-    env = _ClickEnv({"30", "24", "99"})   # never completes, so the loop runs on
+    env = _ClickEnv({"30", "24", "99"})  # never completes, so the loop runs on
     seen = []
 
     def turn_fn(messages, budget):
         seen.append(list(messages))
         return _turn("click", {"bid": "30"}, 10, extra=[("click", {"bid": "24"})])
 
-    _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=2,
-                            make_messages=_msgs, tool_names={"click"})
+    _run_multiturn_episodes(
+        env, 1, 0, turn_fn, max_turns=2, make_messages=_msgs, tool_names={"click"}
+    )
     roles = [m["role"] for m in seen[1]]
     assert roles == ["user", "assistant", "tool", "tool"]
 
@@ -236,9 +290,14 @@ def test_calls_after_the_env_is_done_are_not_dispatched():
     # done the rest must not run into a finished env.
     env = _ClickEnv({"30"})
     rs = _run_multiturn_episodes(
-        env, 1, 0,
+        env,
+        1,
+        0,
         _scripted(_turn("click", {"bid": "30"}, 12, extra=[("click", {"bid": "99"})])),
-        max_turns=8, make_messages=_msgs, tool_names={"click"})
+        max_turns=8,
+        make_messages=_msgs,
+        tool_names={"click"},
+    )
     assert env.clicked == {"30"}
     assert rs[0].n_steps == 1 and rs[0].stop_reason == "env_done"
 
@@ -249,17 +308,18 @@ def test_unknown_names_get_an_error_response_but_never_reach_the_env():
     # eval that silently filtered the call left it advertised-but-unanswered -
     # the exact transcript state the multi-call fix exists to prevent - while
     # still never invoking the hallucinated name on the env.
-    env = _ClickEnv({"30", "99"})            # not done after one click
+    env = _ClickEnv({"30", "99"})  # not done after one click
     seen = []
 
     def turn_fn(messages, budget):
         seen.append(list(messages))
         return _turn("reset", {}, 9, extra=[("click", {"bid": "30"})])
 
-    rs = _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=2,
-                                 make_messages=_msgs, tool_names={"click"})
-    assert env.clicked == {"30"}             # reset never dispatched
-    assert rs[0].tool_calls == ["click", "click"]   # dispatched calls only
+    rs = _run_multiturn_episodes(
+        env, 1, 0, turn_fn, max_turns=2, make_messages=_msgs, tool_names={"click"}
+    )
+    assert env.clicked == {"30"}  # reset never dispatched
+    assert rs[0].tool_calls == ["click", "click"]  # dispatched calls only
     roles = [m["role"] for m in seen[1]]
     assert roles == ["user", "assistant", "tool", "tool"]
     unknown_response = seen[1][2]
@@ -272,10 +332,14 @@ def test_a_turn_of_only_unknown_names_continues_with_error_feedback():
     # score a recoverable hallucination as no_tool_call.
     env = _ClickEnv({"30"})
     rs = _run_multiturn_episodes(
-        env, 1, 0,
-        _scripted(_turn("navigate", {"url": "x"}, 5),
-                  _turn("click", {"bid": "30"}, 5)),
-        max_turns=4, make_messages=_msgs, tool_names={"click"})
+        env,
+        1,
+        0,
+        _scripted(_turn("navigate", {"url": "x"}, 5), _turn("click", {"bid": "30"}, 5)),
+        max_turns=4,
+        make_messages=_msgs,
+        tool_names={"click"},
+    )
     assert rs[0].correct is True and rs[0].stop_reason == "env_done"
     assert rs[0].n_steps == 1
 
@@ -285,6 +349,7 @@ def test_a_turn_of_only_unknown_names_continues_with_error_feedback():
 # renewed the budget every turn let an episode generate max_turns times what the
 # policy trained under, and hit_generation_cap could never fire for the real cap.
 
+
 def test_budget_is_spent_across_turns_not_renewed():
     env = _FakeGameEnv("zzzzz", fail_after=99)
     budgets = []
@@ -293,12 +358,19 @@ def test_budget_is_spent_across_turns_not_renewed():
         budgets.append(budget)
         return _turn("move", {"message": "aaaaa"}, 300)
 
-    rs = _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=8,
-                                 make_messages=_msgs, tool_names={"move"},
-                                 gen_cap=1000)
-    assert budgets == [1000, 700, 400, 100]          # never renewed
+    rs = _run_multiturn_episodes(
+        env,
+        1,
+        0,
+        turn_fn,
+        max_turns=8,
+        make_messages=_msgs,
+        tool_names={"move"},
+        gen_cap=1000,
+    )
+    assert budgets == [1000, 700, 400, 100]  # never renewed
     assert rs[0].stop_reason == "hit_generation_cap"
-    assert rs[0].n_tokens == 1200                    # the 4th turn overruns, then stop
+    assert rs[0].n_tokens == 1200  # the 4th turn overruns, then stop
 
 
 def test_no_budget_means_no_cap():
@@ -309,8 +381,9 @@ def test_no_budget_means_no_cap():
         budgets.append(budget)
         return _turn("move", {"message": "aaaaa"}, 300)
 
-    rs = _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=3,
-                                 make_messages=_msgs, tool_names={"move"})
+    rs = _run_multiturn_episodes(
+        env, 1, 0, turn_fn, max_turns=3, make_messages=_msgs, tool_names={"move"}
+    )
     assert budgets == [None, None, None]
     assert rs[0].stop_reason == "max_turns"
 
@@ -318,16 +391,30 @@ def test_no_budget_means_no_cap():
 def test_turn_that_exhausts_the_budget_without_a_call_is_a_cap_hit():
     env = _FakeGameEnv("zzzzz", fail_after=99)
     rs = _run_multiturn_episodes(
-        env, 1, 0, _scripted(_turn(None, None, 500)),
-        max_turns=4, make_messages=_msgs, tool_names={"move"}, gen_cap=500)
+        env,
+        1,
+        0,
+        _scripted(_turn(None, None, 500)),
+        max_turns=4,
+        make_messages=_msgs,
+        tool_names={"move"},
+        gen_cap=500,
+    )
     assert rs[0].stop_reason == "hit_generation_cap"
 
 
 def test_short_turn_without_a_call_is_not_a_cap_hit():
     env = _FakeGameEnv("zzzzz", fail_after=99)
     rs = _run_multiturn_episodes(
-        env, 1, 0, _scripted(_turn(None, None, 3)),
-        max_turns=4, make_messages=_msgs, tool_names={"move"}, gen_cap=500)
+        env,
+        1,
+        0,
+        _scripted(_turn(None, None, 3)),
+        max_turns=4,
+        make_messages=_msgs,
+        tool_names={"move"},
+        gen_cap=500,
+    )
     assert rs[0].stop_reason == "no_tool_call"
 
 
@@ -343,9 +430,17 @@ def test_tool_feedback_is_charged_against_the_budget():
         budgets.append(budget)
         return _turn("move", {"message": "aaaaa"}, 100)
 
-    rs = _run_multiturn_episodes(env, 1, 0, turn_fn, max_turns=8,
-                                 make_messages=_msgs, tool_names={"move"},
-                                 gen_cap=1000, count_tokens=lambda s: 150)
+    rs = _run_multiturn_episodes(
+        env,
+        1,
+        0,
+        turn_fn,
+        max_turns=8,
+        make_messages=_msgs,
+        tool_names={"move"},
+        gen_cap=1000,
+        count_tokens=lambda s: 150,
+    )
     # Each turn: -100 generated, -150 tool feedback.
     assert budgets == [1000, 750, 500, 250]
     assert rs[0].stop_reason == "hit_generation_cap"
@@ -358,6 +453,7 @@ def test_tool_feedback_is_charged_against_the_budget():
 # episode is already flushed via on_result, and scoring episodes against dead
 # infrastructure fabricates a policy regression (reward 0.0, non-termination
 # spike) that reads exactly like the mislabelled-truncation confound.
+
 
 class _ExplodingEnv:
     """Env whose tool raises the given exception."""
@@ -380,8 +476,14 @@ def test_infra_error_aborts_the_split():
     env = _ExplodingEnv(RuntimeError("env server gone"))
     with pytest.raises(RuntimeError, match="env server gone"):
         _run_multiturn_episodes(
-            env, 2, 0, _scripted(*[_turn("move", {"action": "x"}, 5)] * 4),
-            max_turns=2, make_messages=_msgs, tool_names={"move"})
+            env,
+            2,
+            0,
+            _scripted(*[_turn("move", {"action": "x"}, 5)] * 4),
+            max_turns=2,
+            make_messages=_msgs,
+            tool_names={"move"},
+        )
 
 
 def test_bad_model_arguments_become_feedback_not_a_crash():
@@ -391,8 +493,14 @@ def test_bad_model_arguments_become_feedback_not_a_crash():
     # mean_verification_depth in the RQ2 panel).
     env = _FakeGameEnv("zzzzz", fail_after=99)
     rs = _run_multiturn_episodes(
-        env, 1, 0, _scripted(*[_turn("move", {"wrong_kw": "x"}, 5)] * 2),
-        max_turns=2, make_messages=_msgs, tool_names={"move"})
+        env,
+        1,
+        0,
+        _scripted(*[_turn("move", {"wrong_kw": "x"}, 5)] * 2),
+        max_turns=2,
+        make_messages=_msgs,
+        tool_names={"move"},
+    )
     assert rs[0].stop_reason == "max_turns"
     assert rs[0].n_steps == 0
     assert rs[0].tool_calls == []
@@ -405,11 +513,19 @@ def test_typeerror_from_inside_the_tool_body_aborts_the_split():
     # rejecting `metadata=` - is infrastructure and propagates like any other
     # exception. Catching it used to feed it back as {'error': ...} and score
     # every following episode against broken infra.
-    env = _ExplodingEnv(TypeError("StepResult() got an unexpected keyword argument 'metadata'"))
+    env = _ExplodingEnv(
+        TypeError("StepResult() got an unexpected keyword argument 'metadata'")
+    )
     with pytest.raises(TypeError, match="metadata"):
         _run_multiturn_episodes(
-            env, 1, 0, _scripted(_turn("move", {"action": "x"}, 5)),
-            max_turns=2, make_messages=_msgs, tool_names={"move"})
+            env,
+            1,
+            0,
+            _scripted(_turn("move", {"action": "x"}, 5)),
+            max_turns=2,
+            make_messages=_msgs,
+            tool_names={"move"},
+        )
 
 
 def test_on_result_fires_per_episode():
@@ -418,9 +534,15 @@ def test_on_result_fires_per_episode():
     env = _ExplodingEnv()
     seen = []
     _run_multiturn_episodes(
-        env, 3, 100, _scripted(*[_turn(None, None, 1)] * 3),
-        max_turns=1, make_messages=_msgs, tool_names={"move"},
-        on_result=lambda i, r: seen.append(i))
+        env,
+        3,
+        100,
+        _scripted(*[_turn(None, None, 1)] * 3),
+        max_turns=1,
+        make_messages=_msgs,
+        tool_names={"move"},
+        on_result=lambda i, r: seen.append(i),
+    )
     assert seen == [0, 1, 2]
 
 
@@ -429,16 +551,27 @@ def test_on_result_fires_per_episode():
 # the tokens came out of the think block, the spoken content, or the actions -
 # and "stopped verifying" and "stopped rambling" are opposite RQ2 answers.
 
+
 def test_turns_record_one_entry_per_turn_including_the_silent_one():
     env = _FakeGameEnv("slate")
     rs = _run_multiturn_episodes(
-        env, 1, 0, _scripted(_turn("move", {"message": "crane"}, 10, reasoning="think"),
-                             _turn(None, None, 3, content="giving up")),
-        max_turns=6, make_messages=_msgs, tool_names={"move"})
+        env,
+        1,
+        0,
+        _scripted(
+            _turn("move", {"message": "crane"}, 10, reasoning="think"),
+            _turn(None, None, 3, content="giving up"),
+        ),
+        max_turns=6,
+        make_messages=_msgs,
+        tool_names={"move"},
+    )
     turns = rs[0].turns
     assert [t["n_tokens"] for t in turns] == [10, 3]
     assert turns[0]["reasoning"] == "think"
-    assert turns[0]["tool_calls"] == [{"name": "move", "arguments": {"message": "crane"}}]
+    assert turns[0]["tool_calls"] == [
+        {"name": "move", "arguments": {"message": "crane"}}
+    ]
     # The turn that emitted nothing usable is the one worth reading afterwards.
     assert turns[1]["tool_calls"] == [] and turns[1]["content"] == "giving up"
 
@@ -446,10 +579,17 @@ def test_turns_record_one_entry_per_turn_including_the_silent_one():
 def test_turns_split_reasoning_and_content_tokens_when_counting_is_available():
     env = _FakeGameEnv("slate")
     rs = _run_multiturn_episodes(
-        env, 1, 0, _scripted(_turn("move", {"message": "slate"}, 9,
-                                   reasoning="a b c", content="d e")),
-        max_turns=2, make_messages=_msgs, tool_names={"move"},
-        count_tokens=lambda t: len(t.split()))
+        env,
+        1,
+        0,
+        _scripted(
+            _turn("move", {"message": "slate"}, 9, reasoning="a b c", content="d e")
+        ),
+        max_turns=2,
+        make_messages=_msgs,
+        tool_names={"move"},
+        count_tokens=lambda t: len(t.split()),
+    )
     turn = rs[0].turns[0]
     assert turn["n_reasoning_tokens"] == 3 and turn["n_content_tokens"] == 2
 
@@ -457,8 +597,14 @@ def test_turns_split_reasoning_and_content_tokens_when_counting_is_available():
 def test_turns_omit_token_split_without_a_counter():
     env = _FakeGameEnv("slate")
     rs = _run_multiturn_episodes(
-        env, 1, 0, _scripted(_turn("move", {"message": "slate"}, 9, reasoning="x")),
-        max_turns=2, make_messages=_msgs, tool_names={"move"})
+        env,
+        1,
+        0,
+        _scripted(_turn("move", {"message": "slate"}, 9, reasoning="x")),
+        max_turns=2,
+        make_messages=_msgs,
+        tool_names={"move"},
+    )
     assert "n_reasoning_tokens" not in rs[0].turns[0]
 
 
@@ -468,10 +614,15 @@ def test_episode_line_carries_turns_only_when_recorded():
     from eval.agentic_eval import _episode_line
     from eval.metrics import SampleResult
 
-    rec = SampleResult(correct=True, n_tokens=9, n_steps=1, terminated=True,
-                       stop_reason="env_done", tool_calls=["move"],
-                       turns=[{"n_tokens": 9, "reasoning": "r", "content": "",
-                               "tool_calls": []}])
+    rec = SampleResult(
+        correct=True,
+        n_tokens=9,
+        n_steps=1,
+        terminated=True,
+        stop_reason="env_done",
+        tool_calls=["move"],
+        turns=[{"n_tokens": 9, "reasoning": "r", "content": "", "tool_calls": []}],
+    )
     assert json.loads(_episode_line(0, 42, rec))["turns"][0]["reasoning"] == "r"
     # Absent, not null: every earlier episodes_*.jsonl parses unchanged.
     plain = SampleResult(correct=True, n_tokens=9, n_steps=1)
@@ -479,6 +630,7 @@ def test_episode_line_carries_turns_only_when_recorded():
 
 
 # --- action counts feeding the invalid / repeated-action panel rates ---
+
 
 class _RejectingClickEnv(_ClickEnv):
     """The browsergym adapter's convention: an env-rejected action comes back
@@ -491,42 +643,68 @@ class _RejectingClickEnv(_ClickEnv):
 
 
 def test_invalid_actions_count_unknown_tools_bad_arguments_and_env_errors():
-    env = _RejectingClickEnv({"30", "99"})   # never completes
+    env = _RejectingClickEnv({"30", "99"})  # never completes
     rs = _run_multiturn_episodes(
-        env, 1, 0,
-        _scripted(_turn("reset", {}, 5),                        # unknown tool
-                  _turn("click", {"nope": "1"}, 5),             # unbindable args
-                  _turn("click", {"bid": "bad"}, 5),            # env rejects
-                  _turn("click", {"bid": "30"}, 5)),            # fine
-        max_turns=4, make_messages=_msgs, tool_names={"click"})
+        env,
+        1,
+        0,
+        _scripted(
+            _turn("reset", {}, 5),  # unknown tool
+            _turn("click", {"nope": "1"}, 5),  # unbindable args
+            _turn("click", {"bid": "bad"}, 5),  # env rejects
+            _turn("click", {"bid": "30"}, 5),
+        ),  # fine
+        max_turns=4,
+        make_messages=_msgs,
+        tool_names={"click"},
+    )
     assert rs[0].n_actions == 4
     assert rs[0].n_invalid_actions == 3
-    assert rs[0].n_steps == 2            # only the two dispatched clicks
+    assert rs[0].n_steps == 2  # only the two dispatched clicks
     assert rs[0].n_repeated_actions == 0
 
 
 def test_repeated_actions_count_verbatim_repeats_of_the_previous_dispatched_call():
-    env = _ClickEnv({"30", "24", "99"})      # never completes
+    env = _ClickEnv({"30", "24", "99"})  # never completes
     rs = _run_multiturn_episodes(
-        env, 1, 0,
-        _scripted(_turn("click", {"bid": "30"}, 5),
-                  _turn("click", {"bid": "30"}, 5),             # repeat
-                  _turn("click", {"bid": "24"}, 5),
-                  _turn("click", {"bid": "30"}, 5)),            # not a repeat
-        max_turns=4, make_messages=_msgs, tool_names={"click"})
+        env,
+        1,
+        0,
+        _scripted(
+            _turn("click", {"bid": "30"}, 5),
+            _turn("click", {"bid": "30"}, 5),  # repeat
+            _turn("click", {"bid": "24"}, 5),
+            _turn("click", {"bid": "30"}, 5),
+        ),  # not a repeat
+        max_turns=4,
+        make_messages=_msgs,
+        tool_names={"click"},
+    )
     assert rs[0].n_repeated_actions == 1 and rs[0].n_actions == 4
 
 
 def test_action_counts_reach_the_episode_line_and_report():
-    from eval.agentic_eval import _episode_line, _metrics_to_dict
-    from eval.metrics import compute_metrics
     import json
 
+    from eval.agentic_eval import _episode_line, _metrics_to_dict
+    from eval.metrics import compute_metrics
+
     env = _ClickEnv({"30"})
-    rs = _run_multiturn_episodes(env, 1, 0, _scripted(_turn("click", {"bid": "30"}, 5)),
-                                 max_turns=2, make_messages=_msgs, tool_names={"click"})
+    rs = _run_multiturn_episodes(
+        env,
+        1,
+        0,
+        _scripted(_turn("click", {"bid": "30"}, 5)),
+        max_turns=2,
+        make_messages=_msgs,
+        tool_names={"click"},
+    )
     line = json.loads(_episode_line(0, 0, rs[0]))
-    assert (line["n_actions"], line["n_invalid_actions"], line["n_repeated_actions"]) == (1, 0, 0)
+    assert (
+        line["n_actions"],
+        line["n_invalid_actions"],
+        line["n_repeated_actions"],
+    ) == (1, 0, 0)
     d = _metrics_to_dict(compute_metrics(rs))
     assert d["invalid_action_rate"] == 0.0 and d["wrong_termination_rate"] == 0.0
     assert d["samples"][0]["n_actions"] == 1

@@ -8,6 +8,7 @@ and an SE, the readout the audit's probe ladder used.
 
     python -m probes.p2_compare runs/probe-p2-base runs/probe-p2-liger ...
 """
+
 import json
 import math
 import os
@@ -27,7 +28,11 @@ def _paired(base, arm):
     n = min(len(base), len(arm))
     d = [arm[i]["reward"] - base[i]["reward"] for i in range(n)]
     mean = sum(d) / n
-    se = math.sqrt(sum((x - mean) ** 2 for x in d) / (n - 1) / n) if n > 1 else float("nan")
+    se = (
+        math.sqrt(sum((x - mean) ** 2 for x in d) / (n - 1) / n)
+        if n > 1
+        else float("nan")
+    )
     pos = sum(x > 0 for x in d)
     neg = sum(x < 0 for x in d)
     return n, mean, se, pos, neg, n - pos - neg
@@ -37,8 +42,10 @@ def main(argv):
     if len(argv) < 2:
         sys.exit("usage: p2_compare.py <base_run_dir> <arm_run_dir> [...]")
     _, base = _steps(argv[0])
-    print(f"{'arm':22s} {'steps':>5s} {'s/it':>7s} {'reward':>7s} {'clip':>6s} {'len':>6s}  "
-          f"paired d reward (pos/neg/tie, SE)")
+    print(
+        f"{'arm':22s} {'steps':>5s} {'s/it':>7s} {'reward':>7s} {'clip':>6s} {'len':>6s}  "
+        f"paired d reward (pos/neg/tie, SE)"
+    )
     for path in argv:
         timed, arm = _steps(path)
         n = len(arm)

@@ -5,11 +5,12 @@ two things that must not silently break are (a) a truncated episode is never
 labelled the same as one where the model simply stopped, and (b) a completion
 claim with no supporting tool call is counted.
 """
+
 from eval.agentic_eval import _no_call_reason, _run_episodes, _run_multiturn_episodes
 from eval.metrics import SampleResult, compute_metrics
 
-
 # --- _no_call_reason: budget artifact vs behavior ---
+
 
 def test_no_call_reason_flags_cap_when_budget_exhausted():
     assert _no_call_reason(1024, 1024) == "hit_generation_cap"
@@ -26,6 +27,7 @@ def test_no_call_reason_without_cap_is_behavior():
 
 # --- single-step: a missing tool call is not a wrong answer ---
 
+
 class _FakeEnv:
     def __init__(self, scores):
         self.scores = scores
@@ -40,29 +42,33 @@ class _FakeEnv:
 
 
 def test_single_step_answer_terminates():
-    rs = _run_episodes(_FakeEnv({"7": 1.0}), n=1, seed_base=0,
-                       gen_fn=lambda q: ("7", 10), gen_cap=1024)
+    rs = _run_episodes(
+        _FakeEnv({"7": 1.0}), n=1, seed_base=0, gen_fn=lambda q: ("7", 10), gen_cap=1024
+    )
     assert rs[0].terminated is True
     assert rs[0].stop_reason == "env_done"
     assert rs[0].tool_calls == ["answer"]
 
 
 def test_single_step_no_answer_is_non_termination_not_wrong_answer():
-    rs = _run_episodes(_FakeEnv({}), n=1, seed_base=0,
-                       gen_fn=lambda q: (None, 42), gen_cap=1024)
-    assert rs[0].correct is False          # still scored as a failure
-    assert rs[0].terminated is False       # but distinguishable from a wrong answer
+    rs = _run_episodes(
+        _FakeEnv({}), n=1, seed_base=0, gen_fn=lambda q: (None, 42), gen_cap=1024
+    )
+    assert rs[0].correct is False  # still scored as a failure
+    assert rs[0].terminated is False  # but distinguishable from a wrong answer
     assert rs[0].stop_reason == "no_tool_call"
     assert rs[0].tool_calls == []
 
 
 def test_single_step_truncation_is_labelled_as_the_cap():
-    rs = _run_episodes(_FakeEnv({}), n=1, seed_base=0,
-                       gen_fn=lambda q: (None, 1024), gen_cap=1024)
+    rs = _run_episodes(
+        _FakeEnv({}), n=1, seed_base=0, gen_fn=lambda q: (None, 1024), gen_cap=1024
+    )
     assert rs[0].stop_reason == "hit_generation_cap"
 
 
 # --- multi-turn: exit reasons and the tool sequence ---
+
 
 class _FakeToolEnv:
     """Two tools: `read` gathers evidence, `submit` ends the episode."""
@@ -98,8 +104,9 @@ def _turn(name, args, n_tok):
     msg = {"role": "assistant", "content": ""}
     calls = []
     if name is not None:
-        msg["tool_calls"] = [{"type": "function",
-                              "function": {"name": name, "arguments": args or {}}}]
+        msg["tool_calls"] = [
+            {"type": "function", "function": {"name": name, "arguments": args or {}}}
+        ]
         calls = [(name, args or {})]
     return msg, calls, n_tok
 
@@ -107,8 +114,14 @@ def _turn(name, args, n_tok):
 def _run(scripted, max_turns=6, gen_cap=1024):
     turns = iter([_turn(*t) for t in scripted])
     return _run_multiturn_episodes(
-        _FakeToolEnv(), 1, 0, lambda m, budget: next(turns),
-        max_turns=max_turns, make_messages=_msgs, tool_names=_TOOLS, gen_cap=gen_cap,
+        _FakeToolEnv(),
+        1,
+        0,
+        lambda m, budget: next(turns),
+        max_turns=max_turns,
+        make_messages=_msgs,
+        tool_names=_TOOLS,
+        gen_cap=gen_cap,
     )
 
 
@@ -135,19 +148,30 @@ def test_multiturn_truncated_turn_is_the_cap_not_a_stop():
 
 # --- the panel itself ---
 
+
 def _ep(correct, terminated, stop_reason, tool_calls):
-    return SampleResult(correct=correct, n_tokens=100, n_steps=len(tool_calls),
-                        reward=1.0 if correct else 0.0, terminated=terminated,
-                        stop_reason=stop_reason, tool_calls=tool_calls)
+    return SampleResult(
+        correct=correct,
+        n_tokens=100,
+        n_steps=len(tool_calls),
+        reward=1.0 if correct else 0.0,
+        terminated=terminated,
+        stop_reason=stop_reason,
+        tool_calls=tool_calls,
+    )
 
 
 def test_panel_rates():
-    m = compute_metrics([
-        _ep(True, True, "env_done", ["read", "read", "submit"]),   # verified, depth 2
-        _ep(True, True, "env_done", ["submit"]),                   # bare claim, depth 0
-        _ep(False, False, "max_turns", ["read", "read"]),          # never finished
-        _ep(False, False, "hit_generation_cap", []),               # truncated
-    ])
+    m = compute_metrics(
+        [
+            _ep(
+                True, True, "env_done", ["read", "read", "submit"]
+            ),  # verified, depth 2
+            _ep(True, True, "env_done", ["submit"]),  # bare claim, depth 0
+            _ep(False, False, "max_turns", ["read", "read"]),  # never finished
+            _ep(False, False, "hit_generation_cap", []),  # truncated
+        ]
+    )
     assert m.non_termination_rate == 0.5
     # Denominator is TERMINATED episodes only: an episode that ran out of turns
     # never got the chance to claim completion.
@@ -183,9 +207,11 @@ def _cfg(splits=None, n=100):
     ag = {"n_episodes": n}
     if splits is not None:
         ag["splits"] = splits
-    return {"seed": 42,
-            "training": {"env_config": {"dataset": "polynomial_equations", "size": 500}},
-            "eval": {"agentic": ag}}
+    return {
+        "seed": 42,
+        "training": {"env_config": {"dataset": "polynomial_equations", "size": 500}},
+        "eval": {"agentic": ag},
+    }
 
 
 def test_default_is_the_single_agentic_split():
@@ -197,10 +223,19 @@ def test_default_is_the_single_agentic_split():
 
 
 def test_split_env_config_is_merged_over_the_training_one():
-    splits = _resolve_splits(_cfg([
-        {"name": "held_out"},
-        {"name": "shifted", "env_config": {"dataset": "countdown"}, "n_episodes": 50},
-    ]), 100)
+    splits = _resolve_splits(
+        _cfg(
+            [
+                {"name": "held_out"},
+                {
+                    "name": "shifted",
+                    "env_config": {"dataset": "countdown"},
+                    "n_episodes": 50,
+                },
+            ]
+        ),
+        100,
+    )
     assert [s["name"] for s in splits] == ["held_out", "shifted"]
     # Unspecified keys survive the override.
     assert splits[1]["env_config"] == {"dataset": "countdown", "size": 500}
@@ -215,10 +250,14 @@ def test_split_seed_offset_moves_the_question_range():
 
 def test_schema_rejects_unnamed_and_duplicate_splits():
     import pytest
+
     from training.config_schema import validate_config
 
-    base = {"experiment_id": "x", "model": {"slug": "qwen3-1.7b"},
-            "training": {"mode": "agentic", "env": "reasoning_gym"}}
+    base = {
+        "experiment_id": "x",
+        "model": {"slug": "qwen3-1.7b"},
+        "training": {"mode": "agentic", "env": "reasoning_gym"},
+    }
     for splits, match in (
         ([{"n_episodes": 10}], "missing `name`"),
         ([{"name": "a"}, {"name": "a"}], "Duplicate"),
@@ -231,44 +270,67 @@ def test_schema_rejects_unnamed_and_duplicate_splits():
 def test_schema_accepts_a_valid_two_split_protocol():
     from training.config_schema import validate_config
 
-    validate_config({
-        "experiment_id": "x", "model": {"slug": "qwen3-1.7b"},
-        "training": {"mode": "agentic", "env": "reasoning_gym"},
-        "eval": {"agentic": {"n_episodes": 100, "splits": [
-            {"name": "held_out"},
-            {"name": "shifted", "env_config": {"dataset": "countdown"},
-             "seed_offset": 200000},
-        ]}},
-    })
+    validate_config(
+        {
+            "experiment_id": "x",
+            "model": {"slug": "qwen3-1.7b"},
+            "training": {"mode": "agentic", "env": "reasoning_gym"},
+            "eval": {
+                "agentic": {
+                    "n_episodes": 100,
+                    "splits": [
+                        {"name": "held_out"},
+                        {
+                            "name": "shifted",
+                            "env_config": {"dataset": "countdown"},
+                            "seed_offset": 200000,
+                        },
+                    ],
+                }
+            },
+        }
+    )
 
 
 # --- wrong termination, invalid and repeated actions ---
 
+
 def _ep2(correct, terminated, invalid, repeated, n_actions=3):
-    return SampleResult(correct=correct, n_tokens=100, n_steps=n_actions,
-                        reward=1.0 if correct else 0.0, terminated=terminated,
-                        stop_reason="env_done" if terminated else "no_tool_call",
-                        tool_calls=["click"] * n_actions, n_actions=n_actions,
-                        n_invalid_actions=invalid, n_repeated_actions=repeated)
+    return SampleResult(
+        correct=correct,
+        n_tokens=100,
+        n_steps=n_actions,
+        reward=1.0 if correct else 0.0,
+        terminated=terminated,
+        stop_reason="env_done" if terminated else "no_tool_call",
+        tool_calls=["click"] * n_actions,
+        n_actions=n_actions,
+        n_invalid_actions=invalid,
+        n_repeated_actions=repeated,
+    )
 
 
 def test_wrong_termination_is_read_over_terminated_episodes_only():
-    m = compute_metrics([
-        _ep2(True, True, 0, 0),      # finished right
-        _ep2(False, True, 0, 0),     # finished wrong: the E3 substitute
-        _ep2(False, False, 0, 0),    # never finished: not in the denominator
-    ])
+    m = compute_metrics(
+        [
+            _ep2(True, True, 0, 0),  # finished right
+            _ep2(False, True, 0, 0),  # finished wrong: the E3 substitute
+            _ep2(False, False, 0, 0),  # never finished: not in the denominator
+        ]
+    )
     assert m.wrong_termination_rate == 0.5
     assert m.wrong_termination_rate_ci_low < 0.5 < m.wrong_termination_rate_ci_high
 
 
 def test_action_rates_are_episode_level():
-    m = compute_metrics([
-        _ep2(True, True, 2, 0),      # two invalid actions, still one episode
-        _ep2(True, True, 0, 1),
-        _ep2(True, True, 0, 0),
-        _ep2(True, True, 0, 0),
-    ])
+    m = compute_metrics(
+        [
+            _ep2(True, True, 2, 0),  # two invalid actions, still one episode
+            _ep2(True, True, 0, 1),
+            _ep2(True, True, 0, 0),
+            _ep2(True, True, 0, 0),
+        ]
+    )
     assert m.invalid_action_rate == 0.25
     assert m.repeated_action_rate == 0.25
     assert m.invalid_action_rate_ci_low < 0.25 < m.invalid_action_rate_ci_high

@@ -1,5 +1,5 @@
-from domains.env_base import EnvDomain
 from domains.browsergym.adapter import BrowserGymEnvAdapter
+from domains.env_base import EnvDomain
 
 # Brief task framing prepended to each prompt's user message. The tool spec is
 # injected by the model's native tool-calling template (tools=...); this only
@@ -53,7 +53,9 @@ class BrowserGymDomain(EnvDomain):
         if client_factory is None:
             return lambda: BrowserGymEnvAdapter(base_url, env_config)
         # Test/injection path: build the adapter around a supplied client.
-        return lambda: BrowserGymEnvAdapter(base_url, env_config, client=client_factory())
+        return lambda: BrowserGymEnvAdapter(
+            base_url, env_config, client=client_factory()
+        )
 
     def build_seed_dataset(self, env_config=None, n=500, seed_base=0):
         # Each row is one training prompt: a fixed lead-in plus a distinct seed.

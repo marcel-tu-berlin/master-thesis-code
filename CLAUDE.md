@@ -188,7 +188,8 @@ Edit and run tests on the Mac. Training and eval run on the GPU box
 `/workspace/master-thesis-code`.
 
 ```bash
-# the whole gate in one command - what CI runs, and what the commit hook runs
+# the whole gate in one command - what CI runs, and what the commit hook runs:
+# ruff format --check, ruff check, mypy, the pytest suite, the setup harness
 ./.claude/check.sh
 
 # tests: CPU-only, a few seconds, no GPU stack required

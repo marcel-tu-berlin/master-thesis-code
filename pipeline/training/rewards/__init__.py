@@ -12,6 +12,9 @@ Agentic-only: `env_reward` is the task-success signal; `token_length` (E2) and
 `non_termination` (E3) are the efficiency signals. All default off and are
 enabled explicitly per config.
 """
+
+from collections.abc import Callable
+
 from training.rewards.cosine_length import CosineLengthReward
 from training.rewards.env_reward import EnvReward
 from training.rewards.non_termination import NonTerminationPenalty
@@ -48,8 +51,8 @@ def _build_non_termination(domain, runner, training_cfg, cfg):
 
 # key -> (default_enabled, default_weight, builder). All default off; agentic
 # configs enable env_reward + the efficiency signals explicitly.
-REWARD_REGISTRY: dict[str, tuple[bool, float, callable]] = {
-    "token_length":     (False, 1.0, _build_token_length),
-    "env_reward":       (False, 1.0, _build_env_reward),
-    "non_termination":  (False, 1.0, _build_non_termination),
+REWARD_REGISTRY: dict[str, tuple[bool, float, Callable]] = {
+    "token_length": (False, 1.0, _build_token_length),
+    "env_reward": (False, 1.0, _build_env_reward),
+    "non_termination": (False, 1.0, _build_non_termination),
 }
