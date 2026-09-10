@@ -1,0 +1,18 @@
+Hallo ihr beiden,
+
+
+testet bitte euren gpu zugang. Es ist jetzt eine Node siena02 die zwei L4 GPUs hat. Vorher hat die Software exalisius dafür gesorgt dass jeder jeweils eine seperate GPU innerhalb der node kriegt. Jetzt müsst ihr das selber im Code angeben. Das ist aber einfach.
+device = cuda:0 oder cuda:1. (einfach chatgpt sagen er soll das bei euch spezifizieren).
+
+Lovis: Bitte cuda:0 
+Marcel: Bitte cuda:1
+
+implement this in my code. I am marcel. commit and push when done. in parallel another coding agent is working so if edits collide stop and report back to me and wait until i tell you to continue but i dont think that you two will collide
+
+---
+
+which files would be edited then?
+
+---
+
+vllm etc. also only uses gpu 1 then?
