@@ -1,0 +1,241 @@
+Goal
+
+  Add an optional, step-count-agnostic checkpoint evaluation schedule for future campaign runs.
+
+  When enabled, retain and evaluate the policy at:
+
+  - one third of training
+  - two thirds of training
+  - the final training step
+
+  Examples:
+
+  - max_steps 150 -> steps 50, 100, 150
+  - max_steps 300 -> steps 100, 200, 300
+  - max_steps 600 -> steps 200, 400, 600
+
+  These are planned observations of training progress. We are not selecting a best checkpoint.
+
+  Scientific rules
+
+  - Evaluate the same held-out and shifted instances at every checkpoint.
+  - Keep evaluation budgets, decoding settings, reference thresholds, and seed mappings identical.
+  - Report all three checkpoints.
+  - Do not select the checkpoint with the best task success or efficiency.
+  - Checkpoints from one run are repeated measurements of one training seed. Never count them as independent seeds.
+  - The multi-seed analysis must retain the training seed as the experimental unit.
+  - E0 is a fixed untrained reference and is evaluated once. It does not need checkpoint evaluation.
+  - Do not modify or reinterpret historical e30-e36 results. Their intermediate checkpoints were not harvested and cannot be reconstructed locally.
+
+  Verified current state, but recheck it before editing
+
+  - GRPORunner already passes training.save_steps to TRL.
+  - training.save_steps currently defaults to 100.
+  - TRL writes periodic checkpoint-N directories.
+  - train.py separately writes the final LoRA adapter to checkpoint-final.
+  - eval.runner accepts a --checkpoint override.
+  - run_agentic_eval writes eval_report.json, eval_report.md, and episodes_*.jsonl into one output directory.
+  - Repeated evaluations against the same run directory would overwrite each other.
+  - training.batch currently considers evaluation complete when the top-level eval_report.json exists.
+  - Existing BrowserGym campaign configs use 150 steps, while the general template uses 300. Do not hardcode either value.
+
+  Implement the smallest compatibility-safe change
+
+  1. Configuration
+
+  Add one optional enum-like configuration field:
+
+  eval:
+    checkpoint_schedule: thirds
+
+  Do not add a general checkpoint scheduler, arbitrary fractions, or a separate list of checkpoint steps. The current requirement is only training thirds.
+
+  When checkpoint_schedule is absent, preserve the existing behavior exactly:
+
+  - use the current training.save_steps behavior
+  - evaluate checkpoint-final once
+  - write the existing top-level evaluation artifacts
+
+  When checkpoint_schedule is thirds:
+
+  - Require training.max_steps to be divisible by 3.
+  - Derive interval = max_steps // 3.
+  - Derive checkpoint steps as [interval, 2 * interval, max_steps].
+  - Use interval as training.save_steps.
+  - If the config explicitly provides a conflicting training.save_steps, fail loudly. Do not silently override it.
+  - Record the resolved save_steps in the frozen run config so the saved config states what the trainer actually used.
+  - Reject unknown checkpoint_schedule values.
+  - Reject checkpoint_schedule for an E0 base-model evaluation.
+
+  Keep schedule resolution in one shared helper so validation, training, evaluation, and batch completion cannot calculate different steps.
+
+  2. Smoke behavior
+
+  Preserve the current final-only smoke behavior when checkpoint_schedule is absent.
+
+  When checkpoint_schedule is thirds, the training smoke override uses max_steps 3. Derive checkpoints 1, 2, and 3 and save every step. This should exercise the complete multi-checkpoint path with the existing reduced episode count.
+
+  Do not allow the smoke evaluation to overwrite real reports or trajectories.
+
+  3. Checkpoint artifacts
+
+  Before relying on TRL checkpoint-N directories, verify against the installed TRL and PEFT versions that the periodic directories can be loaded by PeftModel.from_pretrained.
+
+  Do not assume that a trainer-resume checkpoint is automatically a loadable LoRA adapter.
+
+  If the periodic checkpoints already contain the required adapter files, reuse them.
+
+  If they do not, add the smallest mechanism needed to export loadable LoRA adapters at the two intermediate steps.
+
+  Keep all periodic checkpoints. Do not delete earlier checkpoints.
+
+  For the final evaluation, continue using checkpoint-final unless the existing behavior provides a verified reason to change it. TRL may also create checkpoint-<max_steps> for trainer resume state. Keeping both is acceptable because checkpoint-final is the existing evaluation artifact.
+
+  4. Evaluation outputs
+
+  Evaluate checkpoints in ascending order.
+
+  Intermediate outputs must use collision-free directories:
+
+  runs/<experiment_id>/checkpoint-evals/checkpoint-<first-step>/
+  runs/<experiment_id>/checkpoint-evals/checkpoint-<second-step>/
+
+  Each directory contains its own:
+
+  - eval_report.json
+  - eval_report.md
+  - episodes_<split>.jsonl
+  - evaluation environment stamp
+
+  Keep the existing top-level final outputs for compatibility:
+
+  runs/<experiment_id>/eval_report.json
+  runs/<experiment_id>/eval_report.md
+  runs/<experiment_id>/episodes_<split>.jsonl
+
+  The top-level outputs represent the final checkpoint.
+
+  Add these fields to every JSON evaluation report:
+
+  - checkpoint_step
+  - checkpoint
+
+  Include the checkpoint step in the Markdown report heading.
+
+  Do not copy the final episode files into another directory merely to make the layout symmetrical.
+
+  5. Entry points
+
+  Apply the schedule consistently through both existing evaluation paths:
+
+  - python -m training.train --eval
+  - python -m eval.runner
+  - python -m training.batch --eval
+
+  An explicit eval.runner --checkpoint invocation must remain a single-checkpoint evaluation. It must not unexpectedly expand into the thirds schedule.
+
+  Reuse one shared checkpoint-resolution function rather than duplicating path logic between these entry points.
+
+  6. Batch completion and resuming
+
+  A scheduled evaluation is complete only when all three requested reports are present and are real, non-smoke reports.
+
+  Support safe resuming:
+
+  - Skip checkpoint evaluations that already completed.
+  - Run checkpoint evaluations that are still missing.
+  - Do not silently overwrite completed reports or episode files.
+  - Fail before starting a long evaluation if a requested checkpoint directory is missing or cannot be loaded.
+  - Do not write the final top-level report as a completion marker until the final checkpoint evaluation has completed.
+
+  Keep GPU memory bounded between checkpoint evaluations. Use the current process boundaries where possible. Do not add an orchestration framework.
+
+  7. Analysis compatibility
+
+  Check the existing paired and plotting code against the new intermediate report directories.
+
+  Make the smallest change required so reports from the same experiment can be distinguished by checkpoint_step.
+
+  The existing tools should be able to compare paths such as:
+
+  - runs/<experiment>/checkpoint-evals/checkpoint-50
+  - runs/<experiment>/checkpoint-evals/checkpoint-100
+  - runs/<experiment>
+
+  Do not add a dashboard or a new plotting subsystem. Do not treat checkpoint observations as additional training seeds.
+
+  8. Historical compatibility
+
+  Do not edit historical e30-e36 configs or reports.
+
+  Do not change results already stored under pipeline/runs/.
+
+  Configs without eval.checkpoint_schedule must behave exactly as before.
+
+  9. Documentation
+
+  Add the next numbered decision record under docs/decisions/ and update its index.
+
+  Record:
+
+  - checkpoint_schedule: thirds derives evaluation steps from max_steps
+  - max_steps must be divisible by 3
+  - all three checkpoints are reported
+  - no best checkpoint is selected
+  - checkpoints within one run are repeated measurements
+  - E0 is evaluated once
+  - historical e30-e36 runs are unaffected
+
+  Update pipeline/README.md with the config, derived examples, output layout, and resume behavior.
+
+  10. Tests
+
+  Add focused CPU tests that fail before the change and cover:
+
+  - max_steps 150 resolves to 50, 100, 150
+  - max_steps 300 resolves to 100, 200, 300
+  - a non-divisible max_steps is rejected
+  - an unknown checkpoint_schedule is rejected
+  - a conflicting explicit save_steps is rejected
+  - a matching explicit save_steps is accepted
+  - E0 rejects or ignores the schedule according to the documented rule
+  - schedule absence preserves final-only behavior
+  - smoke thirds resolve to steps 1, 2, and 3
+  - checkpoint paths resolve correctly
+  - intermediate evaluations use separate output directories
+  - existing reports and episode files are not overwritten
+  - partial evaluation completion resumes only missing checkpoints
+  - batch completion requires all three reports
+  - checkpoint_step appears in JSON and Markdown reports
+  - explicit eval.runner --checkpoint remains a single evaluation
+
+  Do not add GPU tests to the CPU suite.
+
+  Verification
+
+  Run:
+
+  ./.Codex/check.sh
+
+  If GPU access is available, also run one thirds-schedule smoke test. A smoke test proves the path executes. It does not validate the scientific measurements.
+
+  Report:
+
+  - the derived checkpoint logic
+  - the output layout
+  - whether periodic TRL checkpoints were directly PEFT-loadable
+  - the exact checks run and their results
+  - any GPU verification still required
+  - every file changed
+
+  Do not commit or push.
+
+---
+
+> The GPU host is reachable, but /workspace/master-thesis-code and its training environment are absent. Where is the prepared checkout and Python environment on this host? I can finish the CPU implementation while checking this.
+
+its gone because this is an entirely new gpu box. you need to reinstall using our lock files etc.
+
+---
+
+cool then commit and push all of your work
