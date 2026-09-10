@@ -215,6 +215,10 @@ def base_model_conflict(run_dir: str) -> str | None:
 
 
 def main() -> None:
+    # This checkout owns physical GPU 1 on the shared node. Hiding GPU 0 keeps
+    # PyTorch, Accelerate, and colocated vLLM on the assigned card.
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
     import argparse
     import sys
 

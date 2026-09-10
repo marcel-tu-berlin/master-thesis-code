@@ -3,6 +3,11 @@ import os
 import random
 import sys
 
+# Set the GPU before importing Transformers, TRL, or vLLM. Those imports can
+# initialize CUDA, after which changing visibility is too late.
+if __name__ == "__main__":
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
 import numpy as np
 import yaml
 

@@ -49,8 +49,10 @@ chronological order.
   warning after reset; the observations were returned successfully.
   Fresh Ubuntu needed `python3-dev` and `build-essential` for locked pycosat,
   plus `libasound2t64` for Chromium. MiniWoB is served on loopback port 8080 from
-  `/workspace/miniwob-plusplus/miniwob/html` (PID 5153 at setup). Select a GPU
-  explicitly with `CUDA_VISIBLE_DEVICES=0` for the single-GPU pipeline.
+  `/workspace/miniwob-plusplus/miniwob/html` (PID 5153 at setup). The training
+  and evaluation entry points set `CUDA_VISIBLE_DEVICES=1`, so this checkout uses
+  physical GPU 1 for PyTorch, Accelerate and colocated vLLM. Inside the masked
+  process that card is logical `cuda:0`.
   The locked TRL 1.6.0 warns that vLLM 0.19.1+cu130 is outside its advertised
   0.12.0-0.19.0 range; installation kept the lock unchanged.
   The three-step thirds smoke completed on GPU 0. Native periodic checkpoints
@@ -59,6 +61,12 @@ chronological order.
   and trajectory bytes. Smoke artifacts were harvested outside `pipeline/runs`
   to `/private/tmp/checkpoint-thirds-verification`; adapters remain on the box.
   This verifies execution and artifact handling, not scientific measurements.
+  A second three-step smoke verified the GPU assignment after deployment. It
+  finished in 132 seconds while `nvidia-smi` showed the training process only on
+  physical GPU 1 (about 10.5-13.4 GiB under load) and GPU 0 at 0 MiB. Setting
+  visibility inside `main()` was too late because the TRL/vLLM import path had
+  already initialized CUDA; `training.train` therefore sets it before those
+  imports. The first attempt was stopped before a training step.
 - **The old box is gone (2026-09-01), and its disk with it.** The TU admins
   removed the L4 box behind `130.149.248.103:30236`; a replacement is promised
   but not yet available. Everything below this bullet describes the *old* box
