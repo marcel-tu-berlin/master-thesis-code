@@ -1,11 +1,1 @@
-we noted that unsloth isnt possible with the current setup: docs/decisions/0008-no-unsloth.md 
-
-my supervisor told me: ok but would it be possible with other envs? are we just not using it because of the direct use of TRL due to OpenEnv? would unsloth work with ALFworld, webshop or textworld directly? research this and then report back to me
-
----
-
-interesting. please list all the things we would need to code ourselfs when using unsloth. i mean the ones due to rollout_func switch
-
----
-
-ok please record any new findings in docs/decisions/0008-no-unsloth.md and then we are done
+try again
