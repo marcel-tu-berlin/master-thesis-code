@@ -11,6 +11,7 @@ import os
 import sys
 
 from domains.env_base import CORRECT_REWARD_THRESHOLD
+from eval.checkpoints import checkpoint_step, refuse_existing_outputs
 from eval.metrics import SampleResult, compute_metrics, load_reference_thresholds
 from training.config_schema import SEED_BLOCK, resolve_max_turns
 
@@ -505,6 +506,7 @@ def _build_report(config, checkpoint_dir, split_metrics: dict) -> dict:
         # E0 (no adapter) is a first-class condition, so the report says which
         # policy produced it rather than leaving it to the experiment_id.
         "checkpoint": checkpoint_dir,
+        "checkpoint_step": checkpoint_step(config, checkpoint_dir),
         "smoke": bool(config.get("_smoke")),
         "results": {name: _metrics_to_dict(m) for name, m in split_metrics.items()},
     }
@@ -554,6 +556,14 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
     exactly the same episode loop, prompt framing and scoring as every trained
     arm; a separately written probe script would not be.
     """
+    if config.get("_smoke"):
+        from eval.runner import smoke_conflict
+
+        conflict = smoke_conflict(run_dir)
+        if conflict:
+            raise FileExistsError(conflict)
+    if (config.get("eval") or {}).get("checkpoint_schedule"):
+        refuse_existing_outputs(run_dir)
     import torch
     from peft import PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
@@ -562,6 +572,11 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
     from training.env_server import DEFAULT_REPO_ENVS_PATH, build_env_server
     from training.env_stamp import write_env_stamp
     from training.registry import get_model_config
+
+    if (config.get("eval") or {}).get("checkpoint_schedule"):
+        from transformers import set_seed
+
+        set_seed(int(config.get("seed", 42)))
 
     model_cfg = get_model_config(config["model"]["slug"])
     load_4bit = config["model"].get("load_in_4bit", model_cfg["load_in_4bit"])
@@ -727,10 +742,14 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
 
     report = _build_report(config, checkpoint_dir, split_metrics)
     json_path = os.path.join(run_dir, "eval_report.json")
+    with open(os.path.join(run_dir, "eval_report.md"), "w") as f:
+        f.write(
+            _report_md(
+                report["experiment_id"], split_metrics, report["checkpoint_step"]
+            )
+        )
     with open(json_path, "w") as f:
         json.dump(report, f, indent=2)
-    with open(os.path.join(run_dir, "eval_report.md"), "w") as f:
-        f.write(_report_md(report["experiment_id"], split_metrics))
     summary = ", ".join(
         f"{name} {m.accuracy:.3f} (n={m.n_samples})"
         for name, m in split_metrics.items()
@@ -739,14 +758,17 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
     return report
 
 
-def _report_md(experiment_id, split_metrics: dict) -> str:
+def _report_md(experiment_id, split_metrics: dict, checkpoint_step=None) -> str:
     """Human-readable report: one block per split.
 
     The three dimensions the protocol interprets jointly (task success, the
     targeted efficiency, the off-target panel) sit in one block per split so a
     drop in one is read next to a gain in another, not on a separate page.
     """
-    out = [f"# Agentic eval: {experiment_id}\n"]
+    step_label = (
+        f" (checkpoint step {checkpoint_step})" if checkpoint_step is not None else ""
+    )
+    out = [f"# Agentic eval: {experiment_id}{step_label}\n"]
     for name, m in split_metrics.items():
         nonterm = (
             "n/a"

@@ -12,6 +12,33 @@ DEFAULT_N_ROLLOUTS = 8
 SEED_BLOCK = 1_000_000
 
 
+def resolve_checkpoint_steps(config: dict, *, smoke: bool = False) -> list[int]:
+    """Return planned thirds, or [] for final-only evaluation; reject conflicts.
+
+    Validate the requested geometry before applying the three-step smoke override.
+    Does not mutate config or inspect checkpoint files.
+    """
+    evaluation = config.get("eval") or {}
+    if "checkpoint_schedule" not in evaluation:
+        return []
+    if evaluation["checkpoint_schedule"] != "thirds":
+        raise ValueError("eval.checkpoint_schedule must be 'thirds'")
+    training = config.get("training") or {}
+    steps = training.get("max_steps")
+    if isinstance(steps, bool) or not isinstance(steps, int) or steps <= 0 or steps % 3:
+        raise ValueError(
+            "checkpoint_schedule: thirds requires positive integer training.max_steps divisible by 3"
+        )
+    interval = steps // 3
+    if "save_steps" in training and training["save_steps"] != interval:
+        raise ValueError(
+            f"training.save_steps conflicts with thirds: expected {interval}"
+        )
+    if smoke:
+        return [1, 2, 3]
+    return [interval, 2 * interval, steps]
+
+
 def resolve_max_turns(env_config) -> int:
     """The tool-loop turn cap training and eval must agree on.
 
@@ -170,6 +197,7 @@ _KNOWN_ENV_CONFIG_KEYS = {
 # length - so they cannot detect the compression E2 exists to produce, and two
 # arms' rates are measured against two different yardsticks.
 _KNOWN_EVAL_KEYS = {
+    "checkpoint_schedule",
     "temperature",
     "do_sample",
     "max_new_tokens",
@@ -394,6 +422,13 @@ def validate_config(config: dict) -> None:
     Range checks now operate on a local float copy only.
     """
     errors = []
+    try:
+        if resolve_checkpoint_steps(config) and not _get_nested(
+            config, "eval.reference_report"
+        ):
+            errors.append("checkpoint_schedule: thirds requires eval.reference_report")
+    except ValueError as exc:
+        errors.append(str(exc))
 
     for key, label in _REQUIRED_KEYS.items():
         if _get_nested(config, key) is None:

@@ -16,3 +16,4 @@ enough to shape the pipeline or the thesis land here.
 | [0006](0006-pinned-dependency-stack.md) | The dependency stack is pinned | 2026-08-22 |
 | [0007](0007-recipe-defaults-2026-08-24.md) | Recipe defaults since 2026-08-24 | 2026-08-24 |
 | [0008](0008-no-unsloth.md) | No unsloth; training stays on plain TRL | 2026-09-04 |
+| [0009](0009-planned-checkpoint-thirds.md) | Planned checkpoint observations at training thirds | 2026-09-10 |

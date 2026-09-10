@@ -176,13 +176,14 @@ def load_report(path: str, split_name: str | None = None) -> dict:
         )
     return {
         "experiment_id": report.get("experiment_id", "?"),
+        "checkpoint_step": report.get("checkpoint_step"),
         "split_name": wanted,
         "agentic": split,
         "samples": split.get("samples") or [],
     }
 
 
-def _short(exp_id: str) -> str:
+def _short(exp_id: str, checkpoint_step=None) -> str:
     """Compact label for axes: the leading handle, e.g. e5-agentic-... -> e5.
 
     A seed replicate (`<exp>-s43`, the dir name `training.batch --seeds` writes)
@@ -191,9 +192,10 @@ def _short(exp_id: str) -> str:
     one figure whose job is to separate an effect from seed noise.
     """
     parts = (exp_id or "?").split("-")
+    suffix = f"\nstep {checkpoint_step}" if checkpoint_step is not None else ""
     if len(parts) > 1 and re.fullmatch(r"s\d+", parts[-1]):
-        return f"{parts[0]}-{parts[-1]}"
-    return parts[0]
+        return f"{parts[0]}-{parts[-1]}{suffix}"
+    return parts[0] + suffix
 
 
 def _correct_wrong_tokens(samples):
@@ -246,7 +248,7 @@ def plot_comparison(reports, fig=None):
             figsize=(max(6.2, 0.72 * len(reports) + 3.4), 3.8), layout="constrained"
         )
     ax_acc, ax_tok = fig.subplots(1, 2)
-    labels = [_short(r["experiment_id"]) for r in reports]
+    labels = [_short(r["experiment_id"], r.get("checkpoint_step")) for r in reports]
     x = np.arange(len(reports))
 
     for ax, key, color, title, ylabel, fmt in (
@@ -326,7 +328,7 @@ def plot_distributions(reports, fig=None):
                     linewidth=0.4,
                 )
         ax.set_title(
-            f"{_short(r['experiment_id'])}   {len(c)} correct / {len(w)} wrong"
+            f"{_short(r['experiment_id'], r.get('checkpoint_step'))}   {len(c)} correct / {len(w)} wrong"
         )
         ax.set_xlabel("completion tokens")
         ax.set_ylabel("episodes")
@@ -352,7 +354,7 @@ def plot_efficiency(reports, fig=None):
             r["agentic"]["accuracy"],
             r["agentic"]["accuracy_ci_low"],
             r["agentic"]["accuracy_ci_high"],
-            _short(r["experiment_id"]),
+            _short(r["experiment_id"], r.get("checkpoint_step")),
         )
         for r in reports
     ]
@@ -410,7 +412,7 @@ def _grouped_bars(ax, reports, keys, with_ci):
     would read as a measured absence of the behaviour. Returns False when
     nothing was drawn.
     """
-    labels = [_short(r["experiment_id"]) for r in reports]
+    labels = [_short(r["experiment_id"], r.get("checkpoint_step")) for r in reports]
     present = [
         (k, lbl)
         for k, lbl in keys
@@ -550,7 +552,9 @@ def plot_stop_reasons(reports, fig=None):
                 )
         bottom += vals
     ax.set_xticks(x)
-    ax.set_xticklabels([_short(r["experiment_id"]) for r in reports])
+    ax.set_xticklabels(
+        [_short(r["experiment_id"], r.get("checkpoint_step")) for r in reports]
+    )
     ax.set_ylim(0, 1)
     ax.set_ylabel("fraction of episodes")
     ax.set_title("Why episodes ended")
@@ -1071,7 +1075,9 @@ def make_figures(report_paths, out_dir, dpi=200, split=None):
         for p, r in zip(kept, reports, strict=True):
             eps = _episode_turns(p if os.path.isdir(p) else os.path.dirname(p), sp)
             if eps:
-                turns.append((_short(r["experiment_id"]), eps))
+                turns.append(
+                    (_short(r["experiment_id"], r.get("checkpoint_step")), eps)
+                )
         if turns:
             fig = plot_turn_profile(turns)
             if fig is not None:

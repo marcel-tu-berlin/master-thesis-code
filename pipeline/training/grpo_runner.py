@@ -10,6 +10,7 @@ from trl import GRPOConfig, GRPOTrainer
 from training.config_schema import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_N_ROLLOUTS,
+    resolve_checkpoint_steps,
     resolve_max_turns,
 )
 from training.registry import LORA_TARGET_MODULES, get_model_config
@@ -97,6 +98,7 @@ class GRPORunner:
 
     def _grpo_config(self, output_dir: str) -> GRPOConfig:
         t = self.config["training"]
+        checkpoint_steps = resolve_checkpoint_steps(self.config)
         max_completion_len = self.completion_budget()
 
         # Bound activation memory: forward/backward completions in small
@@ -171,7 +173,11 @@ class GRPORunner:
             num_generations=n_rollouts,
             max_completion_length=max_completion_len,
             max_steps=max_steps,
-            save_steps=int(t.get("save_steps", 100)),
+            save_steps=(
+                checkpoint_steps[0]
+                if checkpoint_steps
+                else int(t.get("save_steps", 100))
+            ),
             output_dir=output_dir,
             report_to="none",
             beta=float(t.get("kl_beta", 0.0)),
@@ -181,6 +187,8 @@ class GRPORunner:
             use_liger_kernel=bool(t.get("use_liger_kernel", False)),
             scale_rewards=str(t.get("scale_rewards", "group")),
         )
+        if checkpoint_steps:
+            kwargs["save_total_limit"] = None
         print(
             f"Recipe: optim={kwargs['optim']}  lr_scheduler_type={kwargs['lr_scheduler_type']}  "
             f"kl_beta={kwargs['beta']}  learning_rate={kwargs['learning_rate']}  "

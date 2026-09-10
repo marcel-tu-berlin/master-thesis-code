@@ -32,7 +32,7 @@ chronological order.
 
 1. **MiniWoB static server must be up on :8080.** It does not survive a box
    restart. `cd /workspace/miniwob-plusplus/miniwob/html && python3 -m http.server 8080`
-   (currently pid 217225, up since Aug 01). Check with
+   (check the PID on the current box). Check with
    `curl -o /dev/null -w "%{http_code}" http://localhost:8080/miniwob/click-option.html`.
 2. **Port 8000 must be free.** `pgrep -af server.app` and kill by pid.
    `EnvServerProcess.start()` now raises instead of running on someone else's
@@ -40,6 +40,25 @@ chronological order.
 
 ## Box state - read before the next run
 
+- **New box installed on 2026-09-10.** The `gpu-l4` alias now reaches a fresh
+  host with two L4s (23,034 MiB each), driver 580.173.02. The pipeline is at
+  `/workspace/master-thesis-code`; uv 0.9.25 ran the existing `setup.sh` against
+  `requirements.lock.txt`. All 251 pinned package versions matched after setup.
+  OpenEnv and MiniWoB use the existing pinned commits. Real resets succeeded for
+  reasoning_gym and browsergym. BrowserGym's probe emitted its thread-cleanup
+  warning after reset; the observations were returned successfully.
+  Fresh Ubuntu needed `python3-dev` and `build-essential` for locked pycosat,
+  plus `libasound2t64` for Chromium. MiniWoB is served on loopback port 8080 from
+  `/workspace/miniwob-plusplus/miniwob/html` (PID 5153 at setup). Select a GPU
+  explicitly with `CUDA_VISIBLE_DEVICES=0` for the single-GPU pipeline.
+  The locked TRL 1.6.0 warns that vLLM 0.19.1+cu130 is outside its advertised
+  0.12.0-0.19.0 range; installation kept the lock unchanged.
+  The three-step thirds smoke completed on GPU 0. Native periodic checkpoints
+  contained PEFT adapters; PEFT 0.19.1 loaded them directly, so no export callback
+  was needed. Standalone, explicit-checkpoint, and batch resumes preserved report
+  and trajectory bytes. Smoke artifacts were harvested outside `pipeline/runs`
+  to `/private/tmp/checkpoint-thirds-verification`; adapters remain on the box.
+  This verifies execution and artifact handling, not scientific measurements.
 - **The old box is gone (2026-09-01), and its disk with it.** The TU admins
   removed the L4 box behind `130.149.248.103:30236`; a replacement is promised
   but not yet available. Everything below this bullet describes the *old* box
@@ -1289,4 +1308,3 @@ a 20-episode browsergym estimate has moved by more than a tenth.
 Full analysis, including why the pooled per-split token median is an artifact of
 the bimodal mix and must not be reported, is in
 `pipeline/runs/e27_e1_baseline_findings.md`.
-

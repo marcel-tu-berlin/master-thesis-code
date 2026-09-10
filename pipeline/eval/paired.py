@@ -297,7 +297,9 @@ def load_episodes(run_dir: str, split: str) -> dict:
 
 def load_config(run_dir: str) -> dict:
     """The run's frozen config, or {} when it has none."""
-    path = os.path.join(run_dir, "config.yaml")
+    from eval.checkpoints import experiment_root
+
+    path = os.path.join(experiment_root(run_dir), "config.yaml")
     if not os.path.exists(path):
         return {}
     with open(path) as f:
@@ -435,6 +437,15 @@ def dose_rows(
     dose series rather than a set of unrelated runs. Its own paired numbers
     against itself are 0 by construction.
     """
+    from eval.checkpoints import experiment_root, report_step
+
+    arm_dirs = list(arm_dirs)
+    roots = [experiment_root(d).resolve() for d in [base_dir, *arm_dirs]]
+    steps = {report_step(d) for d in [base_dir, *arm_dirs]} - {None}
+    if len(set(roots)) != len(roots) or len(steps) > 1:
+        raise ValueError(
+            "Dose analysis requires one checkpoint per training seed at the same step; use paired comparisons for repeated checkpoints"
+        )
     base_eps = load_episodes(base_dir, held_out)
     rows, conditions = [], []
     for d in arm_dirs:
@@ -499,10 +510,14 @@ def _short(run_dir: str) -> str:
     lands on the same row label and a seed sweep reads as one arm reported
     several times.
     """
-    parts = os.path.basename(os.path.normpath(run_dir)).split("-")
+    from eval.checkpoints import experiment_root, report_step
+
+    parts = experiment_root(run_dir).name.split("-")
+    step = report_step(run_dir)
+    suffix = f" step {step}" if step is not None else ""
     if len(parts) > 1 and re.fullmatch(r"s\d+", parts[-1]):
-        return f"{parts[0]}-{parts[-1]}"
-    return parts[0]
+        return f"{parts[0]}-{parts[-1]}{suffix}"
+    return parts[0] + suffix
 
 
 # --- reporting ---------------------------------------------------------------

@@ -69,8 +69,100 @@ disjoint from training (a fixed +100000 offset), parses each tool call, scores i
 via the env, and writes `runs/<exp>/eval_report.json` + `.md` under the `agentic`
 split. Override the checkpoint with `--checkpoint`, the generation budget with
 `--max_new_tokens` (defaults to the training budget, `max_seq - max_prompt_length`),
-or cap to 10 episodes with `--smoke`. `--base-model` evaluates the base model with
+or cap to 4 episodes per split with `--smoke`. `--base-model` evaluates the base model with
 no adapter (reward condition E0) through the identical episode loop.
+
+### Planned checkpoint observations
+
+Future campaigns can enable training thirds:
+
+```yaml
+training:
+  max_steps: 150
+eval:
+  checkpoint_schedule: thirds
+  reference_report: runs/<fixed-reference>/eval_report.json
+```
+
+`max_steps` must be a positive integer divisible by 3. The shared resolver uses
+`interval = max_steps // 3` and observes `[interval, 2 * interval, max_steps]`:
+
+| max_steps | Checkpoint steps |
+|---|---|
+| 150 | 50, 100, 150 |
+| 300 | 100, 200, 300 |
+| 600 | 200, 400, 600 |
+
+Training saves every `interval` steps and records that `save_steps` in the frozen
+config. An explicit conflicting `save_steps` or an unknown schedule fails. All
+periodic checkpoints are retained; final evaluation still loads `checkpoint-final`.
+With the field absent, saving keeps its existing behavior (default interval 100),
+and evaluation remains final-only with top-level outputs.
+
+`training.train --eval`, `eval.runner`, and `training.batch --eval` evaluate the
+scheduled checkpoints in ascending order, each in a fresh evaluation process.
+An explicit `eval.runner --checkpoint` evaluates only that checkpoint. With the
+schedule enabled, a periodic override uses its checkpoint evaluation directory;
+an override to the run's `checkpoint-final` uses the top level.
+
+For a 150-step run, outputs are:
+
+```text
+runs/<experiment_id>/
+  checkpoint-50/                     # periodic LoRA plus trainer state
+  checkpoint-100/
+  checkpoint-150/                    # retained trainer checkpoint
+  checkpoint-final/                  # final evaluation adapter
+  checkpoint-evals/
+    eval_protocol.json               # settings and fixed reference data
+    checkpoint-50/
+      eval_report.json
+      eval_report.md
+      episodes_<split>.jsonl
+      env_stamp.json
+    checkpoint-100/                  # same artifacts as checkpoint-50
+  eval_report.json                   # final checkpoint only
+  eval_report.md
+  episodes_<split>.jsonl
+  env_stamp.json                     # training and final evaluation stamps
+```
+
+Every JSON report includes `checkpoint` and `checkpoint_step`; Markdown headings
+include the step. E0 records step 0. External checkpoint paths record null, even
+when named `checkpoint-N` or `checkpoint-final`. Final trajectories are stored only at the top
+level.
+
+Resume evaluation with `python -m eval.runner --config runs/<experiment_id>/config.yaml`
+(add `--smoke` for smoke runs), or repeat the batch command. `training.train`
+retains its existing refusal to overwrite training. Finished checkpoint reports
+are skipped; missing observations run next. Batch completion requires all three non-smoke reports.
+Before any episodes run, the evaluator loads every requested adapter against a
+meta base model with adapter tensors on CPU. Missing directories, invalid adapters,
+or changed evaluation settings fail before a long evaluation. Worker outputs are
+staged; a failed worker publishes no trajectories. JSON is published last as the
+completion marker. Existing report or episode files are never silently replaced,
+even with batch `--force`. Orphaned published files require inspection and a fresh
+experiment directory or explicit manual recovery before retrying.
+
+The fixed reference must contain at least four token-count samples for every
+evaluation split. Its data and the evaluation config are recorded and checked on
+resume. Each checkpoint uses the same held-out and shifted instances, budgets,
+decoding settings, thresholds, and seed mapping. Scheduled sampled decoding also
+starts from the same RNG seed. E0 is evaluated once; `--base-model` rejects this
+schedule. Report all three observations, with no best-checkpoint selection.
+
+`--smoke` training uses steps 1, 2, and 3 and saves every step. Scheduled smoke
+evaluation uses the frozen smoke config when available and caps each split at
+four episodes. Smoke reports never complete a real evaluation and cannot replace
+real reports or trajectories. Use a separate experiment ID for smoke runs.
+
+Paired comparisons and ordinary plots accept the two intermediate directories and
+the top-level run directory directly. Labels retain the checkpoint step. These
+observations are repeated measurements of one training seed, not additional seeds.
+For multi-seed dose analysis, run each planned step separately; mixed steps and
+duplicate run roots are rejected. Historical e30-e36 configs and results are
+unchanged, and their missing intermediate checkpoints cannot be reconstructed.
+See [decision 0009](../docs/decisions/0009-planned-checkpoint-thirds.md).
 
 ### Eval splits
 

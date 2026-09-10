@@ -16,6 +16,7 @@ from eval.agentic_eval import seed_block
 from training.batch import mark_smoke_checkpoint
 from training.config_schema import (
     DEFAULT_N_ROLLOUTS,
+    resolve_checkpoint_steps,
     validate_config,
     warn_inert_scalars,
 )
@@ -99,6 +100,7 @@ def apply_smoke_overrides(config: dict) -> dict:
 
     Sets `_smoke=True` so downstream eval also caps to 4 episodes per split.
     """
+    checkpoint_steps = resolve_checkpoint_steps(config, smoke=True)
     config.setdefault("model", {})
     config.setdefault("training", {})
     # Pick a smoke context that clears the env's prompt but fits the L4. A 512 cap
@@ -124,7 +126,7 @@ def apply_smoke_overrides(config: dict) -> dict:
         int(config["training"].get("max_prompt_length", seq // 2) or seq // 2), seq // 2
     )
     config["training"]["max_steps"] = 3
-    config["training"]["save_steps"] = 3
+    config["training"]["save_steps"] = checkpoint_steps[0] if checkpoint_steps else 3
     config["training"]["n_rollouts"] = 2
     # Cap eval generation: a multi-turn agentic eval runs many model.generate
     # calls per episode, and the default budget (max_seq - max_prompt) lets each
@@ -171,6 +173,9 @@ def main() -> None:
         config["model"].setdefault("gpu_memory_utilization", 0.6)
         print("⚠  vLLM fast inference ON (--vllm): gpu_memory_utilization=0.6")
     validate_config(config)
+    checkpoint_steps = resolve_checkpoint_steps(config)
+    if checkpoint_steps:
+        config["training"]["save_steps"] = checkpoint_steps[0]
     seed = config.get("seed", 42)
     random.seed(seed)
     np.random.seed(seed)
@@ -258,6 +263,18 @@ def main() -> None:
     mark_smoke_checkpoint(checkpoint_dir, bool(config.get("_smoke")))
 
     if args.eval:
+        if checkpoint_steps:
+            # Replace training's process so its policy and vLLM allocations are gone.
+            cmd = [
+                sys.executable,
+                "-m",
+                "eval.runner",
+                "--config",
+                os.path.join(run_dir, "config.yaml"),
+            ]
+            if args.smoke:
+                cmd.append("--smoke")
+            os.execv(sys.executable, cmd)
         from eval.agentic_eval import run_agentic_eval
 
         run_agentic_eval(config, checkpoint_dir, domain, run_dir)

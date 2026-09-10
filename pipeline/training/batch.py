@@ -214,15 +214,22 @@ def _write_eval_stub(config_path: str, status: str, note: str = "") -> bool:
     except Exception:
         return False
     exp_id = cfg.get("experiment_id")
+    if (cfg.get("eval") or {}).get("checkpoint_schedule"):
+        return False
     if not exp_id:
         return False
     path = os.path.join(_run_dir(exp_id), "eval_report.json")
     if os.path.exists(path):
         return False
+    from eval.checkpoints import resolve_checkpoint_evals
+
+    target = resolve_checkpoint_evals(cfg, _run_dir(exp_id))[0]
     stub = {
         "experiment_id": exp_id,
         "model_slug": (cfg.get("model") or {}).get("slug"),
         "seed": cfg.get("seed", 42),
+        "checkpoint": target.checkpoint,
+        "checkpoint_step": target.step,
         "compose_method": (cfg.get("rewards") or {}).get(
             "compose_method", "advantage_weighted"
         ),
@@ -272,10 +279,27 @@ def _run_eval_phase(
     retries: int,
     require_checkpoint: bool,
 ) -> PhaseResult:
+    from eval.checkpoints import completed, resolve_checkpoint_evals
+    from training.config_schema import resolve_checkpoint_steps
+
+    config = _load_config(config_path)
+    steps = resolve_checkpoint_steps(config, smoke=smoke)
+    if steps:
+        targets = resolve_checkpoint_evals(config, _run_dir(exp_id), smoke=smoke)
+        if not smoke and not force and all(completed(t) for t in targets):
+            from eval.runner import run_checkpoint_schedule
+
+            # Verify the saved protocol even when reports would otherwise skip eval.
+            run_checkpoint_schedule(config, _run_dir(exp_id))
+            return PhaseResult(
+                status=STATUS_SKIP, note="all checkpoint reports complete"
+            )
     if require_checkpoint and not _checkpoint_exists(exp_id):
         return PhaseResult(status=STATUS_SKIP, note="no checkpoint to eval")
-    if not force and _is_real_report(
-        os.path.join(_run_dir(exp_id), "eval_report.json")
+    if (
+        not steps
+        and not force
+        and _is_real_report(os.path.join(_run_dir(exp_id), "eval_report.json"))
     ):
         return PhaseResult(status=STATUS_SKIP, note="eval_report.json exists")
 
