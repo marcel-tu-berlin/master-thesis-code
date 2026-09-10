@@ -1,9 +1,10 @@
-"""Placebo arm: the shaped term shuffled within each prompt-group.
+"""Placebo arm: the shaped term uniformly shuffled within each prompt-group.
 
 What must hold: every group keeps exactly the values the real component
-produced (same scale, same variance), groups never exchange values, the
-assignment is random but reproducible from the seed, and the `placebo: true`
-config key wraps the component while the task reward can never be shuffled.
+produced, groups never exchange values, the assignment is random but
+reproducible from the seed, and the `placebo: true` config key wraps the
+component while the task reward can never be shuffled. These invariants do not
+claim matched total-reward variance or gradient noise.
 """
 
 import pytest

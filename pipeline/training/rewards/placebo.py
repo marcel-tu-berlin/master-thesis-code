@@ -17,20 +17,21 @@ def maybe_placebo(component, reward_cfg: dict, training_cfg: dict, seed: int):
 
 
 class WithinGroupShuffle:
-    """Content-free placebo for a shaped reward component.
+    """Shuffle a shaped component's rollout assignments within each group.
 
     Calls the wrapped component, then permutes its values within each positional
     prompt-group - the same consecutive blocks of `num_generations` completions
     TRL cuts advantages on. Every group keeps the exact multiset of values the
     real component produced: same scale, same within-group variance, same share
-    of non-zero entries. Only which rollout gets which value is random, so the
-    term carries no information about the rollout it lands on.
+    of non-zero entries. Only which rollout gets which value is random. For any
+    fixed group position, the expected assigned value is the group mean, so its
+    expected centered contribution is zero.
 
-    A placebo arm trained this way receives the same advantage noise and the
-    same gradient dilution as the real shaped arm, without the behavioral
-    signal. An effect that survives the shuffle (compression, a success drop, an
-    off-target shift) is not caused by what the penalty measures. Nearest
-    precedent: the shuffled-gold placebo of arXiv:2607.21273, Sec. 5.4.
+    The shuffle breaks the observed pairing between each rollout and its cost,
+    but it also changes the component's covariance with the task reward. It
+    therefore does not guarantee the same total-reward variance or gradient
+    noise as the real shaped arm. A difference between arms supports a role for
+    the cost assignment. Similar endpoints do not identify a shared mechanism.
 
     Seeded, so a placebo arm is reproducible from its frozen config. Metrics the
     composer logs are keyed by this class name, which marks the arm in the logs.

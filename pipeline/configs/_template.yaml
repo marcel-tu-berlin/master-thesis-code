@@ -56,8 +56,10 @@ rewards:
     r_correct_long: 0.5
     r_wrong_short: -1.0
     r_wrong_long: -0.5
-    # placebo: true shuffles this signal within each prompt-group - same scale
-    # and variance, no link to the rollout. A control arm, not a condition.
+    # placebo: true uniformly shuffles this signal within each prompt-group.
+    # It preserves the component values and has zero expected centered
+    # contribution per position, but need not match total-reward variance or
+    # gradient noise. This is a control arm, not a condition.
     placebo: false
 
   # E3: -1 per episode that ran out of budget (turn cap or completion budget)

@@ -185,10 +185,11 @@ _KNOWN_EVAL_SPLIT_KEYS = {"name", "n_episodes", "env_config", "seed_offset"}
 # Whitelist of allowed sub-keys per reward. Catches typos in YAML that would
 # otherwise pass through silently and leave the reward on its default.
 _COMMON_REWARD_SUBKEYS = {"enabled", "weight"}
-# `placebo: true` shuffles an efficiency signal's values within each prompt-group
-# (training.rewards.placebo.WithinGroupShuffle): same scale and variance, no
-# link to the rollout. Only the shaped signals take it - a shuffled task reward
-# would be a training bug, not a control.
+# `placebo: true` uniformly shuffles an efficiency signal's values within each
+# prompt-group (training.rewards.placebo.WithinGroupShuffle). It preserves the
+# component values and gives zero expected centered contribution at each group
+# position. It does not guarantee matched total-reward variance or gradient
+# noise. Only shaped signals take it - shuffling task reward would be a bug.
 _KNOWN_REWARD_SUBKEYS: dict[str, set[str]] = {
     "token_length": _COMMON_REWARD_SUBKEYS
     | {

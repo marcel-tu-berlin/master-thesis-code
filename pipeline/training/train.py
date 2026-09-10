@@ -80,8 +80,9 @@ def build_reward_components(config: dict, domain, runner: GRPORunner) -> list:
         if not cfg.get("enabled", _reg_enabled):
             continue
         weight = float(cfg.get("weight", default_weight))
-        # Placebo arm: the same term at the same weight, shuffled within each
-        # prompt-group so it carries no information about its rollout.
+        # Placebo arm: uniformly shuffle the same term within each prompt-group.
+        # Its expected centered contribution at every group position is zero,
+        # but total-reward variance and gradient noise need not match the real arm.
         component = maybe_placebo(
             builder(domain, runner, training_cfg, cfg),
             cfg,
