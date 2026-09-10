@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.10.6",
+  "checkpoint_id": "01M25VM2WZ7TA52N19R9FWD9PP",
+  "strategy": "manual-commit",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "LAB_NOTES.md",
+    "RUNNING.md",
+    "docs/decisions/0009-planned-checkpoint-thirds.md",
+    "docs/decisions/README.md",
+    "pipeline/README.md",
+    "pipeline/eval/agentic_eval.py",
+    "pipeline/eval/checkpoints.py",
+    "pipeline/eval/paired.py",
+    "pipeline/eval/plots.py",
+    "pipeline/eval/runner.py",
+    "pipeline/tests/test_checkpoint_schedule.py",
+    "pipeline/training/batch.py",
+    "pipeline/training/config_schema.py",
+    "pipeline/training/grpo_runner.py",
+    "pipeline/training/train.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 300181,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 15116928,
+    "output_tokens": 54398,
+    "api_call_count": 127
+  }
+}

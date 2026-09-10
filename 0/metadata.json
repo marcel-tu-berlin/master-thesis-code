@@ -1,0 +1,95 @@
+{
+  "cli_version": "0.10.6",
+  "checkpoint_id": "01M25VM2WZ7TA52N19R9FWD9PP",
+  "session_id": "01a08b86-4967-7ad3-871e-d34168b48059",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-10T14:30:22.07899Z",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "LAB_NOTES.md",
+    "RUNNING.md",
+    "docs/decisions/0009-planned-checkpoint-thirds.md",
+    "docs/decisions/README.md",
+    "pipeline/README.md",
+    "pipeline/eval/agentic_eval.py",
+    "pipeline/eval/checkpoints.py",
+    "pipeline/eval/paired.py",
+    "pipeline/eval/plots.py",
+    "pipeline/eval/runner.py",
+    "pipeline/tests/test_checkpoint_schedule.py",
+    "pipeline/training/batch.py",
+    "pipeline/training/config_schema.py",
+    "pipeline/training/grpo_runner.py",
+    "pipeline/training/train.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "059308271858",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 300181,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 15116928,
+    "output_tokens": 54398,
+    "api_call_count": 127
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-10T14:30:21.930687Z",
+    "agent_lines": 347,
+    "agent_removed": 10,
+    "human_added": 52,
+    "human_modified": 30,
+    "human_removed": 0,
+    "total_committed": 422,
+    "total_lines_changed": 439,
+    "agent_percentage": 81.32118451025056,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 732,
+      "user_lines_removed": 21,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7,
+        "pipeline/eval/agentic_eval.py": 15,
+        "pipeline/eval/checkpoints.py": 125,
+        "pipeline/eval/paired.py": 19,
+        "pipeline/eval/plots.py": 15,
+        "pipeline/eval/runner.py": 161,
+        "pipeline/tests/test_checkpoint_schedule.py": 313,
+        "pipeline/training/batch.py": 17,
+        "pipeline/training/config_schema.py": 32,
+        "pipeline/training/grpo_runner.py": 9,
+        "pipeline/training/train.py": 18
+      },
+      "user_removed_per_file": {
+        "pipeline/eval/agentic_eval.py": 4,
+        "pipeline/eval/paired.py": 4,
+        "pipeline/eval/plots.py": 9,
+        "pipeline/training/batch.py": 2,
+        "pipeline/training/grpo_runner.py": 1,
+        "pipeline/training/train.py": 1
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1094,
+      "agent_lines_removed": 31,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    }
+  ]
+}
