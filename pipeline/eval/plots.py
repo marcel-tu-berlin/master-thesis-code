@@ -12,7 +12,7 @@ figures with matplotlib (Agg backend, headless - no display needed):
 - efficiency.png       success rate vs mean tokens on CORRECT episodes - the
                        token-efficiency frontier (up-and-left is better).
 - offtarget.png        RQ2's substitution panel: non-termination, wrong
-                       termination, unsupported claims and action instability
+                       termination, first-action endings and action instability
                        per arm, with the Wilson intervals the report carries.
 - stop_reasons.png     why each arm's episodes ended, stacked. Keeps the budget
                        artifact (hit_generation_cap) visually apart from the
@@ -125,7 +125,7 @@ _OVERLAY_KEYS = [
 _OFFTARGET_KEYS = [
     ("non_termination_rate", "non-termination"),
     ("wrong_termination_rate", "wrong termination"),
-    ("unsupported_claim_rate", "unsupported claim"),
+    ("unsupported_claim_rate", "first-action termination"),
     ("invalid_action_rate", "invalid action"),
     ("repeated_action_rate", "repeated action"),
 ]
@@ -134,7 +134,7 @@ _OFFTARGET_KEYS = [
 # get bare bars.
 _COUNT_KEYS = [
     ("mean_steps", "mean env steps"),
-    ("mean_verification_depth", "mean verification depth"),
+    ("mean_verification_depth", "mean preceding actions"),
 ]
 
 # Fixed colours so `hit_generation_cap` - a budget artifact, never a behaviour -

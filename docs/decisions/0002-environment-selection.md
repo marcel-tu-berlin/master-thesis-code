@@ -28,10 +28,12 @@ docstring named the upgrade, "a richer task source (e.g. reasoning_gym)". Pointi
 `make_task` at a reasoning_gym family gives a multi-turn env at a difficulty the
 poly campaign already showed how to dial. It buys two real off-target axes from a
 single tool, because the model prints `FINAL(answer)` from inside an `execute`
-call: verification depth is the number of execute calls before the final one, and
-printing `FINAL` on the first execute is a genuine unsupported claim. It does not
-buy an action-instability axis, and a one-tool panel stays thinner than a 3-4 tool
-env's - so prefer an off-the-shelf env that clears both bars.
+call: preceding-action count is the number of execute calls before the final one,
+and first-action termination is directly observable. Neither count establishes
+verification quality or an unsupported claim without task-grounded trajectory
+review. It does not buy an action-instability axis, and a one-tool panel stays
+thinner than a 3-4 tool env's - so prefer an off-the-shelf env that clears both
+bars.
 
 To revive: `git show ace8954 -- pipeline/domains/repl` for the code, plus the box
 deps `setup.sh` never installed

@@ -249,7 +249,10 @@ a registry entry and the key in `config_schema._KNOWN_REWARD_KEYS`.
 - `metrics.py` - `SampleResult` and `compute_metrics`: accuracy with Wilson 95%
   interval, mean token count with bootstrap CI, underthinking / overthinking
   rates, mean steps, and the off-target panel (non-termination rate,
-  unsupported-claim rate, mean verification depth, stop-reason histogram).
+  first-action termination rate, mean preceding-action count, stop-reason
+  histogram). Reports retain the legacy JSON keys `unsupported_claim_rate` and
+  `mean_verification_depth`; neither key establishes the harmful behavior its
+  old name implied without task-grounded validation.
 - `paired.py` - arm-vs-control statistics on the episode records: exact McNemar
   on the correctness flips, sign test and a paired bootstrap on the token
   difference over jointly correct episodes, per-family breakdowns, and the

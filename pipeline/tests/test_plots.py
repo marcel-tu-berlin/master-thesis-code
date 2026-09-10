@@ -432,7 +432,10 @@ def test_plot_offtarget_draws_a_group_per_present_rate(tmp_path):
     assert fig is not None
     ticks = [t.get_text() for t in fig.axes[0].get_xticklabels()]
     assert "non-termination" in ticks and "wrong termination" in ticks
+    assert "first-action termination" in ticks
     assert "invalid action" in ticks and "repeated action" in ticks
+    count_ticks = [t.get_text() for t in fig.axes[1].get_xticklabels()]
+    assert "mean preceding actions" in count_ticks
 
 
 def test_plot_offtarget_none_when_no_report_carries_a_rate(tmp_path):

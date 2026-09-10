@@ -152,9 +152,9 @@ def _run_episodes(
                 n_steps=1,
                 reward=r,
                 terminated=terminated,
-                stop_reason="env_done"
-                if terminated
-                else _no_call_reason(n_tokens, gen_cap),
+                stop_reason=(
+                    "env_done" if terminated else _no_call_reason(n_tokens, gen_cap)
+                ),
                 tool_calls=["answer"] if terminated else [],
             )
         )
@@ -775,8 +775,8 @@ def _report_md(experiment_id, split_metrics: dict) -> str:
             f"- underthinking rate: {m.underthinking_rate}\n"
             f"- overthinking rate: {m.overthinking_rate}\n"
             f"- non-termination rate: {nonterm}\n"
-            f"- unsupported-claim rate: {m.unsupported_claim_rate}\n"
-            f"- mean verification depth: {m.mean_verification_depth}\n"
+            f"- first-action termination rate: {m.unsupported_claim_rate}\n"
+            f"- mean preceding-action count: {m.mean_verification_depth}\n"
             f"- wrong-termination rate (of terminated): {m.wrong_termination_rate}\n"
             f"- invalid-action rate (episodes with any): {m.invalid_action_rate}\n"
             f"- repeated-action rate (episodes with any): {m.repeated_action_rate}\n"

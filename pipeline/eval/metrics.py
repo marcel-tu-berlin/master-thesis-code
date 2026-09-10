@@ -98,15 +98,16 @@ class EvalMetrics:
     non_termination_rate: float | None = None
     non_termination_rate_ci_low: float | None = None
     non_termination_rate_ci_high: float | None = None
-    # Among TERMINATED episodes, the fraction that called the terminal tool with
-    # no tool call before it. Degenerate (1.0) in a single-tool domain such as
-    # reasoning_gym, where there is nothing else to call - it only carries
-    # information in a multi-tool environment.
+    # Among TERMINATED episodes, the fraction whose terminal tool was the first
+    # action. The legacy JSON key does not establish that the claim was
+    # unsupported without task-grounded validation. Degenerate (1.0) in a
+    # single-tool domain such as reasoning_gym.
     unsupported_claim_rate: float | None = None
     unsupported_claim_rate_ci_low: float | None = None
     unsupported_claim_rate_ci_high: float | None = None
-    # Mean number of non-terminal tool calls in terminated episodes. Same caveat:
-    # 0.0 by construction in a single-tool domain.
+    # Mean number of actions preceding the terminal action in terminated
+    # episodes. The legacy JSON key does not establish verification quality.
+    # This is 0.0 by construction in a single-tool domain.
     mean_verification_depth: float | None = None
     # Among TERMINATED episodes, the fraction the env scored as failed. A
     # budget-exhaustion penalty (E3) leaves exactly this substitute open: finish
@@ -272,8 +273,8 @@ def _offtarget_panel(results: list[SampleResult]) -> dict:
         ),
     }
 
-    # Verification depth is only defined for episodes that actually finished:
-    # an episode that ran out of turns never had the chance to claim completion.
+    # Preceding-action count is only defined for episodes that actually finished:
+    # an episode that ran out of turns never reached a terminal action.
     finished = [r for r in known if r.terminated and r.tool_calls is not None]
     if finished:
         depths = [max(len(r.tool_calls or []) - 1, 0) for r in finished]
