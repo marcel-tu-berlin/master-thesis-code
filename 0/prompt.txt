@@ -235,3 +235,7 @@ Goal
 > The GPU host is reachable, but /workspace/master-thesis-code and its training environment are absent. Where is the prepared checkout and Python environment on this host? I can finish the CPU implementation while checking this.
 
 its gone because this is an entirely new gpu box. you need to reinstall using our lock files etc.
+
+---
+
+cool then commit and push all of your work
