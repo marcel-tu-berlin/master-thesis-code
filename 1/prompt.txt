@@ -1,0 +1,5 @@
+ok. please explain to me again what P2 was and if its a good decision to keep scale_rewards at none. i remember that we changed this but im not sure anymore about the exact reason
+
+---
+
+ok then now implement the planned experiment strategy from above docs/plans/experiment-readiness.md

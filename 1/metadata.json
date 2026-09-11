@@ -1,0 +1,82 @@
+{
+  "cli_version": "0.10.6",
+  "checkpoint_id": "01M2907FY01VT0R66P24TJ91WN",
+  "session_id": "01a0918d-1d59-72f0-9db1-d823c5043ee6",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-11T19:48:37.134412Z",
+  "branch": "master",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [
+    "BACKLOG.md",
+    "docs/decisions/0010-final-training-recipe.md",
+    "docs/plans/experiment-readiness.md",
+    "pipeline/configs/_template.yaml",
+    "pipeline/configs/readiness/g3-e1.yaml",
+    "pipeline/configs/readiness/g3-e2.yaml",
+    "pipeline/configs/readiness/g3-e3.yaml",
+    "pipeline/eval/agentic_eval.py",
+    "pipeline/eval/metrics.py",
+    "pipeline/probes/README.md",
+    "pipeline/probes/__init__.py",
+    "pipeline/probes/readiness.py",
+    "pipeline/tests/test_multiturn_eval.py",
+    "pipeline/tests/test_readiness.py",
+    "pipeline/tests/test_validate_config.py",
+    "pipeline/training/config_schema.py",
+    "pipeline/training/grpo_runner.py",
+    "pipeline/training/train.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "4056c13e1cd9",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1293095,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 17929600,
+    "output_tokens": 100732,
+    "api_call_count": 116
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-11T19:48:36.891873Z",
+    "agent_lines": 1533,
+    "agent_removed": 36,
+    "human_added": 75,
+    "human_modified": 9,
+    "human_removed": 0,
+    "total_committed": 1616,
+    "total_lines_changed": 1653,
+    "agent_percentage": 94.91833030852995,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 12237,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7,
+        "docs/plans/experiment-readiness.md": 295,
+        "thesis.pdf": 11934
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 13770,
+      "agent_lines_removed": 36,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    }
+  ]
+}
