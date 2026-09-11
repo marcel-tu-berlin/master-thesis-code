@@ -125,6 +125,9 @@ _KNOWN_TRAINING_KEYS = {
     # a shaping weight in constant-task-reward groups; a dose-valid lambda sweep
     # sets `none` or `batch`. See grpo_runner._grpo_config.
     "scale_rewards",
+    # Explicitly pin the loss denominator. TRL 1.6 defaults to DAPO, but an
+    # unstated default is not sufficient evidence for a scientific run.
+    "loss_type",
 }
 
 # Known keys under `model`. The last block without a whitelist: `lora_rnk: 8`
@@ -161,6 +164,17 @@ _KNOWN_VLLM_IS_MODES = {
 }
 
 _KNOWN_SCALE_REWARDS = {"group", "batch", "none"}
+
+_KNOWN_LOSS_TYPES = {
+    "grpo",
+    "bnpo",
+    "dr_grpo",
+    "dapo",
+    "cispo",
+    "sapo",
+    "luspo",
+    "vespo",
+}
 
 _KNOWN_ENV_SERVER_KEYS = {"repo_path", "port"}
 
@@ -536,9 +550,15 @@ def validate_config(config: dict) -> None:
                 )
         scale = training.get("scale_rewards")
         if scale is not None and scale not in _KNOWN_SCALE_REWARDS:
-            raise ValueError(
+            errors.append(
                 f"Unknown training.scale_rewards: {scale!r}. "
                 f"Known: {sorted(_KNOWN_SCALE_REWARDS)}"
+            )
+        loss_type = training.get("loss_type")
+        if loss_type is not None and loss_type not in _KNOWN_LOSS_TYPES:
+            errors.append(
+                f"Unknown training.loss_type: {loss_type!r}. "
+                f"Known: {sorted(_KNOWN_LOSS_TYPES)}"
             )
         is_mode = training.get("vllm_importance_sampling_mode")
         if is_mode is not None and is_mode not in _KNOWN_VLLM_IS_MODES:

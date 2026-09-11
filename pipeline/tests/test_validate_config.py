@@ -147,6 +147,7 @@ def test_accepts_every_training_key_the_code_reads():
         lr_scheduler_type="cosine",
         num_iterations=2,
         use_liger_kernel=True,
+        loss_type="dapo",
     )
     validate_config(cfg)  # must not raise
 
@@ -348,4 +349,14 @@ def test_scale_rewards_rejects_unknown_mode():
     cfg = _scale_base()
     cfg["training"]["scale_rewards"] = "grouped"
     with pytest.raises(ValueError, match="scale_rewards"):
+        validate_config(cfg)
+
+
+def test_loss_type_is_explicitly_validated():
+    cfg = _scale_base()
+    cfg["training"]["loss_type"] = "dapo"
+    validate_config(cfg)
+
+    cfg["training"]["loss_type"] = "token_mean"
+    with pytest.raises(ValueError, match="loss_type"):
         validate_config(cfg)

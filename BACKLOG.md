@@ -65,10 +65,12 @@ The check, on the final recipe (kl_beta 0.0, `compose_method: naive_sum`,
    campaign, not an extra run.
 2. Evaluate on the held-out split (unseen seeds, same family) and the shifted
    split.
-3. Require on held-out: `non_termination_rate` clearly above zero (E3's
-   target), completion length with room to shrink (E2's target), and success
-   clearly below 1.0. No numeric thresholds are set yet - decide them from
-   the pilot numbers and record them here.
+3. Require on held-out: at least 10 budget-exhausted episodes among the first
+   100 same-family calibration episodes (E3's target: `max_turns` plus
+   `hit_generation_cap`, excluding voluntary `no_tool_call` stops),
+   completion length with room to shrink (E2's target), and success below 90%.
+   Treat a confidence interval crossing a bar as inconclusive; allow one
+   predeclared extension to 200 episodes, then decide without sampling further.
 4. Fail any bar: pick a harder family or a mix, repeat.
 
 Do not reuse the seed-42 campaign numbers (e0m, e30-e36): old recipe, group

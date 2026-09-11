@@ -16,6 +16,58 @@ from training.config_schema import (
 from training.registry import LORA_TARGET_MODULES, get_model_config
 
 
+class _ReadinessGRPOTrainer(GRPOTrainer):
+    """TRL trainer with opt-in, read-only capture at its native boundaries."""
+
+    def __init__(self, *args, readiness_recorder, **kwargs) -> None:
+        self._readiness_recorder = readiness_recorder
+        self._capture_loss_logps = False
+        self._current_loss_logps = None
+        super().__init__(*args, **kwargs)
+
+    def _generate_and_score_completions(self, inputs):
+        source_inputs = self._readiness_recorder.snapshot(inputs)
+        prepared = super()._generate_and_score_completions(inputs)
+        self._readiness_recorder.record_rollout_batch(source_inputs, prepared)
+        return prepared
+
+    def _get_per_token_logps_and_entropies(self, *args, **kwargs):
+        result = super()._get_per_token_logps_and_entropies(*args, **kwargs)
+        if self._capture_loss_logps:
+            self._current_loss_logps = result[0]
+        return result
+
+    def _compute_loss(self, model, inputs):
+        self._capture_loss_logps = True
+        self._current_loss_logps = None
+        try:
+            loss = super()._compute_loss(model, inputs)
+        finally:
+            self._capture_loss_logps = False
+        self._readiness_recorder.record_loss(
+            inputs,
+            loss,
+            self._current_loss_logps,
+            {
+                "loss_type": self.loss_type,
+                "importance_sampling_level": self.importance_sampling_level,
+                "epsilon_low": self.epsilon_low,
+                "epsilon_high": self.epsilon_high,
+            },
+        )
+        return loss
+
+    def training_step(self, model, inputs, num_items_in_batch):
+        result = super().training_step(model, inputs, num_items_in_batch)
+        if self._step % self.current_gradient_accumulation_steps == 0:
+            self._readiness_recorder.record_gradients(model, self._step)
+        return result
+
+    def log(self, logs, start_time=None) -> None:
+        super().log(logs, start_time)
+        self._readiness_recorder.record_log(logs)
+
+
 class GRPORunner:
     """Vanilla TRL + PEFT GRPO. Loads the model (optionally 4-bit nf4), applies
     LoRA, and runs GRPOTrainer. The agentic rollout_func branch is added later.
@@ -186,6 +238,7 @@ class GRPORunner:
             num_iterations=int(t.get("num_iterations", 1)),
             use_liger_kernel=bool(t.get("use_liger_kernel", False)),
             scale_rewards=str(t.get("scale_rewards", "group")),
+            loss_type=str(t.get("loss_type", "dapo")),
         )
         if checkpoint_steps:
             kwargs["save_total_limit"] = None
@@ -193,7 +246,8 @@ class GRPORunner:
             f"Recipe: optim={kwargs['optim']}  lr_scheduler_type={kwargs['lr_scheduler_type']}  "
             f"kl_beta={kwargs['beta']}  learning_rate={kwargs['learning_rate']}  "
             f"num_iterations={kwargs['num_iterations']}  use_liger_kernel={kwargs['use_liger_kernel']}  "
-            f"scale_rewards={kwargs['scale_rewards']}  vllm_enable_sleep_mode={self._sleep_mode}"
+            f"scale_rewards={kwargs['scale_rewards']}  loss_type={kwargs['loss_type']}  "
+            f"vllm_enable_sleep_mode={self._sleep_mode}"
         )
         # Cap the tool-calling loop. TRL treats an unset
         # max_tool_calling_iterations as sys.maxsize, so leaving it off for
@@ -245,6 +299,7 @@ class GRPORunner:
         *,
         server=None,
         make_factory=None,
+        readiness_recorder=None,
     ) -> None:
         # Agentic path: the runner owns the env-server subprocess lifecycle.
         # `server` is an unstarted EnvServerProcess; once it is up, build the
@@ -275,8 +330,18 @@ class GRPORunner:
             )
             if environment_factory is not None:
                 kwargs["environment_factory"] = environment_factory
-            trainer = GRPOTrainer(**kwargs)
+            trainer_class = (
+                _ReadinessGRPOTrainer if readiness_recorder is not None else GRPOTrainer
+            )
+            if readiness_recorder is not None:
+                kwargs["readiness_recorder"] = readiness_recorder
+            trainer = trainer_class(**kwargs)
+            if readiness_recorder is not None:
+                readiness_recorder.record_trainer_settings(trainer)
+                readiness_recorder.record_parameters("before", self.model)
             trainer.train()
+            if readiness_recorder is not None:
+                readiness_recorder.record_parameters("after", self.model)
             self._save_train_log(trainer, output_dir)
         finally:
             if server is not None:

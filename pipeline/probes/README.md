@@ -4,6 +4,34 @@ Standalone diagnostic scripts. Not part of the pipeline: they run outside
 `training/` and `eval/`, answer one question each, and are kept because the
 question recurs.
 
+## `readiness.py` - staged experiment admission
+
+Validates the final recipe and the E1/E2/E3 diagnostic bundle, runs the local
+gate, rejects stale captures, and inspects completed run artifacts. It admits
+one next phase at a time and exits 2 while evidence is still missing.
+
+```bash
+cd pipeline
+python -m probes.readiness \
+  configs/readiness/g3-e1.yaml \
+  configs/readiness/g3-e2.yaml \
+  configs/readiness/g3-e3.yaml
+```
+
+Run only the experiment named by `Next phase`, with bounded evidence capture:
+
+```bash
+python -m training.train \
+  --config configs/readiness/g3-e1.yaml \
+  --eval --readiness-capture
+```
+
+Harvest that run and invoke the readiness command again before starting the next
+arm. Assess completed captures inside the deployed GPU checkout so the controller
+can reject evidence from an older installed stack; then harvest the run and report.
+The full protocol and pass conditions are in
+`docs/plans/experiment-readiness.md`.
+
 ## `bg_probe.py` - BrowserGym/MiniWoB difficulty probe
 
 Measures base-model success per MiniWoB task so an environment can be checked

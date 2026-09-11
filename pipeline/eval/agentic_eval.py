@@ -188,6 +188,7 @@ def _turn_record(
         "reasoning": reasoning,
         "content": content,
         "tool_calls": [{"name": name, "arguments": args} for name, args in turn_calls],
+        "tool_results": [],
     }
     if count_tokens is not None:
         rec["n_reasoning_tokens"] = int(count_tokens(reasoning))
@@ -279,7 +280,8 @@ def _run_multiturn_episodes(
             total_tokens += int(n_tok)
             # Recorded before the no-call exit: a turn that spent its tokens and
             # emitted nothing usable is the one worth reading afterwards.
-            turns.append(_turn_record(msg, turn_calls, n_tok, count_tokens))
+            turn_record = _turn_record(msg, turn_calls, n_tok, count_tokens)
+            turns.append(turn_record)
             turn_cap, budget = budget, (None if budget is None else budget - int(n_tok))
             if not turn_calls:
                 stop_reason = _no_call_reason(n_tok, turn_cap)
@@ -329,6 +331,7 @@ def _run_multiturn_episodes(
                         if str(feedback).startswith("Action error"):
                             n_invalid += 1
                 fb = str(feedback)
+                turn_record["tool_results"].append({"name": name, "content": fb})
                 # `name` mirrors TRL's tool-message shape. The budget charge
                 # mirrors its accounting: the content's token count, leaving
                 # only the few per-message template framing tokens uncounted.
@@ -353,6 +356,7 @@ def _run_multiturn_episodes(
                 stop_reason=stop_reason,
                 tool_calls=calls,
                 turns=turns,
+                initial_observation=obs,
                 n_actions=n_actions,
                 n_invalid_actions=n_invalid,
                 n_repeated_actions=n_repeated,
@@ -455,6 +459,8 @@ def _episode_line(index: int, seed: int, r) -> str:
     # unchanged. The report stays an aggregate; the text lives only here.
     if r.turns is not None:
         line["turns"] = r.turns
+    if r.initial_observation is not None:
+        line["initial_observation"] = r.initial_observation
     return json.dumps(line) + "\n"
 
 

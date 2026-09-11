@@ -16,6 +16,7 @@ All new training configs use this recipe and state every value explicitly:
 | `vllm_importance_sampling_mode` | `token_truncate` |
 | `rewards.compose_method` | `naive_sum` |
 | `training.scale_rewards` | `none` |
+| `training.loss_type` | `dapo` |
 
 The learning rate is the top stable point of the same-seed probe ladder. The
 optimizer, scheduler and zero KL coefficient remove costs that did not buy a
@@ -32,6 +33,10 @@ that weight when task reward is constant within a prompt-group, and
 groups. The P2 probes used `scale_rewards: group`, so they did not empirically
 validate `none`; this part is selected from the reward algebra and guardrail,
 not from the P2 outcome.
+
+`loss_type: dapo` makes the token-normalized loss explicit. It matches TRL
+1.6.0's current default and therefore does not change the accepted behavior; it
+prevents a future library default from silently changing the loss denominator.
 
 This decision supersedes decision 0007 for future runs. It does not invalidate
 or relabel old experiments. Their frozen configs and archived launch configs

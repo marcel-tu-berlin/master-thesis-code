@@ -572,6 +572,7 @@ def test_turns_record_one_entry_per_turn_including_the_silent_one():
     assert turns[0]["tool_calls"] == [
         {"name": "move", "arguments": {"message": "crane"}}
     ]
+    assert turns[0]["tool_results"] == [{"name": "move", "content": "wrong, try again"}]
     # The turn that emitted nothing usable is the one worth reading afterwards.
     assert turns[1]["tool_calls"] == [] and turns[1]["content"] == "giving up"
 
@@ -627,6 +628,26 @@ def test_episode_line_carries_turns_only_when_recorded():
     # Absent, not null: every earlier episodes_*.jsonl parses unchanged.
     plain = SampleResult(correct=True, n_tokens=9, n_steps=1)
     assert "turns" not in json.loads(_episode_line(0, 42, plain))
+
+
+def test_episode_line_carries_task_observation_and_tool_feedback():
+    import json
+
+    from eval.agentic_eval import _episode_line
+
+    env = _FakeGameEnv("slate")
+    result = _run_multiturn_episodes(
+        env,
+        1,
+        7,
+        _scripted(_turn("move", {"message": "slate"}, 9)),
+        max_turns=2,
+        make_messages=_msgs,
+        tool_names={"move"},
+    )[0]
+    line = json.loads(_episode_line(0, 7, result))
+    assert line["initial_observation"] == "start"
+    assert line["turns"][0]["tool_results"] == [{"name": "move", "content": "correct"}]
 
 
 # --- action counts feeding the invalid / repeated-action panel rates ---

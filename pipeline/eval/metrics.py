@@ -43,6 +43,9 @@ class SampleResult:
     # answered from disk instead of from another eval run. None for results
     # produced before trajectory text was recorded, and for the single-turn loop.
     turns: list[dict] | None = None
+    # Reset observation shown to the policy before the first turn. Kept only in
+    # the durable episode record so a trajectory can be audited against its task.
+    initial_observation: object | None = None
     # Action-level counts (multi-turn eval only): tool calls the model requested,
     # how many drew error feedback (unknown tool, unbindable arguments, or an env
     # action error), and how many dispatched calls repeated the previous

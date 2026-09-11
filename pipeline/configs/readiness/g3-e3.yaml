@@ -1,0 +1,70 @@
+experiment_id: readiness-g3-e3-s9001
+description: "Gate 3 E3: three full-geometry optimizer updates at lambda 1.0"
+seed: 9001
+
+model:
+  slug: qwen3-1.7b
+  lora_r: 16
+  lora_alpha: 32
+  load_in_4bit: false
+  max_seq_length: 8192
+  use_vllm: true
+  gpu_memory_utilization: 0.3
+  vllm_enable_sleep_mode: false
+
+training:
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    tasks: [click-menu-2]
+    miniwob_url: http://localhost:8080/miniwob/
+    max_turns: 8
+    size: 4
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  max_prompt_length: 4096
+  batch_size: 4
+  n_rollouts: 8
+  micro_batch_size: 1
+  max_steps: 3
+  save_steps: 3
+  learning_rate: 0.00005
+  kl_beta: 0.0
+  optim: adamw_torch_fused
+  lr_scheduler_type: constant_with_warmup
+  warmup_ratio: 0.1
+  weight_decay: 0.1
+  temperature: 1.0
+  vllm_importance_sampling_mode: token_truncate
+  num_iterations: 1
+  use_liger_kernel: false
+  scale_rewards: none
+  loss_type: dapo
+
+rewards:
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    enabled: false
+    weight: 1.0
+    max_len: 4096
+    r_correct_short: 1.0
+    r_correct_long: 0.5
+    r_wrong_short: -1.0
+    r_wrong_long: -0.5
+    placebo: false
+  non_termination:
+    enabled: true
+    weight: 1.0
+    placebo: false
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  max_new_tokens: 4096
+  agentic:
+    n_episodes: 4

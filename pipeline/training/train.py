@@ -2,6 +2,7 @@ import argparse
 import os
 import random
 import sys
+import time
 
 # Set the GPU before importing Transformers, TRL, or vLLM. Those imports can
 # initialize CUDA, after which changing visibility is too late.
@@ -167,7 +168,15 @@ def main() -> None:
         action="store_true",
         help="Route GRPO rollouts through vLLM fast inference",
     )
+    parser.add_argument(
+        "--readiness-capture",
+        action="store_true",
+        help="Capture one full rollout batch and its first optimizer update",
+    )
     args = parser.parse_args()
+    if args.readiness_capture and args.smoke:
+        parser.error("--readiness-capture requires the real geometry, not --smoke")
+    readiness_started = time.perf_counter() if args.readiness_capture else None
 
     config = load_config(args.config)
     if args.smoke:
@@ -220,6 +229,28 @@ def main() -> None:
     # num_generations - the same resolution grpo_runner hands TRL.
     n_rollouts = int(config["training"].get("n_rollouts", DEFAULT_N_ROLLOUTS))
     reward_fn = build_composer(components, method, n_rollouts)
+    trainer_reward_fn = reward_fn
+    readiness_recorder = None
+    if args.readiness_capture:
+        from probes.readiness import ReadinessRecorder
+
+        readiness_recorder = ReadinessRecorder(
+            run_dir, frozen, started_monotonic=readiness_started
+        )
+        rewards_cfg = config.get("rewards") or {}
+        training_cfg = config.get("training") or {}
+        diagnostic_components = {
+            key: builder(
+                domain,
+                runner,
+                training_cfg,
+                rewards_cfg.get(key) or {},
+            )
+            for key, (_enabled, _weight, builder) in REWARD_REGISTRY.items()
+        }
+        trainer_reward_fn = readiness_recorder.wrap_reward(
+            reward_fn, diagnostic_components
+        )
 
     # The callback holds the same composer instance passed as the reward fn, so
     # it drains the very buffer the trainer's reward calls populate (T2.1).
@@ -250,39 +281,52 @@ def main() -> None:
     # actually had installed while it trained. A hand-installed package between
     # two arms is otherwise invisible.
     write_env_stamp(run_dir, "train", server.repo_envs_path)
-    make_factory = lambda base_url: domain.make_env_factory(base_url, env_config)  # noqa: E731
+
+    def make_factory(base_url):
+        return domain.make_env_factory(base_url, env_config)
+
     print(
         f"Agentic env: {config['training']['env']}  seed-rows: {len(dataset)}  "
         f"server: {server.base_url} (max_concurrent={server.max_concurrent})"
     )
-    runner.train(
-        dataset,
-        reward_fn,
-        output_dir=run_dir,
-        callbacks=callbacks or None,
-        server=server,
-        make_factory=make_factory,
-    )
+    try:
+        runner.train(
+            dataset,
+            trainer_reward_fn,
+            output_dir=run_dir,
+            callbacks=callbacks or None,
+            server=server,
+            make_factory=make_factory,
+            readiness_recorder=readiness_recorder,
+        )
 
-    runner.save_lora(checkpoint_dir)
-    mark_smoke_checkpoint(checkpoint_dir, bool(config.get("_smoke")))
+        runner.save_lora(checkpoint_dir)
+        mark_smoke_checkpoint(checkpoint_dir, bool(config.get("_smoke")))
 
-    if args.eval:
-        if checkpoint_steps:
-            # Replace training's process so its policy and vLLM allocations are gone.
-            cmd = [
-                sys.executable,
-                "-m",
-                "eval.runner",
-                "--config",
-                os.path.join(run_dir, "config.yaml"),
-            ]
-            if args.smoke:
-                cmd.append("--smoke")
-            os.execv(sys.executable, cmd)
-        from eval.agentic_eval import run_agentic_eval
+        if args.eval:
+            if checkpoint_steps:
+                if readiness_recorder is not None:
+                    readiness_recorder.finish("complete")
+                # Replace training's process so its policy and vLLM allocations are gone.
+                cmd = [
+                    sys.executable,
+                    "-m",
+                    "eval.runner",
+                    "--config",
+                    os.path.join(run_dir, "config.yaml"),
+                ]
+                if args.smoke:
+                    cmd.append("--smoke")
+                os.execv(sys.executable, cmd)
+            from eval.agentic_eval import run_agentic_eval
 
-        run_agentic_eval(config, checkpoint_dir, domain, run_dir)
+            run_agentic_eval(config, checkpoint_dir, domain, run_dir)
+        if readiness_recorder is not None:
+            readiness_recorder.finish("complete")
+    except BaseException as exc:
+        if readiness_recorder is not None:
+            readiness_recorder.finish("failed", str(exc))
+        raise
 
 
 if __name__ == "__main__":

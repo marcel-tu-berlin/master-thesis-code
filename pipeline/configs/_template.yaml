@@ -11,7 +11,10 @@ seed: 42
 model:
   slug: qwen3-1.7b              # key into training/registry.py
   lora_r: 16
+  lora_alpha: 32
+  load_in_4bit: false
   max_seq_length: 8192
+  use_vllm: true
   gpu_memory_utilization: 0.3
   vllm_enable_sleep_mode: false
 
@@ -33,7 +36,7 @@ training:
   micro_batch_size: 1
   max_steps: 300
   # Final recipe (decision 0010). Keep every value explicit in each config.
-  learning_rate: 5e-5
+  learning_rate: 0.00005
   kl_beta: 0.0
   optim: adamw_torch_fused     # LoRA state is ~140 MB, 8-bit paging buys nothing
   lr_scheduler_type: constant_with_warmup   # cosine wasted the tail of a 150-step run
@@ -44,6 +47,7 @@ training:
   num_iterations: 1           # decision 0012: one update per fresh rollout batch
   use_liger_kernel: false      # decision 0011: current fused loss is not equivalent
   scale_rewards: none          # preserve shaped-reward weights as actual doses
+  loss_type: dapo              # token-normalized loss, pinned instead of implicit
 
 rewards:
   compose_method: naive_sum
@@ -59,7 +63,7 @@ rewards:
   token_length:
     enabled: false
     weight: 1.0
-    max_len: 256
+    max_len: 4096
     r_correct_short: 1.0
     r_correct_long: 0.5
     r_wrong_short: -1.0
