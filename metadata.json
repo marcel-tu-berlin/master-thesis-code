@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.10.6",
+  "checkpoint_id": "01M290NFJHXSE3M82H0X42H87C",
+  "strategy": "manual-commit",
+  "branch": "master",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "RUNNING.md",
+    "pipeline/configs/readiness/g3-e1.yaml",
+    "pipeline/configs/readiness/g3-e2.yaml",
+    "pipeline/configs/readiness/g3-e3.yaml",
+    "pipeline/tests/test_readiness.py",
+    "pipeline/tests/test_validate_config.py",
+    "pipeline/training/config_schema.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 138672,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 4112384,
+    "output_tokens": 12266,
+    "api_call_count": 30
+  }
+}
