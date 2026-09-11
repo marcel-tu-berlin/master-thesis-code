@@ -1,7 +1,8 @@
 # Archived configs
 
 Configs of finished or superseded experiments. Kept for the record; nothing here
-backs a planned run. The live campaign configs stay one level up.
+backs a planned run. The parent directory contains only the template until a new
+experiment is explicitly planned.
 
 Two warnings before re-running anything from this directory:
 
@@ -10,3 +11,7 @@ Two warnings before re-running anything from this directory:
   `experiment_id` (see "Void results" in the root CLAUDE.md).
 - Every browsergym config before e30 trained under the `sequence_mask` ISR
   filter and none of their numbers carry over to the e30-era campaign.
+- Configs before decision 0010 may omit settings whose runtime defaults have
+  since changed. Their frozen run copies record what was stated, but omission is
+  not proof of the resolved value. Reconstruct from the run log and findings
+  before any historical rerun.

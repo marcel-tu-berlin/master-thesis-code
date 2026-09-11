@@ -17,9 +17,9 @@ T=4096, the same for every Qwen3 size.
 
 ## Model scale
 
-- **Qwen3-4B base eval probe.** Ready: registry fixed to the post-trained
-  lineage and `configs/e0m-browsergym-base-menu-qwen3-4b.yaml` mirrors e0m on
-  the same seed-42 draw. Cheap (eval only, bf16 fits, no vLLM involved).
+- **Qwen3-4B base eval probe.** The registry uses the post-trained lineage. The
+  old candidate config is archived and must be recreated from the accepted
+  recipe when this work is scheduled. The eval is cheap (bf16, no vLLM).
   Decides whether click-menu-2 stays inside the 40-80% band at 4B; if it
   saturates, the band check reopens with a different task pool before any 4B
   training.
@@ -36,14 +36,10 @@ T=4096, the same for every Qwen3 size.
 
 ## Memory levers (what unlocks 4B training and a 16k cap)
 
-- **Liger fused GRPO loss.** `use_liger_kernel` in TRL; chunks the loss so the
-  four [T, vocab] tensors are never materialized. Kills the 4.6 GiB term,
-  which is what caps completions at 4096 today. Verified: liger supports
-  Qwen3 and TRL's GRPO path. Risks: numerics are not bit-identical (a Liger
-  arm is never compared against a non-Liger arm), and whether the fused loss
-  honors the multi-turn tool mask is unverified. Gate: install, smoke, A/B
-  against e24 at the same seed, then memcheck at 16k. liger-kernel is not
-  installed on the box yet.
+- **Liger fused GRPO loss.** Rejected for the current campaign by decision
+  0011: the installed DAPO path changes the loss denominator and gradients.
+  Revisit only after identical-input loss and gradient parity, then run the
+  16k memory check.
 - **Drop vLLM.** `model.use_vllm: false` already works in grpo_runner. Frees
   the duplicate weight copy, which alone makes 4B bf16 fit without Liger, and
   is scientifically cleaner: the same weights generate and train, so the
@@ -89,7 +85,6 @@ number.
 
 ## Suggested order, if all of it happens
 
-Seeds 43/44 on 1.7B first (they answer the noise question no scale change
-can), then the 4B probe, then the backend bake-off, then Liger behind its
-gate, then one 4B contrast, then Llama-3.2-1B. Stop wherever the thesis
-timeline says stop; each step stands alone.
+The final 1.7B campaign comes first, then the 4B probe, then any measured
+backend comparison, one 4B contrast, and finally Llama-3.2-1B. Stop wherever
+the thesis timeline says stop; each step stands alone.

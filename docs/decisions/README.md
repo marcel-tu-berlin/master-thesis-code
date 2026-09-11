@@ -17,3 +17,7 @@ enough to shape the pipeline or the thesis land here.
 | [0007](0007-recipe-defaults-2026-08-24.md) | Recipe defaults since 2026-08-24 | 2026-08-24 |
 | [0008](0008-no-unsloth.md) | No unsloth; training stays on plain TRL | 2026-09-04 |
 | [0009](0009-planned-checkpoint-thirds.md) | Planned checkpoint observations at training thirds | 2026-09-10 |
+| [0010](0010-final-training-recipe.md) | Final training recipe for new experiments | 2026-09-11 |
+| [0011](0011-keep-liger-disabled.md) | Keep Liger disabled | 2026-09-11 |
+| [0012](0012-one-update-per-rollout-batch.md) | Use one optimizer update per rollout batch | 2026-09-11 |
+| [0013](0013-keep-vllm-sleep-disabled.md) | Keep vLLM sleep mode disabled | 2026-09-11 |

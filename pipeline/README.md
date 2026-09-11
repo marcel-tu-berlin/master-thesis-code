@@ -31,14 +31,14 @@ phase records the stack it ran on in `runs/<exp>/env_stamp.json`.
 
 ```bash
 cd pipeline
-python -m training.train --config configs/e30-browsergym-e1-menu-qwen3-1_7b.yaml --eval
+python -m training.train --config configs/my-experiment.yaml --eval
 ```
 
 `--eval` runs held-out episode evaluation after training. `--smoke` overrides the
 config for a fast sanity check (3 steps, 2 rollouts, 512 seq, 10 eval episodes):
 
 ```bash
-python -m training.train --config configs/e30-browsergym-e1-menu-qwen3-1_7b.yaml --smoke --eval
+python -m training.train --config configs/my-experiment.yaml --smoke --eval
 ```
 
 ### How agentic training works
@@ -61,7 +61,7 @@ python -m training.train --config configs/e30-browsergym-e1-menu-qwen3-1_7b.yaml
 ## Evaluate a checkpoint
 
 ```bash
-python -m eval.runner --config configs/e30-browsergym-e1-menu-qwen3-1_7b.yaml
+python -m eval.runner --config configs/my-experiment.yaml
 ```
 
 Runs N held-out episodes (default 100, set by `eval.agentic.n_episodes`) on seeds
@@ -190,8 +190,8 @@ writes `runs/<exp>/episodes_<name>.jsonl`. Omitting `splits` keeps the single
 Built for unattended ablation and seed sweeps on a single GPU.
 
 ```bash
-python -m training.batch configs/e3*-*.yaml --train --eval
-python -m training.batch configs/e3*-*.yaml --train --eval --seeds 42 43 44
+python -m training.batch 'configs/campaign-*.yaml' --train --eval
+python -m training.batch 'configs/campaign-*.yaml' --train --eval --seeds 42 43 44
 ```
 
 | Flag | Behaviour |
@@ -212,9 +212,9 @@ real `eval_report.json` skips eval. Per-phase logs land at
 
 ## Run a new experiment
 
-1. Copy the template: `cp configs/_template.yaml configs/e6-my-experiment.yaml`
+1. Copy the template: `cp configs/_template.yaml configs/my-experiment.yaml`
 2. Edit `experiment_id`, toggle reward signals under `rewards:`, adjust weights.
-3. Run: `python -m training.train --config configs/e6-my-experiment.yaml --eval`
+3. Run: `python -m training.train --config configs/my-experiment.yaml --eval`
 4. Results land in `runs/<experiment_id>/`.
 
 ## Add a new environment
@@ -267,10 +267,9 @@ eval/agentic_eval.py:run_agentic_eval()  # N held-out episodes, env-scored repor
 
 ### `configs/`
 
-YAML experiment configs. `_template.yaml` documents every field; copy it to make
-a new experiment. `e30-browsergym-e1-menu-qwen3-1_7b.yaml` is the reference run
-(browsergym click-menu-2, Qwen3-1.7B, env reward only). Finished and superseded
-configs live in `configs/archive/` - read its README before re-running one.
+YAML experiment configs. `_template.yaml` carries the accepted recipe; copy it
+to make a new experiment. Finished and superseded configs live in
+`configs/archive/` - read its README before re-running one.
 
 ### `domains/`
 

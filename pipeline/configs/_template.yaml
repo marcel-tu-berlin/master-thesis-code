@@ -4,41 +4,49 @@
 # through its native tool-calling template and rewarded by a live OpenEnv
 # environment, not graded against a dataset answer column.
 
-experiment_id: eX-my-experiment-qwen3-1_7b
-description: "agentic GRPO on reasoning_gym via OpenEnv, Qwen3-1.7B, vLLM colocate"
+experiment_id: eX-browsergym-qwen3-1_7b
+description: "agentic GRPO on click-menu-2 via OpenEnv, Qwen3-1.7B, vLLM colocate"
 seed: 42
 
 model:
   slug: qwen3-1.7b              # key into training/registry.py
   lora_r: 16
-  max_seq_length: 2048
-  # bf16 + vLLM colocate are the registry/runner defaults.
+  max_seq_length: 8192
+  gpu_memory_utilization: 0.3
+  vllm_enable_sleep_mode: false
 
 training:
   mode: agentic                # only `agentic` is supported
-  env: reasoning_gym           # only `reasoning_gym` is implemented
+  env: browsergym
   env_config:
-    dataset: chain_sum         # reasoning-gym task family
-    size: 500                  # number of distinct training prompts (one seed each)
+    benchmark: miniwob
+    tasks: [click-menu-2]
+    miniwob_url: http://localhost:8080/miniwob/
+    max_turns: 8
   env_server:
     # OpenEnv env launched locally (no Docker) by the runner as a subprocess.
     repo_path: /workspace/OpenEnv/envs   # clone of meta-pytorch/OpenEnv
-    port: 8077
+    port: 8000
+  max_prompt_length: 4096
+  batch_size: 4
   n_rollouts: 8                # GRPO group size
+  micro_batch_size: 1
   max_steps: 300
-  learning_rate: 5e-6
-  # Recipe defaults (2026-08-24). Written out so the frozen config records them.
-  kl_beta: 0.0                 # TRL default; >0 adds a ref-model forward per step
+  # Final recipe (decision 0010). Keep every value explicit in each config.
+  learning_rate: 5e-5
+  kl_beta: 0.0
   optim: adamw_torch_fused     # LoRA state is ~140 MB, 8-bit paging buys nothing
   lr_scheduler_type: constant_with_warmup   # cosine wasted the tail of a 150-step run
-  # Which std TRL divides group advantages by: group (TRL default) | batch | none.
-  # Under `group` a shaped reward's weight cancels in every prompt-group whose
-  # task reward is constant (DIET, App. B), so a lambda sweep run as a
-  # dose-response sets `none` or `batch`.
-  scale_rewards: group
+  warmup_ratio: 0.1
+  weight_decay: 0.1
+  temperature: 1.0
+  vllm_importance_sampling_mode: token_truncate
+  num_iterations: 1           # decision 0012: one update per fresh rollout batch
+  use_liger_kernel: false      # decision 0011: current fused loss is not equivalent
+  scale_rewards: none          # preserve shaped-reward weights as actual doses
 
 rewards:
-  compose_method: advantage_weighted   # advantage_weighted | naive_sum
+  compose_method: naive_sum
 
   # Task-success signal from the environment. The live signal in agentic mode.
   env_reward:

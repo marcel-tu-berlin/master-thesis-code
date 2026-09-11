@@ -73,9 +73,8 @@ chronological order.
   and holds only as a checklist of what `setup.sh` plus the first launch must
   re-establish on the new one. Lost with the disk: the finished but never
   harvested `probe-p2-{base,liger,sleep,iter2}` chain (~26 GPU-hours). The
-  probe configs were box-only and are now reconstructed in
-  `pipeline/configs/probe-p2-*.yaml`; the rerun is
-  `python -m training.batch configs/probe-p2-*.yaml --train`. Lesson: a config
+  probe configs were box-only and were reconstructed for the successful rerun;
+  they now live in `pipeline/configs/archive/probe-p2-*.yaml`. Lesson: a config
   that only exists on the box or in a scratchpad is one box removal away from
   gone - anything a run needs to be re-launched lives in `configs/` from the
   start.
@@ -112,6 +111,27 @@ chronological order.
 
 ## Traps that have each cost real time
 
+- **P2 settings audit (2026-09-11).** The harvested four-arm comparison is in
+  `pipeline/runs/probe_p2_findings.md`, with reproducible statistics and archived
+  installed-source evidence beside it. Liger's current DAPO integration omits the
+  accumulated-batch denominator; sleep mode reloads the original checkpoint
+  after policy synchronization. Both passed execution smokes, which did not
+  establish scientific correctness. Future work on either path must verify the
+  intended loss or the sampled policy, respectively. All four probes resolved
+  `scale_rewards=group`; they do not empirically validate the selected `none`
+  recipe. Decisions 0010-0013 retain the final recipe, disable Liger, keep one
+  update per fresh rollout batch, and disable sleep mode. The `none` choice is
+  justified by reward-dose algebra rather than the P2 comparison.
+  Historical Liger setup: 0.8.2 was installed and locked on 2026-08-24, the config
+  passthrough and live browsergym smoke succeeded, and the fused loss received
+  tool masks and sampling corrections. Those checks did not cover normalization.
+  The original memory motivation and arithmetic described the old 4096-token
+  ceiling, not a measured memory saving in these P2 runs.
+  Dead end retained from the memory investigation: `cast_lm_head_to_fp32` is
+  false and was never enabled, so there is no fp32 upcast to remove. Forcing
+  fp32 logits uses four bytes for logits plus four for their gradient; it does
+  not eliminate the eight-byte-per-vocabulary-element allocation motivating
+  the fused-path investigation.
 - **TRL 1.6's vLLM logprob correction silently discards most of the gradient
   (found 2026-08-11).** The trainer recomputes the sampled tokens' logprobs with
   its own forward; the two implementations disagree by ~0.018 abs per token, and

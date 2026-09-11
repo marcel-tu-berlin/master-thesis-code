@@ -52,8 +52,8 @@ Reads `train_log.json` from a base run and any number of arms and prints per-arm
 step time, mean reward, clip rate and completion length, plus the paired
 per-step reward difference against the base (same seed, so step k saw the same
 questions in every arm) with a sign count and SE. The Phase-2 trainer-knob
-probes (`probe-p2-*`, LAB_NOTES "recipe defaults") are read with it. Runs
-anywhere the logs are:
+probes are complete and their configs are archived. This command is retained
+only to reproduce `runs/probe_p2_findings.md` from the historical logs:
 
 ```bash
 python -m probes.p2_compare runs/probe-p2-base runs/probe-p2-liger runs/probe-p2-sleep
