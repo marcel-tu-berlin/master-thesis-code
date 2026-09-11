@@ -1,5 +1,1 @@
-ok. please explain to me again what P2 was and if its a good decision to keep scale_rewards at none. i remember that we changed this but im not sure anymore about the exact reason
-
----
-
-ok then now implement the planned experiment strategy from above docs/plans/experiment-readiness.md
+ok sounds good. then continue with the verification for this work. when done commit and push. then (right away) start the first check for our current setup so that we can finally advance in our research and get hopefully be able to present first interpretable results
