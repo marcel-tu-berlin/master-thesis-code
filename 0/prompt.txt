@@ -1,0 +1,44 @@
+looks like you are probing too often or not? maybe only in the beginning check that the probes are running (what you already did) and then only check again when it should be done. we are just wasting compute here otherwise
+
+---
+
+how far are we?
+
+---
+
+i had to interrupt you. please check how its going and wait again for the results. but one adjustment to you task: dont analyze them. this will be done only after my approval. just tell me when the data has arrived
+
+---
+
+try again. i wasnt in the vpn of my uni. it should work now
+
+---
+
+is it done already?
+
+---
+
+before we analyze - why didnt you catch it before my question?
+
+---
+
+make a thorough analysis of the data. goal is to find out if we should go with all the tested settings. present me your findings and i will then decide for the final decision
+
+---
+
+just to ensure that you didnt overlook anything. when we introduced those new settings we also adapted some other parameters after thoughtful consideration. the following commit contains those changes: 5ba8d9eacee68b99fe9c3ecbb77221cd41e6fcbc
+
+when you compare to "base" is this already with the new learning rate, kl_beta, optimizer, learning rate evolution etc.?
+
+---
+
+give me an executive summary for the tested settings with you concrete recommendation tied to the reason. maintain brevity
+
+---
+
+ok i want to follow your recommendation. for each decision create a new ADR in docs/decisions and then cleanup probes etc. so that we can continue from now on with the new validated settings. since we changed core training dynamics like kl_beta etc. I want you to also archive all old
+  experiments such that we have a clean state with no current experiments/configs laying around which look like they are still in use. i will then continue in the next step to create new configs but first do your tasks to prepare the setup
+
+---
+
+commit and push all changes
