@@ -21,7 +21,7 @@ def test_readiness_bundle_admits_only_e1_first(monkeypatch, tmp_path):
     report = readiness.build_report(CONFIGS, tmp_path)
     assert report["contracts"][0]["status"] == "pass"
     assert report["status"] == "not_tested"
-    assert report["next_phase"] == "run_e1:readiness-g3-e1-s9001"
+    assert report["next_phase"] == "run_e1:readiness-g3-e1-s4001"
     assert [
         item["condition"] for item in report["contracts"][0]["evidence"]["configs"]
     ] == ["E1", "E2", "E3"]

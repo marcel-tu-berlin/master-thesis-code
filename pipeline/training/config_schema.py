@@ -10,6 +10,8 @@ DEFAULT_N_ROLLOUTS = 8
 # seed_offset must stay below this or one seed's eval lands inside the next
 # seed's training questions; _split_errors enforces it at validation.
 SEED_BLOCK = 1_000_000
+_UINT32_MAX = (1 << 32) - 1
+_BROWSERGYM_MAX_CONFIG_SEED = (_UINT32_MAX - (SEED_BLOCK - 1)) // SEED_BLOCK
 
 
 def resolve_checkpoint_steps(config: dict, *, smoke: bool = False) -> list[int]:
@@ -455,6 +457,20 @@ def validate_config(config: dict) -> None:
     if _get_nested(config, "training.env") is None:
         errors.append(
             "Missing required field: training.env (str) - OpenEnv environment id"
+        )
+
+    seed = config.get("seed", 42)
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        errors.append(f"seed={seed!r} is not an int")
+    elif seed < 0:
+        errors.append(f"seed={seed} must be non-negative")
+    elif (
+        _get_nested(config, "training.env") == "browsergym"
+        and seed > _BROWSERGYM_MAX_CONFIG_SEED
+    ):
+        errors.append(
+            f"seed={seed} makes its SEED_BLOCK exceed BrowserGym's uint32 limit; "
+            f"maximum config seed is {_BROWSERGYM_MAX_CONFIG_SEED}"
         )
 
     for key, (lo, hi) in _NUMERIC_COERCIONS.items():

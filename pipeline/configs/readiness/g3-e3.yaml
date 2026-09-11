@@ -1,6 +1,6 @@
-experiment_id: readiness-g3-e3-s9001
+experiment_id: readiness-g3-e3-s4001
 description: "Gate 3 E3: three full-geometry optimizer updates at lambda 1.0"
-seed: 9001
+seed: 4001
 
 model:
   slug: qwen3-1.7b

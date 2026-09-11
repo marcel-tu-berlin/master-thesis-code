@@ -74,6 +74,21 @@ def test_accepts_browsergym_env_config_keys():
     validate_config(cfg)  # must not raise
 
 
+def test_rejects_browsergym_seed_block_above_uint32():
+    cfg = _agentic_base()
+    cfg["training"]["env"] = "browsergym"
+    cfg["seed"] = 4294
+    with pytest.raises(ValueError, match="uint32"):
+        validate_config(cfg)
+
+
+def test_accepts_last_complete_browsergym_seed_block():
+    cfg = _agentic_base()
+    cfg["training"]["env"] = "browsergym"
+    cfg["seed"] = 4293
+    validate_config(cfg)
+
+
 def test_rejects_unknown_env_config_key():
     cfg = _agentic_base()
     cfg["training"]["env_config"]["datsaet"] = "typo"  # misspelled
