@@ -1,0 +1,168 @@
+{
+  "cli_version": "0.10.6",
+  "checkpoint_id": "01M28NBEX4DBXQ0RBM1S0TES27",
+  "session_id": "01a08be9-7014-7c71-b14e-022ed13c5a2b",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-11T16:38:31.48157Z",
+  "branch": "master",
+  "checkpoints_count": 6,
+  "save_step_count": 6,
+  "files_touched": [
+    "BACKLOG.md",
+    "IMPROVEMENTS.md",
+    "LAB_NOTES.md",
+    "RUNNING.md",
+    "docs/decisions/0010-final-training-recipe.md",
+    "docs/decisions/0011-keep-liger-disabled.md",
+    "docs/decisions/0012-one-update-per-rollout-batch.md",
+    "docs/decisions/0013-keep-vllm-sleep-disabled.md",
+    "docs/decisions/README.md",
+    "pipeline/README.md",
+    "pipeline/configs/_template.yaml",
+    "pipeline/configs/archive/README.md",
+    "pipeline/configs/archive/e0m-browsergym-base-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e0m-browsergym-base-menu-qwen3-4b.yaml",
+    "pipeline/configs/archive/e30-browsergym-e1-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e31-browsergym-e2-cosine-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e32-browsergym-e3-nontermination-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e33-browsergym-e2-cosine-w025-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e34-browsergym-e2-cosine-w05-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e35-browsergym-e3-nontermination-w025-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/e36-browsergym-e3-nontermination-w05-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/archive/probe-p2-base.yaml",
+    "pipeline/configs/archive/probe-p2-iter2.yaml",
+    "pipeline/configs/archive/probe-p2-liger.yaml",
+    "pipeline/configs/archive/probe-p2-sleep.yaml",
+    "pipeline/configs/e0m-browsergym-base-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/e0m-browsergym-base-menu-qwen3-4b.yaml",
+    "pipeline/configs/e30-browsergym-e1-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/e31-browsergym-e2-cosine-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/e32-browsergym-e3-nontermination-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/e33-browsergym-e2-cosine-w025-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/e34-browsergym-e2-cosine-w05-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/e35-browsergym-e3-nontermination-w025-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/e36-browsergym-e3-nontermination-w05-menu-qwen3-1_7b.yaml",
+    "pipeline/configs/probe-p2-base.yaml",
+    "pipeline/configs/probe-p2-iter2.yaml",
+    "pipeline/configs/probe-p2-liger.yaml",
+    "pipeline/configs/probe-p2-sleep.yaml",
+    "pipeline/probes/README.md",
+    "pipeline/runs/.gitignore",
+    "pipeline/runs/README.md",
+    "pipeline/runs/batch_summary_20260911_121746.md",
+    "pipeline/runs/probe_p2_findings.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "2309253dc804",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 2535584,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 17018624,
+    "output_tokens": 94098,
+    "api_call_count": 112
+  },
+  "session_metrics": {
+    "turn_count": 6
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-11T16:38:31.265551Z",
+    "agent_lines": 1450,
+    "agent_removed": 1065,
+    "human_added": 0,
+    "human_modified": 26,
+    "human_removed": 15,
+    "total_committed": 1463,
+    "total_lines_changed": 2556,
+    "agent_percentage": 98.39593114241002,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 12,
+      "user_lines_removed": 2,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7,
+        "RUNNING.md": 4
+      },
+      "user_removed_per_file": {
+        "RUNNING.md": 2
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 17,
+      "agent_lines_removed": 4,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 17,
+      "agent_lines_removed": 4,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 354,
+      "agent_lines_removed": 41,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 354,
+      "agent_lines_removed": 41,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 354,
+      "agent_lines_removed": 41,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 21,
+      "user_lines_removed": 18,
+      "agent_lines_added": 13429,
+      "agent_lines_removed": 1085,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7,
+        "pipeline/runs/probe_p2_findings.md": 13
+      },
+      "user_removed_per_file": {
+        "pipeline/runs/probe_p2_findings.md": 18
+      }
+    }
+  ]
+}
