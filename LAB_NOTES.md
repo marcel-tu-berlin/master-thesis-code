@@ -111,6 +111,13 @@ chronological order.
 
 ## Traps that have each cost real time
 
+- **Gate 3 readiness preflight (2026-09-11/12).** BrowserGym rejects seeds above
+  uint32; config seed 9001 overflowed after the million-wide seed-block mapping,
+  so validation now limits BrowserGym to complete uint32-safe blocks. The next
+  three-step E1 diagnostic completed, but admission correctly failed because the
+  tokenizer revision was not recorded. New configs pin the observed Qwen3-1.7B
+  snapshot and pass it to every model, tokenizer, and checkpoint-preflight load.
+  Neither diagnostic admits E2; use the `-r2` readiness IDs after this fix.
 - **P2 settings audit (2026-09-11).** The harvested four-arm comparison is in
   `pipeline/runs/probe_p2_findings.md`, with reproducible statistics and archived
   installed-source evidence beside it. Liger's current DAPO integration omits the

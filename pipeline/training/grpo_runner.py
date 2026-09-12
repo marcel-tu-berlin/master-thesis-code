@@ -76,6 +76,7 @@ class GRPORunner:
     def __init__(self, config: dict) -> None:
         self.config = config
         model_cfg = get_model_config(config["model"]["slug"])
+        revision = config["model"].get("revision")
 
         lora_rank = int(config["model"].get("lora_r", model_cfg["max_lora_rank"]))
         lora_alpha = int(config["model"].get("lora_alpha", lora_rank * 2))
@@ -110,9 +111,12 @@ class GRPORunner:
                 bnb_4bit_compute_dtype=dtype,
             )
 
-        self.tokenizer = AutoTokenizer.from_pretrained(model_cfg["model_name"])
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_cfg["model_name"], revision=revision
+        )
         self.model = AutoModelForCausalLM.from_pretrained(
             model_cfg["model_name"],
+            revision=revision,
             quantization_config=quant_config,
             torch_dtype=dtype,
             device_map="auto",

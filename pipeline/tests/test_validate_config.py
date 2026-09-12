@@ -186,6 +186,7 @@ def test_rejects_unknown_model_key():
 def test_accepts_every_model_key_the_code_reads():
     cfg = _agentic_base()
     cfg["model"].update(
+        revision="70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
         lora_r=16,
         lora_alpha=32,
         load_in_4bit=False,
@@ -195,6 +196,14 @@ def test_accepts_every_model_key_the_code_reads():
         vllm_enable_sleep_mode=True,
     )
     validate_config(cfg)  # must not raise
+
+
+@pytest.mark.parametrize("revision", ["main", "a" * 39, "g" * 40, 123])
+def test_rejects_mutable_or_malformed_model_revision(revision):
+    cfg = _agentic_base()
+    cfg["model"]["revision"] = revision
+    with pytest.raises(ValueError, match=r"model\.revision"):
+        validate_config(cfg)
 
 
 def test_accepts_every_vllm_importance_sampling_mode():

@@ -10,6 +10,7 @@ seed: 42
 
 model:
   slug: qwen3-1.7b              # key into training/registry.py
+  revision: 70d244cc86ccca08cf5af4e1e306ecf908b1ad5e
   lora_r: 16
   lora_alpha: 32
   load_in_4bit: false

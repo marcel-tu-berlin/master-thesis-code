@@ -137,6 +137,7 @@ _KNOWN_TRAINING_KEYS = {
 # recorded 8. Every key here is read by grpo_runner, train.py or agentic_eval.
 _KNOWN_MODEL_KEYS = {
     "slug",
+    "revision",
     "lora_r",
     "lora_alpha",
     "load_in_4bit",
@@ -484,6 +485,19 @@ def validate_config(config: dict) -> None:
             continue
         if not (lo <= fval <= hi):
             errors.append(f"Field {key}={val} out of range [{lo}, {hi}]")
+
+    revision = _get_nested(config, "model.revision")
+    if revision is not None:
+        valid_revision = isinstance(revision, str) and len(revision) == 40
+        if valid_revision:
+            try:
+                int(revision, 16)
+            except ValueError:
+                valid_revision = False
+        if not valid_revision:
+            errors.append(
+                f"model.revision={revision!r} must be a 40-character hexadecimal commit SHA"
+            )
 
     slug = _get_nested(config, "model.slug")
     if slug is not None:

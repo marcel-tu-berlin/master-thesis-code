@@ -1,9 +1,10 @@
-experiment_id: readiness-g3-e3-s4001
+experiment_id: readiness-g3-e3-s4001-r2
 description: "Gate 3 E3: three full-geometry optimizer updates at lambda 1.0"
 seed: 4001
 
 model:
   slug: qwen3-1.7b
+  revision: 70d244cc86ccca08cf5af4e1e306ecf908b1ad5e
   lora_r: 16
   lora_alpha: 32
   load_in_4bit: false

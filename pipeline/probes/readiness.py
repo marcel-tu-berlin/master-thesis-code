@@ -37,6 +37,7 @@ EXPECTED_CONDITIONS = ("E1", "E2", "E3")
 
 RECIPE_FIELDS = {
     "model.slug": "qwen3-1.7b",
+    "model.revision": "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
     "model.lora_r": 16,
     "model.lora_alpha": 32,
     "model.load_in_4bit": False,
@@ -268,6 +269,46 @@ def _atomic_json(path: Path, value) -> None:
     os.replace(temporary, path)
 
 
+def _revision_from_snapshot_path(path: str | None) -> str | None:
+    if not path:
+        return None
+    parts = Path(path).parts
+    try:
+        revision = parts[parts.index("snapshots") + 1]
+    except (IndexError, ValueError):
+        return None
+    if len(revision) != 40:
+        return None
+    try:
+        int(revision, 16)
+    except ValueError:
+        return None
+    return revision
+
+
+def _resolved_tokenizer_revision(
+    tokenizer, requested_revision: str | None
+) -> str | None:
+    observed = getattr(tokenizer, "init_kwargs", {}).get("_commit_hash")
+    if observed:
+        return str(observed)
+    name = getattr(tokenizer, "name_or_path", None)
+    if not name or not requested_revision:
+        return None
+    try:
+        from transformers.utils.hub import cached_file
+
+        path = cached_file(
+            name,
+            "tokenizer_config.json",
+            revision=requested_revision,
+            local_files_only=True,
+        )
+    except (ImportError, OSError):
+        return None
+    return _revision_from_snapshot_path(path)
+
+
 class ReadinessRecorder:
     """Capture one rollout batch and its first optimizer update without mutation."""
 
@@ -496,15 +537,15 @@ class ReadinessRecorder:
             "num_generations": trainer.num_generations,
             "max_completion_length": trainer.max_completion_length,
             "model_revision": getattr(model_config, "_commit_hash", None),
-            "tokenizer_revision": getattr(tokenizer, "init_kwargs", {}).get(
-                "_commit_hash"
+            "tokenizer_revision": _resolved_tokenizer_revision(
+                tokenizer, _get(self.config, "model.revision")
             ),
         }
         try:
             import torch
 
             settings["cuda_device"] = torch.cuda.get_device_name(0)
-        except (ImportError, RuntimeError):
+        except (AssertionError, ImportError, RuntimeError):
             settings["cuda_device"] = None
         _atomic_json(self.path / "trainer_settings.json", settings)
 
@@ -640,8 +681,13 @@ def _assess_capture(
             errors.append(
                 f"trainer {key}: expected {expected!r}, got {settings.get(key)!r}"
             )
-    if not settings.get("model_revision") or not settings.get("tokenizer_revision"):
-        errors.append("model and tokenizer snapshot revisions must both be recorded")
+    revision = _get(config, "model.revision")
+    if settings.get("model_revision") != revision:
+        errors.append("loaded model revision does not match the pinned config revision")
+    if settings.get("tokenizer_revision") != revision:
+        errors.append(
+            "loaded tokenizer revision does not match the pinned config revision"
+        )
     if metadata.get("cuda_visible_devices") != "1":
         errors.append("CUDA_VISIBLE_DEVICES must select physical GPU 1")
     if not settings.get("cuda_device"):

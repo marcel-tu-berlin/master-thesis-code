@@ -1,6 +1,7 @@
 import json
 import math
 from pathlib import Path
+from types import SimpleNamespace
 
 import yaml
 from probes import readiness
@@ -21,7 +22,7 @@ def test_readiness_bundle_admits_only_e1_first(monkeypatch, tmp_path):
     report = readiness.build_report(CONFIGS, tmp_path)
     assert report["contracts"][0]["status"] == "pass"
     assert report["status"] == "not_tested"
-    assert report["next_phase"] == "run_e1:readiness-g3-e1-s4001"
+    assert report["next_phase"] == "run_e1:readiness-g3-e1-s4001-r2"
     assert [
         item["condition"] for item in report["contracts"][0]["evidence"]["configs"]
     ] == ["E1", "E2", "E3"]
@@ -104,3 +105,49 @@ def test_assess_capture_rejects_stale_runtime_stack(tmp_path):
     )
 
     assert "capture stack is stale relative to the current runtime" in errors
+
+
+def test_revision_from_snapshot_path_requires_observed_commit():
+    revision = "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e"
+    assert (
+        readiness._revision_from_snapshot_path(
+            f"/cache/models--Qwen--Qwen3-1.7B/snapshots/{revision}/tokenizer_config.json"
+        )
+        == revision
+    )
+    assert (
+        readiness._revision_from_snapshot_path("/cache/tokenizer_config.json") is None
+    )
+
+
+def test_trainer_settings_record_pinned_tokenizer_revision(monkeypatch, tmp_path):
+    config = readiness._load_config(CONFIGS[0])
+    revision = config["model"]["revision"]
+    recorder = readiness.ReadinessRecorder(tmp_path, config)
+    args = SimpleNamespace(
+        bf16=True,
+        fp16=False,
+        gradient_accumulation_steps=32,
+        per_device_train_batch_size=1,
+    )
+    trainer = SimpleNamespace(
+        args=args,
+        model=SimpleNamespace(config=SimpleNamespace(_commit_hash=revision)),
+        processing_class=SimpleNamespace(init_kwargs={}),
+        loss_type="dapo",
+        scale_rewards="none",
+        epsilon_low=0.2,
+        epsilon_high=0.2,
+        importance_sampling_level="token",
+        num_generations=8,
+        max_completion_length=4096,
+    )
+    monkeypatch.setattr(
+        readiness, "_resolved_tokenizer_revision", lambda *_args: revision
+    )
+
+    recorder.record_trainer_settings(trainer)
+
+    settings = json.loads((tmp_path / "readiness/trainer_settings.json").read_text())
+    assert settings["model_revision"] == revision
+    assert settings["tokenizer_revision"] == revision

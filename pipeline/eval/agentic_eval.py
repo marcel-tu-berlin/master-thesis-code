@@ -585,6 +585,7 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
         set_seed(int(config.get("seed", 42)))
 
     model_cfg = get_model_config(config["model"]["slug"])
+    revision = config["model"].get("revision")
     load_4bit = config["model"].get("load_in_4bit", model_cfg["load_in_4bit"])
     dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     quant_config = (
@@ -599,12 +600,15 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
     )
 
     # Native tool-calling template (do NOT apply the reasoning-tag template).
-    tokenizer = AutoTokenizer.from_pretrained(model_cfg["model_name"])
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_cfg["model_name"], revision=revision
+    )
     # Attaches the response_schema parse_response needs. Same call TRL makes
     # before training, so eval and training parse a completion by one rule.
     add_response_schema(tokenizer)
     model = AutoModelForCausalLM.from_pretrained(
         model_cfg["model_name"],
+        revision=revision,
         quantization_config=quant_config,
         torch_dtype=dtype,
         device_map="auto",

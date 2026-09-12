@@ -41,7 +41,9 @@ def preflight_checkpoints(config: dict, targets) -> None:
     from training.registry import get_model_config
 
     model_name = get_model_config(config["model"]["slug"])["model_name"]
-    model_config = AutoConfig.from_pretrained(model_name)
+    model_config = AutoConfig.from_pretrained(
+        model_name, revision=config["model"].get("revision")
+    )
     for target in targets:
         with init_empty_weights():
             model = AutoModelForCausalLM.from_config(model_config)

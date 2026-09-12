@@ -6,6 +6,7 @@ All new training configs use this recipe and state every value explicitly:
 
 | Setting | Value |
 |---|---:|
+| `model.revision` | `70d244cc86ccca08cf5af4e1e306ecf908b1ad5e` |
 | `learning_rate` | `5e-5` |
 | `kl_beta` | `0.0` |
 | `optim` | `adamw_torch_fused` |
@@ -17,6 +18,10 @@ All new training configs use this recipe and state every value explicitly:
 | `rewards.compose_method` | `naive_sum` |
 | `training.scale_rewards` | `none` |
 | `training.loss_type` | `dapo` |
+
+The model revision is the Qwen3-1.7B snapshot loaded by the completed readiness
+check. Pinning it does not change that policy; it prevents a later Hub update
+from changing the model or tokenizer under an unchanged experiment config.
 
 The learning rate is the top stable point of the same-seed probe ladder. The
 optimizer, scheduler and zero KL coefficient remove costs that did not buy a
