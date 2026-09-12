@@ -117,7 +117,8 @@ chronological order.
   three-step E1 diagnostic completed, but admission correctly failed because the
   tokenizer revision was not recorded. New configs pin the observed Qwen3-1.7B
   snapshot and pass it to every model, tokenizer, and checkpoint-preflight load.
-  Neither diagnostic admits E2; use the `-r2` readiness IDs after this fix.
+  The `-r2` E1 rerun passed the same-stack controller and admitted only E2;
+  its four-episode evaluation is lifecycle evidence, not a research result.
 - **P2 settings audit (2026-09-11).** The harvested four-arm comparison is in
   `pipeline/runs/probe_p2_findings.md`, with reproducible statistics and archived
   installed-source evidence beside it. Liger's current DAPO integration omits the
