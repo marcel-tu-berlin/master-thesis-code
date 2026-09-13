@@ -42,3 +42,22 @@ warnings to retain with the capture.
 
 The deployed rsynced runtime lacks `.claude/check.sh`, so the controller reused
 the fresh matching-source local gate. The final report records that provenance.
+
+## E3 execution - blocked on missing capture variation
+
+Run `readiness-g3-e3-s4001-r2` completed three optimizer updates and its
+four-episode evaluation without an unexpected runtime error. The second and
+third training steps reported non-termination reward means of -0.09375 and
+-0.125, so the component became active during training.
+
+The bounded readiness recorder saved only the first 32-rollout batch. That batch
+contained 23 completed environments and 9 unfinished trajectories where the
+model stopped on its own. All 32 non-termination penalties were therefore zero,
+with no within-group variation. An independent replay found no disagreement with
+the documented reward rule, but the capture cannot verify E3 reward assignment,
+advantages, or loss when the penalty is active.
+
+The controller reported `gate4_e1_pilot`, but Gate 3 remains blocked under the
+stricter scientific criterion. Use the plan's labelled E3 integration replay to
+exercise budget exhaustion deterministically rather than rerunning until random
+sampling produces it. The 1/4 evaluation result is lifecycle evidence only.
