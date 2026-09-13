@@ -1,0 +1,60 @@
+{
+  "cli_version": "0.10.6",
+  "checkpoint_id": "01M2EBDE7BTW7MNAK94DG5AGNF",
+  "session_id": "01a0918d-1d59-72f0-9db1-d823c5043ee6",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-13T21:40:18.858118Z",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "LAB_NOTES.md",
+    "RUNNING.md",
+    "docs/plans/experiment-readiness.md",
+    "pipeline/probes/readiness.py",
+    "pipeline/probes/readiness_replay.py",
+    "pipeline/runs/readiness_gate3_findings.md",
+    "pipeline/tests/test_readiness_replay.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "167f9eeac79e",
+  "checkpoint_transcript_start": 3188,
+  "transcript_lines_at_start": 3188,
+  "compact_transcript_start": 396,
+  "token_usage": {
+    "input_tokens": 674947,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 21176320,
+    "output_tokens": 96078,
+    "api_call_count": 145
+  },
+  "session_metrics": {
+    "turn_count": 9
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-13T21:40:18.2136Z",
+    "agent_lines": 835,
+    "agent_removed": 24,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 835,
+    "total_lines_changed": 859,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 11942,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7,
+        "thesis.pdf": 11934
+      }
+    }
+  ]
+}
