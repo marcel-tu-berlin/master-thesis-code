@@ -86,7 +86,7 @@ chronological order.
 - **The browsergym server takes its port from `BROWSERGYM_PORT`, not the `--port`
   argv** `EnvServerProcess` passes. It always binds 8000 by default, which is what
   the configs ask for. A different `training.env_server.port` would fail loud
-  (nothing answers the client), not silent.
+   (nothing answers the client), not silent.
 - **OpenEnv clone updated** `d372fab` -> `024eedc`. Rollback point is `d372fab`,
   and rolling back means editing `pipeline/OPENENV_COMMIT` - a `git checkout` in
   the clone alone is reverted by the next setup and refused at the next launch.
@@ -110,6 +110,21 @@ chronological order.
   297350, 908606). Poll the output file instead, or match on the pid.
 
 ## Traps that have each cost real time
+
+- **A bounded first-batch capture can miss a live shaping signal.** The E3
+  diagnostic activated its penalty in later optimizer steps, while every penalty
+  in the saved first batch was zero. Runtime completion and finite updates did
+  not close the reward-assignment check. Use the readiness controller's labelled
+  installed-trainer replay for missing endings; do not buy another random batch
+  to obtain them. It also checks saved loss gradients and fixed dose/placebo
+  inputs. Per-run evidence is in `pipeline/runs/readiness_gate3_findings.md`.
+- **Review changes must not erase capture provenance.** The initial readiness
+  captures hash the complete recorder module. Their compatibility rule checks
+  its unchanged AST outside the assessor and the explicit new replay-manifest
+  entry, plus every other recorded source file. The assessor pins the approved
+  replay source hash. Keep that exception narrow; never omit the recorder from
+  source checking merely to make old evidence pass. Use the same Python
+  invocation as training so the recorded executable path also matches.
 
 - **Gate 3 readiness preflight (2026-09-11/12).** BrowserGym rejects seeds above
   uint32; config seed 9001 overflowed after the million-wide seed-block mapping,

@@ -272,6 +272,25 @@ parameter checks, effective trainer settings, and per-step logs. Normal training
 still uses TRL's trainer class directly. Evaluation episode records now include
 the initial observation and tool feedback.
 
+The controller also replays the saved losses through the installed TRL methods
+on CPU and checks selected-token log-probability gradients analytically. It
+replays captured components at weights 0, 0.5 and 1 plus a within-group shuffled
+placebo. A labelled E3 fixture supplies endings missing from the first sampled
+batch, including both sides of the token cap, voluntary stopping and turn
+exhaustion. Generation and model forward are fixtures; reward dispatch,
+centering, DAPO loss and autograd use the installed trainer. Decoding uses the
+admitted Qwen tokenizer snapshot from the local cache. This is arithmetic
+evidence, supplemented by the real runs' model-parameter updates and lifecycle.
+The controller recomputes this evidence on each invocation rather than trusting
+an old replay pass flag.
+
+The initial captures predate this extra review. Their compatibility check
+requires the original recorder and all its dependencies to remain unchanged,
+allowing only the assessor edit and addition of the replay source to the
+manifest. The assessor pins the reviewed replay hash. A changed recorder,
+training/evaluation source, runtime stack or unapproved replay invalidates the
+contract; there is no blanket exemption for the readiness module.
+
 Run the controller between arms:
 
 ```bash

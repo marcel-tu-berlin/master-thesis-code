@@ -107,6 +107,7 @@ def source_hashes(root: Path = ROOT) -> dict[str, str]:
         for name in ("requirements.lock.txt", "setup.sh", "pipeline/OPENENV_COMMIT")
     )
     paths.append(root / "pipeline/probes/readiness.py")
+    paths.append(root / "pipeline/probes/readiness_replay.py")
     return {
         str(path.relative_to(root)): _file_hash(path)
         for path in sorted(set(paths))
@@ -625,6 +626,13 @@ def _reference_dapo_loss(record: dict) -> float:
 def _assess_capture(
     run_dir: Path, config: dict, current_hashes: dict, current_stack: dict
 ) -> list[str]:
+    from probes.readiness_replay import capture_sources_match, run_replay
+
+    # Legacy evidence may use this reviewed supplement, never an arbitrary
+    # later replay implementation. Update deliberately after a new review.
+    approved_replay_sha = (
+        "4413746a4cea64346b1ea1e2b9b15e11a5a4080bdd508c89ce5f03c6813c619b"
+    )
     errors = []
     capture = run_dir / CAPTURE_DIR
     required = (
@@ -648,7 +656,9 @@ def _assess_capture(
         )
     if metadata.get("config_sha256") != _canonical_hash(config):
         errors.append("capture config hash does not match frozen config")
-    if metadata.get("source_hashes") != current_hashes:
+    if not capture_sources_match(
+        metadata.get("source_hashes") or {}, current_hashes, approved_replay_sha
+    ):
         errors.append(
             "capture source hashes are stale relative to the current checkout"
         )
@@ -784,7 +794,7 @@ def _assess_capture(
             record["settings"] = settings_with_beta
             try:
                 expected_loss = _reference_dapo_loss(record)
-            except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            except (KeyError, IndexError, TypeError, ValueError, OverflowError) as exc:
                 errors.append(f"could not recompute DAPO loss: {exc}")
                 break
             if not math.isclose(
@@ -815,6 +825,21 @@ def _assess_capture(
         errors.append("trainable parameters are non-finite")
     elif before.get("sha256") == after.get("sha256"):
         errors.append("trainable parameters did not change")
+
+    if not errors:
+        replay_path = capture / "integration_replay.json"
+        try:
+            replay_path.unlink(missing_ok=True)
+            replay = run_replay(capture, _condition(config))
+            _atomic_json(replay_path, replay)
+        except Exception as exc:
+            # A diagnostic failure, including a native trainer bug, must write
+            # a failed admission report and exit nonzero, not leave an old pass.
+            # User interrupts and process exits still propagate (BaseException).
+            errors.append(
+                "installed trainer integration replay failed: "
+                f"{type(exc).__name__}: {exc}"
+            )
 
     return errors
 
