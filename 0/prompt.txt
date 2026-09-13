@@ -1,0 +1,5 @@
+schedule the check to happen automatically
+
+---
+
+ok desktop app running now. present to me the results for the E1 pass and continue with the next gate
