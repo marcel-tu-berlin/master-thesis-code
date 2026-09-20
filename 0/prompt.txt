@@ -1,0 +1,221 @@
+Continue the authorized read-table-2 diagnostic in the main master checkout.
+This is the user's requested automatic post-run review in a separate thread
+because the desktop app owns the original thread's writer lock. Do not try to
+resume that locked thread. Do not commit/push, create a branch, touch thesis.pdf,
+or undo the large preexisting dirty tree. No parallel agents or model fan-out.
+
+Read AGENTS.md, RUNNING.md, LAB_NOTES operations, decision 0016, and the current
+amendment in docs/plans/family-suitability.md. The user explicitly selected
+read-table-2, authorized lowering the sampled base-success floor (now 30%), and
+asked us to continue passing stages without repeated approval until the tested
+family verdict. The original 35.94% screen's failure under 40% stays recorded.
+All other gates, model/stack/recipe/budgets and final-test exclusions stay fixed.
+
+On 2026-09-18 (local date), the user explicitly reaffirmed: automatically harvest
+E0 results and start E1 and subsequent planned runs whenever the preceding gate
+passes; wait for review/approval only when new insights arise. Routine completion
+or a passing review is not an approval checkpoint. Continue all admitted work,
+including arranging the next completion trigger before ending a launch turn.
+Pause for a failed gate or a new finding requiring a scientific-plan decision.
+Do not treat descriptive greedy E0 success as a new sampled-screen gate.
+
+Execution requirement: an inconclusive diagnostic explicitly admits the one
+paired extension; it is not a reason to end with a proposed next step. A passing
+pooled extension explicitly admits the seed-4009 E0/pilot sequence. Complete the
+admitted next launch and confirm its completion trigger IN THIS TURN. Do not end
+with GPU idle and authorized work merely listed under "Next steps". End only
+after a phase is live/queued, the bounded final verdict requires a user decision,
+or an actual blocker is recorded with its evidence. Never put follow-up prose in
+RUNNING.md; that file holds only live state.
+
+Current state update, 2026-09-18: E1 review completed and its 12/100 budget rate
+was inconclusive, but the review job stopped without launching the authorized
+extension. The main thread corrected this. Extension configs are
+configs/readiness/table-diagnostic-e0-extension.yaml and
+configs/readiness/table-diagnostic-e1-extension.yaml. The existing ops state
+now follows launch_extension.py, which runs the two evaluation-only phases in
+fresh processes. Do not launch duplicates. The saved step-30 adapter is frozen
+by extension_admission.json; external-checkpoint reports intentionally have
+checkpoint_step=null, and checkpoint_origin.json records the owning run/step.
+
+When table-diagnostic-e1-s4008-extension completes (or either extension fails):
+1. Verify phase exits, harvest both extension runs without checkpoints and
+   compare SHA256 hashes. Preserve checkpoint_origin.json: use
+   --include 'checkpoint_origin.json' before --exclude 'checkpoint*', or copy
+   that metadata file explicitly. Inspect every new trajectory, pairing and visible
+   table rewards using the established audit; keep native action errors as
+   outcomes. Expected new seeds are exactly 4008300100-4008300199 in both arms.
+   Verify source/stack, original E0 thresholds, and the unchanged step-30
+   adapter hashes and checkpoint_origin.json. Do not retune any thresholds.
+2. Pool the original 100 plus these 100 per policy, without overwriting either
+   report. Compute Wilson bounds on the 200 final-E1 outcomes. Preserve the
+   original E2 group/short-control review and blinded audit. E3 passes only if
+   the budget-exhaustion Wilson lower bound is at least 10%; success headroom
+   passes only if its Wilson upper bound is below 90%. Report paired success
+   flips and both-correct token differences on the same 200 questions.
+3. If the pooled gates pass, prepare and LAUNCH the already-authorized fresh
+   seed-4009 E0, then its reviewed 300-update E1 pilot, as specified below and
+   in family-suitability.md. Establish its automatic harvest/review trigger
+   before ending this turn. Reuse the existing runners, guards and watcher;
+   do not build a new orchestration framework or begin reward sweeps.
+4. If the pooled gates fail or remain inconclusive, stop with that tested
+   verdict and request the user's protocol/family decision. No third sample
+   extension is allowed. An infrastructure failure is investigated separately.
+5. Mark harvested phases as reviewed in the ops state, remove their live rows
+   from RUNNING.md, and update findings/taskwarrior. Do not leave the old
+   "done, unharvested" state after harvesting. Do not alter prior claims.
+
+The main research thread harvested and reviewed E0 on 2026-09-17 UTC. Its offline
+audit is runs/table-diagnostic-s4008-ops/review_e0.py; evidence and interpretation
+are in runs/table_diagnostic_s4008_findings.md. Check live state and the E0 claim
+before doing any work; do not repeat E0 or launch a duplicate E1.
+
+First inspect the deployed state at
+/workspace/master-thesis-code/pipeline/runs/table-diagnostic-s4008-ops/state.json,
+the indicated run's phase_exit.json and logs, process state, and GPU assignment.
+Never start duplicate work. If a phase is still live, arrange a later check and
+stop without changing the live source. A missing/error completion requires
+investigation; do not overwrite a run or score infrastructure failure as policy
+failure. Work on the box uses only physical GPU 1 with CUDA_VISIBLE_DEVICES=1.
+The canonical Python path is /workspace/master-thesis-code/.venv/bin/python.
+
+The repaired runtime passed fresh E1/E2/E3 readiness on source
+89c6c77e1e7d643fd44495dda4c3395342785afb8eaaf61977175ae134dc14ec and stack
+74570e8f708dece02bd348b714ea0db0bb1b063ab84b5ed44169da3a74697245.
+The new diagnostic changes only declared configs and operational helpers; its
+admission.json binds those inputs and the unchanged qualified runtime source.
+Do not change source without verifying the effect and requalifying as needed.
+
+If table-diagnostic-e0-s4008 completed:
+1. Harvest it without checkpoint directories, verify checksums, and review all
+   100 development_table episodes. They must have distinct seeds 4008300000
+   through 4008300099, complete observations, finite measurements, correct
+   reward/termination alignment, no transport errors, and no post-terminal
+   actions/generation. Check complete visible table/input fields and terminal
+   rewards against the final fields, reusing the previous table audit logic.
+   If an audit regex cannot parse legitimate observation text, inspect that
+   case before calling it an environment bug. Model mistakes and native action
+   error feedback are expected outcomes. Greedy E0 success is descriptive:
+   the 30% sampled training-temperature floor is not applied again here.
+2. Verify frozen config, source admission, current stack and eval env_stamp,
+   base checkpoint=None/step 0, exactly 100 report samples matching the episode
+   records, and finite per-split thresholds from load_reference_thresholds.
+   Record the evidence in a findings file and reconcile taskwarrior.
+3. Only after passing review, write runs/table-diagnostic-e0-s4008/review_gate.json
+   locally and on the box with status="pass", source_sha256 equal to the
+   qualified digest above, and input_sha256 mapping eval_report.json,
+   episodes_development_table.jsonl, config.yaml, env_stamp.json, phase_exit.json
+   and eval_exit.json to their actual SHA256 hashes. Both exit records must
+   report returncode 0. Keep any failed review instead of fabricating a pass.
+4. Run the existing launcher --phase e1 --check-only from pipeline with
+   PYTHONPATH=. and CUDA_VISIBLE_DEVICES=1. Then start it detached as
+   /workspace/master-thesis-code/.venv/bin/python -u
+   runs/table-diagnostic-s4008-ops/launch.py --phase e1, logging to that ops
+   directory's e1_controller.log. The launcher refuses existing run directories,
+   checks qualified source/stack/configs/E0 review and reference, freezes the
+   reviewed E0 report inside the E1 run, runs 30 updates,
+   records the observer, then evaluates checkpoint-final in a fresh process.
+   It updates remote RUNNING before each phase and records exit artifacts.
+5. Verify startup once, mirror RUNNING with box UTC, and harvest E0. The existing
+   launchd job com.openai.codex.table-diagnostic-review watches the same ops
+   state and verifies each review outcome, so it will detect the E1
+   completion too. Incomplete delivery gets one recovery attempt. Do not remove its per-run claims or spawn another reviewer.
+   Estimate E1 training from measured step times (initial estimate 4.7 hours)
+   and evaluation from the now measured E0 duration. Do not poll frequently.
+
+If table-diagnostic-e1-s4008 completed:
+1. Harvest without checkpoints and verify all 30 optimizer updates, finite
+   losses/gradients, saved final adapter, observer batches 1, 10, 20, 21-30, complete
+   paired 100-episode evaluation at checkpoint step 30, unchanged frozen recipe,
+   source/stack/reference fingerprints and truthful trajectory records.
+   The existing group audit can check endings and reward arithmetic. Review
+   late within-group task/cosine/budget-cost variation, not pooled variance.
+2. Apply the unchanged Gate 4 feasibility criteria: success 95% Wilson upper
+   bound below 90%, budget-exhaustion 95% Wilson lower bound at least 10%, and
+   actual E2 opportunity among correct rollouts with valid shorter controls.
+   Voluntary no_tool_call does not count as budget exhaustion. Report paired
+   E0/E1 success and both-correct token changes. No success improvement after
+   only 30 updates is required. Follow the prescribed blinded trajectory audit
+   in docs/plans/gate4-pilot.md, using the actual same-family diagnostic; its
+   old menu source digest and shifted-family split allocations do not apply.
+3. An inconclusive rate permits only the predeclared paired 100-question
+   extension at offset 300100, separate run IDs and the original E0 thresholds.
+   Pool 200 after that and stop if still inconclusive. Never sample to pass.
+4. A diagnostic pass permits the already-authorized fresh seed 4009 final pilot:
+   its own paired E0 first, 500 training questions, 300 updates, checkpoints
+   100/200/300 and 100 same-family development questions at offset 300000.
+   Declare concrete configs before launch and retain all fixed Gate 4 rules.
+   Step 300 remains the endpoint. Reuse runners/guards rather than building a
+   new framework. Keep every next controller on the same watched ops state;
+   the watcher recognizes the seed-4008 and declared seed-4009 IDs in its
+   completion contract. Verify that trigger before ending the launch turn.
+5. A failed diagnostic or final pilot produces the tested verdict and waits
+   for the user's family/protocol choice. No model/environment/stack changes,
+   additional screen extension or reward sweep is authorized by this prompt.
+
+Always preserve failed evidence. Update RUNNING on launch/phase change/harvest
+using box UTC; findings own numbers and taskwarrior owns open work. Family task
+UUID d32cf13c-20f4-4c9b-86ac-14256dc136ba stays open until the tested verdict;
+the native feedback repair task is already completed. Do not infer that merely
+launching E1 completes family qualification. Do not send messages to others.
+Return the structured completion receipt required by the appended contract.
+Its summary carries the concise human report, actual checks and remaining work.
+The launcher stores it under ~/Library/Application Support/ThesisReview/claims/<run>/.
+
+Restart recovery: the old temporary claim directory was removed by reboot.
+Use the canonical controller and saved review artifacts to establish prior
+completed work; do not repeat historical phases because local claims are gone.
+The persistent watcher is now installed under ~/Library/Application Support/ThesisReview/
+and its login registration is ~/Library/LaunchAgents/com.openai.codex.table-diagnostic-review.plist.
+Only review the target named by this invocation.
+
+Review target: table-diagnostic-e1-s4008-extension.
+Previous delivery error: none
+Copy the exact review JSON to /Users/mheidebrecht/Library/Application Support/ThesisReview/claims/table-diagnostic-e1-s4008-extension/attempt-1/review.json before returning.
+A successful process exit is not completion. Follow the completion contract below.
+Completion contract (required by the scheduler, not an additional approval gate):
+
+1. Save a JSON review under pipeline/runs with these fields:
+   reviewed_run: the exact review target from this invocation
+   verdict: pass, fail, inconclusive, or technical_blocker
+   next_action: continued or decision_required
+   reason: a concrete scientific finding or verified operational blocker
+   input_sha256: repository-relative paths mapped to their SHA256 hashes
+   Bind the canonical scientific inputs on the GPU box; the watcher reads
+   them independently over SSH. Keep the repository-relative paths. For completed evaluations this must
+   include the target's config.yaml, env_stamp.json, eval_report.json,
+   episodes_development_table.jsonl and phase_exit.json. A technical blocker
+   binds the available logs/exit/config evidence instead. Do not invent a
+   technical blocker to avoid performing an admitted next stage.
+   Also copy this exact review JSON to the attempt review.json path supplied
+   above, so launchd can validate it without macOS Documents access.
+
+2. Continue admitted stages and verify the next process is running. All
+   controllers must update the SAME remote ops state:
+   /workspace/master-thesis-code/pipeline/runs/table-diagnostic-s4008-ops/state.json
+   Use the existing state() helper or its exact run/phase/pid/updated format.
+   Only train/eval with an actual PID proves a live phase; queued prose does not.
+   The watcher already recognizes these concrete future IDs:
+   table-pilot-e0-s4009, table-pilot-e1-s4009, and (only if the fixed final
+   pilot rule admits an extension) their -extension IDs. Use those IDs.
+   The pilot E0 pass admits pilot E1; pilot E1 pass delivers the tested verdict
+   for the user's campaign decision. An initial pilot inconclusive rate admits
+   its one paired extension. Diagnostic E1 inconclusive similarly admits its
+   already-declared extension. Never end at an admitted next step.
+
+3. A failed gate, exhausted single extension, completed final family verdict,
+   or verified technical blocker may require a decision. In that case record
+   phase="reviewed; decision required", run=<review target>, pid=null and box
+   UTC updated in the same remote ops state. Remove harvested live rows from
+   RUNNING.md. Keep the evidence and a concrete question in the summary.
+
+4. Return exactly the JSON requested by --output-schema:
+   reviewed_run, outcome (continued or decision_required), next_run (actual
+   launched run ID, or null for a decision), review_path (repository-relative),
+   review_sha256 (SHA256 of that JSON review), summary (concise human report).
+   The scheduler independently checks input hashes, the admitted transition,
+   and the remote process or recorded decision. It retries an incomplete
+   delivery once; after that it records a blocker instead of reporting success.
+
+Do not change the watcher, this contract, or old claim statuses during review.
+They are infrastructure owned by the scheduler. Preserve all prior attempts.
