@@ -1,0 +1,155 @@
+Continue the authorized read-table-2 pilot in the main master checkout. This
+separate review thread is the user's requested automatic harvesting, review and
+advancement. Do not resume the desktop-owned thread, commit/push, branch, touch
+thesis.pdf, undo existing changes, or spawn parallel agents.
+
+Read AGENTS.md, RUNNING.md, LAB_NOTES operations, decision 0017 and the active
+amendment in docs/plans/family-suitability.md. The user explicitly approved on
+2026-09-18: retain the 10% budget-exhaustion reference only as a warning. E3 is
+secondary. Core admission requires technical validity, learning headroom and an
+informative efficiency signal, currently E2's correctness-conditioned length.
+Do not block E0/E1 progression or add evaluation merely because of low or
+uncertain budget exhaustion. Preserve the original screen and diagnostic
+failures under their old rules; the amended admission is separate.
+
+The original 200-question diagnostic passes the amended core criteria and has
+an E3 warning. Its amended_diagnostic_review.json, qualified source and runtime
+stack are bound in runs/table-pilot-s4009-ops/admission.json. Runtime digest:
+89c6c77e1e7d643fd44495dda4c3395342785afb8eaaf61977175ae134dc14ec
+Stack digest:
+74570e8f708dece02bd348b714ea0db0bb1b063ab84b5ed44169da3a74697245
+Preserve these. No new runtime, model, stack, budgets, thresholds or reward sweep.
+
+The current controller writes the SAME watched remote state:
+/workspace/master-thesis-code/pipeline/runs/table-diagnostic-s4008-ops/state.json
+The persistent watcher is ~/Library/Application Support/ThesisReview/ and its
+login registration is ~/Library/LaunchAgents/com.openai.codex.table-diagnostic-review.plist.
+It knows the seed-4009 IDs; preserve claims and do not create another watcher.
+Read live state and this target's phase exits first. Never duplicate live work.
+Use physical GPU 1, CUDA_VISIBLE_DEVICES=1 before imports, and the canonical
+/workspace/master-thesis-code/.venv/bin/python. Run commands from pipeline/.
+
+For table-pilot-e0-s4009 completion:
+1. Harvest without checkpoints, preserving checkpoint_origin.json explicitly
+   if present. Verify remote/local SHA256 values. Check phase_exit.json and
+   eval_exit.json both returncode 0; base checkpoint None, checkpoint_step 0,
+   no smoke, the admitted frozen config/source/stack, and exactly 100 matching
+   development_table samples/trajectories at seeds 4009300000-4009300099.
+   Reuse the visible-table audit from runs/table-diagnostic-s4008-ops/review_e0.py
+   as a reference, adapting only the declared seed/run IDs. Inspect observations,
+   terminal rewards against submitted values, action errors, and truthful stops.
+   Native action errors are policy outcomes. Verify finite threshold samples.
+   Do not apply the 30% sampled-screen floor to greedy E0.
+2. Record new findings in pipeline/runs/table_pilot_s4009_findings.md. Keep
+   the historical files and protocols bound by admission.json unchanged. On technical pass, write runs/table-pilot-e0-s4009/review_gate.json
+   locally and remotely with status="pass", source_sha256 equal to the qualified
+   digest and input_sha256 mapping these relative filenames to actual hashes:
+   eval_report.json, episodes_development_table.jsonl, config.yaml, env_stamp.json,
+   phase_exit.json, eval_exit.json. A failure never receives a fabricated pass.
+3. Run CUDA_VISIBLE_DEVICES=1 PYTHONPATH=. /workspace/master-thesis-code/.venv/bin/python
+   runs/table-pilot-s4009-ops/launch.py --phase e1 --check-only.
+   If this passes, launch that same helper with --phase e1 detached, using the
+   canonical interpreter, stdin DEVNULL, stdout/stderr to a fresh
+   runs/table-pilot-s4009-ops/e1_controller.log, and start_new_session=True.
+   Do not end with this as a proposed next step: verify startup once and record
+   the controller PID. The launcher trains 300 updates, observes fixed batches,
+   then evaluates steps 100/200/300 in fresh processes through the existing
+   thirds runner. It owns remote RUNNING and state transitions. Source-bound
+   review, frozen E0 reference and overwrite guards must all pass.
+4. Mirror RUNNING using box UTC, remove harvested E0, and update taskwarrior.
+   Keep the completion watcher registered. Record a source-bound completion
+   receipt as required below with the actual live E1 next run.
+
+For table-pilot-e1-s4009 completion:
+1. Harvest main outputs without adapter checkpoints. Harvest checkpoint-evals/
+   separately because a broad checkpoint* exclusion also drops those reports.
+   Verify hashes, successful train/eval/phase exits, frozen E0 reference, source
+   and stack, all 300 finite optimizer updates, final adapter and all three
+   paired 100-episode scheduled reports. Check actual checkpoint steps and
+   reports at 100/200/300; step 300 at the run root is the only endpoint.
+   Verify observer batches 1,100,200,291-300 (13 batches,416 trajectories).
+   Do not substitute an earlier checkpoint after inspecting outcomes.
+2. Review trajectories and the prescribed seed-17 blinded sample. Assess valid
+   shorter correct controls and late within-prompt cosine variation. Pooled
+   failure lengths and E0-to-E1 compression cannot alone establish E2 opportunity.
+   Core gates: technical validity, Wilson upper success bound below 90%, and
+   meaningful E2 opportunity with a 10% planning margin. Budget exhaustion
+   (max_turns + hit_generation_cap) keeps its Wilson interval and a WARNING
+   if the lower bound is below 10%; voluntary stops remain separate. Report
+   within-group budget-cost variation descriptively. E3 never blocks the core.
+3. Only an ambiguous success-headroom interval permits the ONE paired extension:
+   100 new same-family questions at offset 300100, frozen original E0 thresholds,
+   E0 base and saved step-300 E1 checkpoint, no training. Use declared IDs
+   table-pilot-e0-s4009-extension and table-pilot-e1-s4009-extension. Reuse the
+   existing guarded evaluation extension approach and SAME watched state.
+   Run and review E0 extension before E1 extension. Do not add samples for E3.
+4. A final core pass or failed core criterion delivers the tested family verdict
+   for the user's campaign/protocol review. No shaped arm is authorized yet.
+   A technical failure is diagnosed separately. Keep measured E3 limitations
+   in a secondary panel without implying a failure of the core question.
+
+For the single seed-4009 extension, if admitted by success-headroom ambiguity:
+E0 extension technical pass admits the saved-checkpoint E1 extension. After E1,
+pool the fixed 200 per policy; no further extension. Assess core criteria and
+report E3 as a warning only. Present the final verdict for the user's campaign
+choice. Keep every initial and extension report unchanged.
+
+Keep RUNNING as live state only, findings in runs/*_findings.md, and open work in
+taskwarrior (rc.context=thesis). Family task UUID:
+d32cf13c-20f4-4c9b-86ac-14256dc136ba. A launched run is not a completed task.
+Retain failed evidence. Run appropriate checks after operational changes.
+Return the structured completion receipt in the appended contract. A process
+exit or a sentence promising to continue is not completion. Only verified
+admitted continuation or a recorded legitimate decision satisfies the watcher.
+
+Review target: table-pilot-e0-s4009.
+Previous delivery error: none
+Copy the exact review JSON to /Users/mheidebrecht/Library/Application Support/ThesisReview/claims/table-pilot-e0-s4009/attempt-1/review.json before returning.
+A successful process exit is not completion. Follow the completion contract below.
+Completion contract (required by the scheduler, not an additional approval gate):
+
+1. Save a JSON review under pipeline/runs with these fields:
+   reviewed_run: the exact review target from this invocation
+   verdict: pass, fail, inconclusive, or technical_blocker
+   next_action: continued or decision_required
+   reason: a concrete scientific finding or verified operational blocker
+   input_sha256: repository-relative paths mapped to their SHA256 hashes
+   Bind the canonical scientific inputs on the GPU box; the watcher reads
+   them independently over SSH. Keep the repository-relative paths. For completed evaluations this must
+   include the target's config.yaml, env_stamp.json, eval_report.json,
+   episodes_development_table.jsonl and phase_exit.json. A technical blocker
+   binds the available logs/exit/config evidence instead. Do not invent a
+   technical blocker to avoid performing an admitted next stage.
+   Also copy this exact review JSON to the attempt review.json path supplied
+   above, so launchd can validate it without macOS Documents access.
+
+2. Continue admitted stages and verify the next process is running. All
+   controllers must update the SAME remote ops state:
+   /workspace/master-thesis-code/pipeline/runs/table-diagnostic-s4008-ops/state.json
+   Use the existing state() helper or its exact run/phase/pid/updated format.
+   Only train/eval with an actual PID proves a live phase; queued prose does not.
+   The watcher already recognizes these concrete future IDs:
+   table-pilot-e0-s4009, table-pilot-e1-s4009, and (only if the fixed final
+   pilot rule admits an extension) their -extension IDs. Use those IDs.
+   The pilot E0 pass admits pilot E1; pilot E1 pass delivers the tested verdict
+   for the user's campaign decision. An initial pilot inconclusive rate admits
+   its one paired extension ONLY for success-headroom ambiguity under decision
+   0017. E3 budget-exhaustion uncertainty is a warning and cannot trigger
+   extension or prevent core advancement. Never end at an admitted next step.
+
+3. A failed gate, exhausted single extension, completed final family verdict,
+   or verified technical blocker may require a decision. In that case record
+   phase="reviewed; decision required", run=<review target>, pid=null and box
+   UTC updated in the same remote ops state. Remove harvested live rows from
+   RUNNING.md. Keep the evidence and a concrete question in the summary.
+
+4. Return exactly the JSON requested by --output-schema:
+   reviewed_run, outcome (continued or decision_required), next_run (actual
+   launched run ID, or null for a decision), review_path (repository-relative),
+   review_sha256 (SHA256 of that JSON review), summary (concise human report).
+   The scheduler independently checks input hashes, the admitted transition,
+   and the remote process or recorded decision. It retries an incomplete
+   delivery once; after that it records a blocker instead of reporting success.
+
+Do not change the watcher, this contract, or old claim statuses during review.
+They are infrastructure owned by the scheduler. Preserve all prior attempts.
