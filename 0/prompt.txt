@@ -1,0 +1,21 @@
+Read-only code review. Review only the new operations launcher
+pipeline/runs/table-diagnostic-s4008-ops/launch.py and its admission.json,
+the two configs pipeline/configs/readiness/table-diagnostic-e0.yaml and
+table-diagnostic-e1.yaml, and /private/tmp/table-diagnostic-review.py.
+Use docs/decisions/0016-development-screen-success-floor.md and the current
+amendment section in docs/plans/family-suitability.md as the declared protocol.
+Do not review the preexisting dirty tree. Do not edit anything or launch GPU
+work, other agents, or another review. This is also a real launchd-to-CLI
+handoff check: a separate thread must work while the desktop writer is open.
+Find concrete launch-safety, pairing, provenance or sequencing bugs. Keep
+findings bounded to code that can actually execute. The E0 review_gate.json
+must be written after independent review before the launcher admits E1.
+Report PASS if no blocking issue, otherwise FAIL with precise findings.
+
+---
+
+Both findings are fixed. Re-review only these changes:
+- E1 binds and requires returncode 0 in both E0 phase_exit.json and eval_exit.json.
+- E1 config reads its own reference_at_launch.json, copied from the reviewed E0 report and checked against that review hash. The snapshot hash is checked before and after each E1 subprocess.
+- check_launch.py reproduced the stopped-E0 admission before the fix, then passed after it. It also checks changed exit evidence and normal completed-E0 admission, without launching anything.
+The original launchd process completed successfully in this separate review thread while the desktop thread remained open; no new handoff test is needed. Admission hashes have been refreshed after the fixes. Read-only review only, no edits, no GPU work, no agents. Report PASS or remaining concrete blockers. Do not reopen unrelated historical code or hypothetical concurrent hostile writers.
