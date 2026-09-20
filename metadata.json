@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.10.6",
+  "checkpoint_id": "01M2ZXNQVQ6J58R180AWS1872K",
+  "strategy": "manual-commit",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "BACKLOG.md",
+    "LAB_NOTES.md",
+    "RUNNING.md",
+    "docs/decisions/README.md",
+    "docs/plans/experiment-readiness.md",
+    "pipeline/README.md",
+    "pipeline/domains/browsergym/adapter.py",
+    "pipeline/domains/browsergym/domain.py",
+    "pipeline/domains/reasoning_gym/adapter.py",
+    "pipeline/domains/reasoning_gym/domain.py",
+    "pipeline/eval/agentic_eval.py",
+    "pipeline/probes/README.md",
+    "pipeline/probes/readiness.py",
+    "pipeline/runs/table_diagnostic_s4008_findings.md",
+    "pipeline/tests/test_agentic_schema.py",
+    "pipeline/tests/test_browsergym_adapter.py",
+    "pipeline/tests/test_env_server.py",
+    "pipeline/tests/test_readiness.py",
+    "pipeline/tests/test_readiness_replay.py",
+    "pipeline/training/config_schema.py",
+    "pipeline/training/env_server.py",
+    "pipeline/training/env_stamp.py",
+    "pipeline/training/grpo_runner.py",
+    "pipeline/training/train.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 171232,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 4131328,
+    "output_tokens": 24398,
+    "api_call_count": 38
+  }
+}

@@ -1,0 +1,115 @@
+Continue the authorized read-table-2 diagnostic in the main master checkout.
+This is the user's requested automatic post-run review in a separate thread
+because the desktop app owns the original thread's writer lock. Do not try to
+resume that locked thread. Do not commit/push, create a branch, touch thesis.pdf,
+or undo the large preexisting dirty tree. No parallel agents or model fan-out.
+
+Read AGENTS.md, RUNNING.md, LAB_NOTES operations, decision 0016, and the current
+amendment in docs/plans/family-suitability.md. The user explicitly selected
+read-table-2, authorized lowering the sampled base-success floor (now 30%), and
+asked us to continue passing stages without repeated approval until the tested
+family verdict. The original 35.94% screen's failure under 40% stays recorded.
+All other gates, model/stack/recipe/budgets and final-test exclusions stay fixed.
+
+On 2026-09-18 (local date), the user explicitly reaffirmed: automatically harvest
+E0 results and start E1 and subsequent planned runs whenever the preceding gate
+passes; wait for review/approval only when new insights arise. Routine completion
+or a passing review is not an approval checkpoint. Continue all admitted work,
+including arranging the next completion trigger before ending a launch turn.
+Pause for a failed gate or a new finding requiring a scientific-plan decision.
+Do not treat descriptive greedy E0 success as a new sampled-screen gate.
+
+The main research thread harvested and reviewed E0 on 2026-09-17 UTC. Its offline
+audit is runs/table-diagnostic-s4008-ops/review_e0.py; evidence and interpretation
+are in runs/table_diagnostic_s4008_findings.md. Check live state and the E0 claim
+before doing any work; do not repeat E0 or launch a duplicate E1.
+
+First inspect the deployed state at
+/workspace/master-thesis-code/pipeline/runs/table-diagnostic-s4008-ops/state.json,
+the indicated run's phase_exit.json and logs, process state, and GPU assignment.
+Never start duplicate work. If a phase is still live, arrange a later check and
+stop without changing the live source. A missing/error completion requires
+investigation; do not overwrite a run or score infrastructure failure as policy
+failure. Work on the box uses only physical GPU 1 with CUDA_VISIBLE_DEVICES=1.
+The canonical Python path is /workspace/master-thesis-code/.venv/bin/python.
+
+The repaired runtime passed fresh E1/E2/E3 readiness on source
+89c6c77e1e7d643fd44495dda4c3395342785afb8eaaf61977175ae134dc14ec and stack
+74570e8f708dece02bd348b714ea0db0bb1b063ab84b5ed44169da3a74697245.
+The new diagnostic changes only declared configs and operational helpers; its
+admission.json binds those inputs and the unchanged qualified runtime source.
+Do not change source without verifying the effect and requalifying as needed.
+
+If table-diagnostic-e0-s4008 completed:
+1. Harvest it without checkpoint directories, verify checksums, and review all
+   100 development_table episodes. They must have distinct seeds 4008300000
+   through 4008300099, complete observations, finite measurements, correct
+   reward/termination alignment, no transport errors, and no post-terminal
+   actions/generation. Check complete visible table/input fields and terminal
+   rewards against the final fields, reusing the previous table audit logic.
+   If an audit regex cannot parse legitimate observation text, inspect that
+   case before calling it an environment bug. Model mistakes and native action
+   error feedback are expected outcomes. Greedy E0 success is descriptive:
+   the 30% sampled training-temperature floor is not applied again here.
+2. Verify frozen config, source admission, current stack and eval env_stamp,
+   base checkpoint=None/step 0, exactly 100 report samples matching the episode
+   records, and finite per-split thresholds from load_reference_thresholds.
+   Record the evidence in a findings file and reconcile taskwarrior.
+3. Only after passing review, write runs/table-diagnostic-e0-s4008/review_gate.json
+   locally and on the box with status="pass", source_sha256 equal to the
+   qualified digest above, and input_sha256 mapping eval_report.json,
+   episodes_development_table.jsonl, config.yaml, env_stamp.json, phase_exit.json
+   and eval_exit.json to their actual SHA256 hashes. Both exit records must
+   report returncode 0. Keep any failed review instead of fabricating a pass.
+4. Run the existing launcher --phase e1 --check-only from pipeline with
+   PYTHONPATH=. and CUDA_VISIBLE_DEVICES=1. Then start it detached as
+   /workspace/master-thesis-code/.venv/bin/python -u
+   runs/table-diagnostic-s4008-ops/launch.py --phase e1, logging to that ops
+   directory's e1_controller.log. The launcher refuses existing run directories,
+   checks qualified source/stack/configs/E0 review and reference, freezes the
+   reviewed E0 report inside the E1 run, runs 30 updates,
+   records the observer, then evaluates checkpoint-final in a fresh process.
+   It updates remote RUNNING before each phase and records exit artifacts.
+5. Verify startup once, mirror RUNNING with box UTC, and harvest E0. The existing
+   launchd job com.openai.codex.table-diagnostic-review watches the same ops
+   state and makes one separate review call per run, so it will detect the E1
+   completion too. Do not remove its per-run claims or spawn another reviewer.
+   Estimate E1 training from measured step times (initial estimate 4.7 hours)
+   and evaluation from the now measured E0 duration. Do not poll frequently.
+
+If table-diagnostic-e1-s4008 completed:
+1. Harvest without checkpoints and verify all 30 optimizer updates, finite
+   losses/gradients, saved final adapter, observer batches 1, 10, 20, 21-30, complete
+   paired 100-episode evaluation at checkpoint step 30, unchanged frozen recipe,
+   source/stack/reference fingerprints and truthful trajectory records.
+   The existing group audit can check endings and reward arithmetic. Review
+   late within-group task/cosine/budget-cost variation, not pooled variance.
+2. Apply the unchanged Gate 4 feasibility criteria: success 95% Wilson upper
+   bound below 90%, budget-exhaustion 95% Wilson lower bound at least 10%, and
+   actual E2 opportunity among correct rollouts with valid shorter controls.
+   Voluntary no_tool_call does not count as budget exhaustion. Report paired
+   E0/E1 success and both-correct token changes. No success improvement after
+   only 30 updates is required. Follow the prescribed blinded trajectory audit
+   in docs/plans/gate4-pilot.md, using the actual same-family diagnostic; its
+   old menu source digest and shifted-family split allocations do not apply.
+3. An inconclusive rate permits only the predeclared paired 100-question
+   extension at offset 300100, separate run IDs and the original E0 thresholds.
+   Pool 200 after that and stop if still inconclusive. Never sample to pass.
+4. A diagnostic pass permits the already-authorized fresh seed 4009 final pilot:
+   its own paired E0 first, 500 training questions, 300 updates, checkpoints
+   100/200/300 and 100 same-family development questions at offset 300000.
+   Declare concrete configs before launch and retain all fixed Gate 4 rules.
+   Step 300 remains the endpoint. Reuse runners/guards rather than building a
+   new framework, and set up the next completion-triggered review before
+   ending that launch turn. The current watcher handles only seed 4008.
+5. A failed diagnostic or final pilot produces the tested verdict and waits
+   for the user's family/protocol choice. No model/environment/stack changes,
+   additional screen extension or reward sweep is authorized by this prompt.
+
+Always preserve failed evidence. Update RUNNING on launch/phase change/harvest
+using box UTC; findings own numbers and taskwarrior owns open work. Family task
+UUID d32cf13c-20f4-4c9b-86ac-14256dc136ba stays open until the tested verdict;
+the native feedback repair task is already completed. Do not infer that merely
+launching E1 completes family qualification. Do not send messages to others.
+Write a concise final report with real checks and remaining work. The launcher
+stores that report under /private/tmp/table-diagnostic-review-claims/<run>/.
