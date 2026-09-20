@@ -1,0 +1,10 @@
+Read-only focused code review. Do not edit files or launch jobs. No subagents.
+Review only pipeline/runs/table-pilot-s4009-ops/launch.py and check_launch.py,
+pipeline/configs/readiness/table-pilot-e0.yaml and table-pilot-e1.yaml, and their
+interaction with existing eval.runner scheduled thirds. Compare the original
+runs/table-diagnostic-s4008-ops/launch.py if useful. Look for actual launch,
+provenance, overwrite, GPU assignment, missing checkpoint evaluation or
+review-admission bugs. The user explicitly amended E3 opportunity to a warning;
+core learning and E2 opportunity remain required (decision 0017).
+Do not reopen the accepted protocol, do not refactor, and ignore style-only
+issues. Return concise actionable findings or PASS if no concrete blocker.
