@@ -1,0 +1,73 @@
+This is an isolated scheduler delivery rehearsal, not a research run.
+Do not connect to SSH, access the GPU, modify real run/config files, run the
+project pipeline, or change source. Only use the fixture files listed below.
+The review target is automatic-review-fixture-current. The admitted next run
+is automatic-review-fixture-next. All input files are labeled synthetic.
+
+1. Read and hash the five tiny fixture inputs under
+pipeline/runs/automatic-review-fixture-current/ (config.yaml, env_stamp.json,
+eval_report.json, episodes_development_table.jsonl, phase_exit.json).
+2. Write completion_review.json in that same fixture directory with reviewed_run,
+verdict="pass", next_action="continued", reason="Delivery rehearsal only",
+and input_sha256 mapping repository-relative paths to their actual hashes.
+3. Start the harmless next process once, detached with stdin/stdout/stderr
+redirected to DEVNULL, using subprocess.Popen(..., start_new_session=True):
+/usr/bin/python3 /private/tmp/table-review-completion-proof/fixture_phase.py
+  --run automatic-review-fixture-next
+It only writes the fixture state file and waits for test cleanup. Inspect
+/private/tmp/table-review-completion-proof/state.json to confirm the new PID.
+4. Return the required JSON receipt with next_run automatic-review-fixture-next,
+the actual completion_review.json path/hash and a short summary. Its summary
+can end with "Next steps: fixture cleanup by the test harness."
+
+The fixture replaces remote state with the local file above. Do not use the
+real remote state or real scientific stage IDs mentioned in the generic
+contract. Do not implement anything beyond these fixture steps. Read only
+these task files and any mandatory instructions; no broad repo exploration.
+
+Review target: automatic-review-fixture-current.
+Previous delivery error: none
+A successful process exit is not completion. Follow the completion contract below.
+Completion contract (required by the scheduler, not an additional approval gate):
+
+1. Save a JSON review under pipeline/runs with these fields:
+   reviewed_run: the exact review target from this invocation
+   verdict: pass, fail, inconclusive, or technical_blocker
+   next_action: continued or decision_required
+   reason: a concrete scientific finding or verified operational blocker
+   input_sha256: repository-relative paths mapped to their SHA256 hashes
+   Include every input used by the review. For completed evaluations this must
+   include the target's config.yaml, env_stamp.json, eval_report.json,
+   episodes_development_table.jsonl and phase_exit.json. A technical blocker
+   binds the available logs/exit/config evidence instead. Do not invent a
+   technical blocker to avoid performing an admitted next stage.
+
+2. Continue admitted stages and verify the next process is running. All
+   controllers must update the SAME remote ops state:
+   /private/tmp/table-review-completion-proof/state.json
+   Use the existing state() helper or its exact run/phase/pid/updated format.
+   Only train/eval with an actual PID proves a live phase; queued prose does not.
+   The watcher already recognizes these concrete future IDs:
+   table-pilot-e0-s4009, table-pilot-e1-s4009, and (only if the fixed final
+   pilot rule admits an extension) their -extension IDs. Use those IDs.
+   The pilot E0 pass admits pilot E1; pilot E1 pass delivers the tested verdict
+   for the user's campaign decision. An initial pilot inconclusive rate admits
+   its one paired extension. Diagnostic E1 inconclusive similarly admits its
+   already-declared extension. Never end at an admitted next step.
+
+3. A failed gate, exhausted single extension, completed final family verdict,
+   or verified technical blocker may require a decision. In that case record
+   phase="reviewed; decision required", run=<review target>, pid=null and box
+   UTC updated in the same remote ops state. Remove harvested live rows from
+   RUNNING.md. Keep the evidence and a concrete question in the summary.
+
+4. Return exactly the JSON requested by --output-schema:
+   reviewed_run, outcome (continued or decision_required), next_run (actual
+   launched run ID, or null for a decision), review_path (repository-relative),
+   review_sha256 (SHA256 of that JSON review), summary (concise human report).
+   The scheduler independently checks input hashes, the admitted transition,
+   and the remote process or recorded decision. It retries an incomplete
+   delivery once; after that it records a blocker instead of reporting success.
+
+Do not change the watcher, this contract, or old claim statuses during review.
+They are infrastructure owned by the scheduler. Preserve all prior attempts.
