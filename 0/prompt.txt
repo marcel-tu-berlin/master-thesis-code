@@ -1,0 +1,118 @@
+Continue the user's authorized read-table-2 first contrast in the main master
+checkout. This separate review is the explicitly requested unattended harvest,
+review and advancement. Do not resume the desktop thread, commit/push, branch,
+spawn agents, edit thesis.pdf, or revert existing work.
+
+Read AGENTS.md, RUNNING.md, LAB_NOTES operations, decision 0018, and
+docs/plans/read-table-first-contrast.md. The user approved on 2026-09-21:
+continue read-table-2 until the first informative result, then consider other
+families/environments. Success saturation is allowed. E3 is secondary. Do not
+reinstate the old 90% ceiling or start other families, weights or environments.
+
+The frozen order is table-first-e0-s4009 -> table-first-e1-s4009 ->
+table-first-e2-l040-s4009 -> reviewed first result. Source, stack, recipe,
+weight 0.4, 200 held-out questions at seeds 4009100000-4009100199, and all
+analysis rules are fixed in the plan and runs/table-first-s4009-ops/admission.json.
+Every stage uses held_out_table. E0 is base evaluation; E1 evaluates byte-identical
+copies of the existing pilot adapters with explicit checkpoint_origin.json;
+E2 trains from the same original base for 300 updates. E1 and E2 retain all
+100/200/300 observations. The primary endpoint is 300, never the best checkpoint.
+
+1. Read live remote state, actual worker and exits before acting. Canonical state
+   is /workspace/master-thesis-code/pipeline/runs/table-diagnostic-s4008-ops/state.json.
+   Never duplicate a live process. Use physical GPU 1 and the canonical box venv.
+2. Harvest this run without checkpoint adapters. Explicitly include
+   checkpoint_origin.json and separately harvest checkpoint-evals/ (the broad
+   checkpoint* exclusion otherwise hides it). Verify all remote/local file
+   hashes. Bind config, reference, admission, source/stack, successful exits,
+   checkpoint paths/steps and reports. Reuse the plan's existing checkpoint
+   evidence and the original pilot's review; do not retrain E1.
+3. From the Mac repository root run .venv-test/bin/python
+   pipeline/runs/table-first-s4009-ops/review_run.py <run>. It reuses the reviewed
+   visible-table audit, checks every evaluation trajectory and recomputes metrics.
+   Inspect its output, provenance and logs. Copy technical_review.json back to
+   the canonical remote run. This arithmetic check does not replace your review.
+   For E2 additionally inspect all 300 finite updates, the 13 observed batches,
+   raw rewards/advantages and source-bound readiness; inspect all success
+   regressions and the declared masked trajectory sample. Use the original pilot
+   review_pilot.py and existing eval.paired helpers without altering old evidence.
+4. Write a reviewed, source-bound review.json locally and remotely with
+   reviewed_run, verdict, next_action, reason, input_sha256. Bind the canonical
+   inputs required by the contract, technical_review.json, and for E1/E2 every
+   scheduled intermediate report, episodes and env_stamp. Record findings in
+   pipeline/runs/table_first_s4009_findings.md. For E0/E1, the gate is technical
+   validity, never a demanded accuracy or budget rate.
+   For E1 also bind checkpoint_origin.json and adapter_config.json plus
+   adapter_model.safetensors in checkpoint-100, checkpoint-200 and checkpoint-final.
+   Hash those files on the GPU box; do not download adapters. Verify every copy
+   against admission.json's original checkpoint hashes before admitting E2.
+5. On E0 or E1 technical pass, immediately execute the admitted next stage:
+   from remote pipeline/, run CUDA_VISIBLE_DEVICES=1 PYTHONPATH=.
+   /workspace/master-thesis-code/.venv/bin/python
+   runs/table-first-s4009-ops/launch.py --phase e1 (or e2) --check-only.
+   If it passes, launch the same command without --check-only via subprocess.Popen
+   with start_new_session=True, stdin DEVNULL and a fresh controller log in that
+   ops directory. Preserve the canonical env variables. Verify its actual child
+   process and live state. Save the controller PID and command. A passing review
+   with the next run only proposed is incomplete delivery. The launcher owns
+   train-to-eval progression; the installed watcher owns completion review.
+6. On E2 completion, compute the declared paired endpoint analysis using
+   runs/table-first-s4009-ops/analyze.py. Report success preservation, token target,
+   grounded off-target outcomes, training liveness and costs, and all limitations.
+   A null, adverse or inconclusive research effect is a legitimate result; no
+   additional weight or sample extension is admitted. Mark this tranche reviewed
+   and awaiting the user's result review. Preserve all successful technical
+   results even if the desired efficiency effect is absent.
+
+Keep RUNNING limited to actual live/unharvested phases, stamped with box UTC;
+remove harvested prior rows before the next stage and mirror the remote file.
+Read and reconcile taskwarrior with rc.context=thesis. Run ./.claude/check.sh
+after changes. A launched run is not a done task.
+
+If the original pilot appears in watched state, its historical review is already
+complete and the user has now approved decision 0018; do not modify its claim or
+re-run its review. The new first stage has a separate admission.
+
+The completion contract below is mandatory. Do not change the watcher, contract,
+old claims or declared analysis during review. On a technical failure, preserve
+evidence and report the concrete blocker. No fabricated pass or technical blocker.
+
+Review target: table-first-e0-s4009.
+Previous delivery error: none
+Copy the exact review JSON to /Users/mheidebrecht/Library/Application Support/ThesisReview/claims/table-first-e0-s4009/attempt-1/review.json before returning.
+A successful process exit is not completion. Follow the completion contract below.
+Completion requires verified advancement or the recorded final result/blocker.
+
+Save review.json under pipeline/runs/<reviewed_run>/ with fields:
+reviewed_run, verdict (pass/fail/inconclusive/technical_blocker), next_action
+(continued/decision_required), reason, input_sha256. Input keys are repository
+relative pipeline/runs/... paths, never runs/...; bind actual remote SHA256s.
+For completed first-contrast stages include config.yaml, env_stamp.json,
+eval_report.json, episodes_held_out_table.jsonl, phase_exit.json and
+technical_review.json. For trained/scheduled stages also bind train evidence
+where applicable, checkpoint provenance, intermediate reports, episodes and
+env_stamp files. Earlier diagnostic IDs use episodes_development_table.jsonl.
+E1 must also bind checkpoint_origin.json and both adapter_config.json and
+adapter_model.safetensors in each copied checkpoint directory. Obtain their
+hashes remotely and verify them against the admitted original pilot artifacts.
+Copy this exact review.json to the attempt path supplied in this invocation.
+
+E0 pass requires launching table-first-e1-s4009. E1 pass requires launching
+table-first-e2-l040-s4009. E2 completion requires delivery of the reviewed result;
+there is no admitted successor in this tranche. Scientific null, adverse or
+inconclusive effects do not trigger more runs. Technical failures may stop.
+
+All launches update the same remote state at
+/workspace/master-thesis-code/pipeline/runs/table-diagnostic-s4008-ops/state.json.
+For continuation it must identify the admitted next run, phase train/eval, and
+an actual live child PID whose command contains that run ID; a successful
+already-completed next phase also qualifies. For a final result or legitimate
+failure record phase="reviewed; decision required", run=<reviewed_run>, pid=null,
+and updated=<box UTC>. Remove harvested rows from RUNNING.md. The state phrase
+also covers awaiting the user's review of the completed first result.
+
+Return exactly the output-schema JSON fields: reviewed_run, outcome
+(continued/decision_required), next_run (launched ID or null), review_path,
+review_sha256, summary. The watcher independently validates hashes and actual
+continuation. A zero CLI exit or a future-tense next step does not complete it.
+It retries incomplete delivery once and then records a blocker.
