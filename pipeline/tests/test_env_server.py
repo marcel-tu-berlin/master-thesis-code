@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 
 from domains.env_base import EnvDomain
@@ -46,7 +48,11 @@ def test_command_shape():
     assert cmd == [
         "/venv/bin/python",
         "-m",
+        "training.env_server",
+        "--env-module",
         "reasoning_gym_env.server.app",
+        "--host",
+        "127.0.0.1",
         "--port",
         "8077",
     ]
@@ -71,6 +77,23 @@ def test_start_refuses_an_occupied_port():
     with pytest.raises(RuntimeError, match="already in use"):
         srv.start()
     assert srv._proc is None
+
+
+def test_server_output_cannot_fill_an_unread_pipe(monkeypatch, tmp_path, capfd):
+    server = _srv(repo_envs_path=str(tmp_path), python=sys.executable)
+    monkeypatch.setattr(server, "is_ready", lambda: False)
+    monkeypatch.setattr("training.env_server.verify_openenv_pin", lambda _: "pin")
+    monkeypatch.setattr(
+        server,
+        "command",
+        lambda: [sys.executable, "-c", "print('x' * 262144); print('server-finished')"],
+    )
+    try:
+        server.start()
+        assert server._proc.wait(timeout=3) == 0
+    finally:
+        server.stop()
+    assert "server-finished" in capfd.readouterr().out
 
 
 def test_wait_until_ready_returns_when_ready():
@@ -98,10 +121,15 @@ def test_build_env_server_defaults():
     srv = build_env_server(
         _agentic_cfg(n_rollouts=8, batch_size=1), _Dom(), python="/p"
     )
-    assert srv.command()[:3] == ["/p", "-m", "reasoning_gym_env.server.app"]
-    # 8000 is every OpenEnv server's own default; four of the five domain
-    # servers bind it unconditionally and ignore the --port argv, so a default
-    # of anything else only ever worked for reasoning_gym.
+    assert srv.command()[:5] == [
+        "/p",
+        "-m",
+        "training.env_server",
+        "--env-module",
+        "reasoning_gym_env.server.app",
+    ]
+    # The shared launcher keeps the established default while honoring an
+    # explicit port for every domain.
     assert srv.port == 8000
     assert srv.repo_envs_path == "/workspace/OpenEnv/envs"
     assert srv.max_concurrent == 8  # max(8, 1*8)

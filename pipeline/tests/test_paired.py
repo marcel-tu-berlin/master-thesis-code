@@ -163,6 +163,16 @@ def test_arm_condition_control_is_lambda_zero():
     assert paired.arm_condition(cfg) == ("control (task reward only)", 0.0)
 
 
+@pytest.mark.parametrize("kind", ["linear", "relative"])
+def test_arm_condition_successful_length_preserves_kind_and_weight(kind):
+    cfg = {
+        "rewards": {"successful_length": {"enabled": True, "kind": kind, "weight": 0.1}}
+    }
+    assert paired.arm_condition(cfg) == (f"E2 {kind}", 0.1)
+    cfg["rewards"]["successful_length"]["enabled"] = False
+    assert paired.arm_condition(cfg) == ("control (task reward only)", 0.0)
+
+
 def test_arm_condition_two_shaped_rewards_have_no_single_dose():
     cfg = {
         "rewards": {

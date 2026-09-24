@@ -1,5 +1,6 @@
-from domains.browsergym.adapter import BrowserGymEnvAdapter
+from domains.browsergym.adapter import BrowserGymEnvAdapter, _BrowserGymFillEnvAdapter
 from domains.env_base import EnvDomain
+from training.config_schema import resolve_enable_fill
 
 # Brief task framing prepended to each prompt's user message. The tool spec is
 # injected by the model's native tool-calling template (tools=...); this only
@@ -44,18 +45,21 @@ class BrowserGymDomain(EnvDomain):
     stopping measured directly rather than inferred.
     """
 
-    # `python -m <server_module>` launches the OpenEnv env server (no Docker).
+    # The shared launcher serves <server_module>:app from the pinned OpenEnv tree.
     server_module = "browsergym_env.server.app"
     multi_turn = True
 
     def make_env_factory(self, base_url, env_config=None, client_factory=None):
         env_config = dict(env_config or {})
-        if client_factory is None:
-            return lambda: BrowserGymEnvAdapter(base_url, env_config)
-        # Test/injection path: build the adapter around a supplied client.
-        return lambda: BrowserGymEnvAdapter(
-            base_url, env_config, client=client_factory()
+        adapter = (
+            _BrowserGymFillEnvAdapter
+            if resolve_enable_fill(env_config)
+            else BrowserGymEnvAdapter
         )
+        if client_factory is None:
+            return lambda: adapter(base_url, env_config)
+        # Test/injection path: build the adapter around a supplied client.
+        return lambda: adapter(base_url, env_config, client=client_factory())
 
     def build_seed_dataset(self, env_config=None, n=500, seed_base=0):
         # Each row is one training prompt: a fixed lead-in plus a distinct seed.
@@ -78,8 +82,9 @@ class BrowserGymDomain(EnvDomain):
         return [{"role": "user", "content": _LEAD_IN + str(observation)}]
 
     def eval_tools(self, env):
-        """The adapter's two tools. `noop` is exposed so stalling is a countable
-        tool call rather than an absence to infer."""
+        """Match the adapter's training tools, including fill only when enabled."""
+        if isinstance(env, _BrowserGymFillEnvAdapter):
+            return [env.click, env.fill, env.noop]
         return [env.click, env.noop]
 
     def server_env(self, env_config=None):
@@ -92,10 +97,8 @@ class BrowserGymDomain(EnvDomain):
         # max_tool_calling_iterations in training and by the eval loop's turn
         # budget. Both read the same `max_turns` key, so the two agree; there is
         # simply no third place for them to disagree with.
-        # The server picks its port from BROWSERGYM_PORT and ignores the --port
-        # argv EnvServerProcess passes, so training.env_server.port must stay at
-        # the server's own default of 8000. A mismatch is loud (nothing answers
-        # the client), not silent.
+        # EnvServerProcess serves this pinned app through the shared entry point,
+        # which binds training.env_server.port for both supported domains.
         cfg = dict(env_config or {})
         tasks = cfg.get("tasks") or ["click-option", "click-checkboxes"]
         env = {

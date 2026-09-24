@@ -3,13 +3,14 @@ import math
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 import yaml
 from probes import readiness
 
 CONFIGS = [
-    Path("configs/readiness/g3-e1.yaml"),
-    Path("configs/readiness/g3-e2.yaml"),
-    Path("configs/readiness/g3-e3.yaml"),
+    Path("configs/archive/development-2026-09-24/readiness/g3-e1.yaml"),
+    Path("configs/archive/development-2026-09-24/readiness/g3-e2.yaml"),
+    Path("configs/archive/development-2026-09-24/readiness/g3-e3.yaml"),
 ]
 
 
@@ -26,6 +27,41 @@ def test_readiness_bundle_admits_only_e1_first(monkeypatch, tmp_path):
     assert [
         item["condition"] for item in report["contracts"][0]["evidence"]["configs"]
     ] == ["E1", "E2", "E3"]
+
+
+@pytest.mark.parametrize("mismatched_family", [False, True])
+def test_readiness_uses_explicit_family_and_requires_matched_arms(
+    monkeypatch, tmp_path, mismatched_family
+):
+    monkeypatch.setattr(readiness, "_local_gate", lambda: {"status": "pass"})
+    configs = []
+    for i, template in enumerate(CONFIGS):
+        config = readiness._load_config(template)
+        config["training"]["env_config"].update(
+            tasks=["read-table-2"], enable_fill=True
+        )
+        if mismatched_family and i == 1:
+            config["training"]["env_config"]["tasks"] = ["click-menu-2"]
+        path = tmp_path / template.name
+        path.write_text(yaml.safe_dump(config))
+        configs.append(path)
+
+    report = readiness.build_report(configs, tmp_path / "runs")
+
+    assert report["contracts"][0]["status"] == ("fail" if mismatched_family else "pass")
+    assert report["next_phase"] == (
+        "fix_gate1" if mismatched_family else "run_e1:readiness-g3-e1-s4001-r2"
+    )
+
+
+def test_readiness_requires_family_to_be_recorded():
+    config = readiness._load_config(CONFIGS[0])
+    del config["training"]["env_config"]["tasks"]
+
+    assert any(
+        "training.env_config.tasks" in error
+        for error in readiness._check_config(CONFIGS[0], config, "E1")
+    )
 
 
 def test_reference_dapo_loss_uses_tool_mask_and_full_batch_normalizer():

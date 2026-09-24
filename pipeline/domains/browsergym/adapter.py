@@ -51,7 +51,8 @@ class BrowserGymEnvAdapter:
     clicking radios/checkboxes and then Submit - and a tool that cannot affect the
     task would only add a hallucination target. `noop` is kept deliberately: it is
     a literal do-nothing action, so stalling becomes a tool call we can count
-    rather than an absence we have to infer. Add `fill` when a task needs typing.
+    rather than an absence we have to infer. The opt-in fill adapter below adds
+    typing without changing the tool schema of existing experiments.
 
     The action bridge is upstream: browsergym takes a string DSL
     (`click("13")`), and `harness.build_browsergym_action_str(name, args)`
@@ -91,7 +92,9 @@ class BrowserGymEnvAdapter:
         # tools, matching the reasoning_gym pattern.
         from browsergym_env import BrowserGymEnv
 
-        return BrowserGymEnv(base_url).sync()
+        # Keep active RPC deadlines, but tolerate delayed Pong handling while
+        # model computation holds the client's Python interpreter.
+        return BrowserGymEnv(base_url, websocket_ping_timeout_s=None).sync()
 
     def _make_action(self, tool, arguments):
         """Tool call -> the browsergym action object.
@@ -119,6 +122,14 @@ class BrowserGymEnvAdapter:
         self.done = bool(getattr(result, "done", False))
         observation = getattr(result, "observation", None)
         error = str(getattr(observation, "error", "") or "")
+        if not error and getattr(observation, "last_action_error", False):
+            # OpenEnv keeps normal BrowserGym action errors in metadata; its
+            # top-level error field is reserved for wrapper exceptions.
+            metadata = getattr(observation, "metadata", None) or {}
+            error = str(
+                (metadata.get("browsergym_obs") or {}).get("last_action_error")
+                or "Action failed (no error details provided)."
+            )
         page = _obs_text(observation)
         if error:
             return f"Action error: {error}\nPage now:\n{page}"
@@ -163,3 +174,16 @@ class BrowserGymEnvAdapter:
         Use only when no action is appropriate; it does not advance the task.
         """
         return self._act("noop")
+
+
+class _BrowserGymFillEnvAdapter(BrowserGymEnvAdapter):
+    """The existing adapter plus fill, selected only by explicit enable_fill."""
+
+    def fill(self, bid: str, text: str) -> str:
+        """Replace a text field's value and see the resulting page.
+
+        Args:
+            bid: The text field's element id from the accessibility tree.
+            text: The complete value to enter in the field.
+        """
+        return self._act("fill", bid=str(bid), text=str(text))

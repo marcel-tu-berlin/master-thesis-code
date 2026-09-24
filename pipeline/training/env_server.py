@@ -92,23 +92,37 @@ class EnvServerProcess:
         return f"http://{self.host}:{self.port}"
 
     def command(self) -> list[str]:
-        return [self.python, "-m", self.env_module, "--port", str(self.port)]
+        return [
+            self.python,
+            "-m",
+            "training.env_server",
+            "--env-module",
+            self.env_module,
+            "--host",
+            self.host,
+            "--port",
+            str(self.port),
+        ]
 
     def _env(self) -> dict:
         env = dict(os.environ)
         env["MAX_CONCURRENT_ENVS"] = str(self.max_concurrent)
-        # `python -m <env>.server.app` resolves the env package from the repo
-        # envs/ dir; put it on PYTHONPATH so both the launch and the adapter's
-        # client import (`from reasoning_gym_env import ...`) find it.
-        env["PYTHONPATH"] = self.repo_envs_path + os.pathsep + env.get("PYTHONPATH", "")
+        # The child imports both the pinned environment app and this pipeline's
+        # shared server entry point, even though its cwd is the OpenEnv envs tree.
+        env["PYTHONPATH"] = os.pathsep.join(
+            (
+                self.repo_envs_path,
+                str(Path(__file__).resolve().parents[1]),
+                env.get("PYTHONPATH", ""),
+            )
+        )
         # Per-domain server vars last, so a domain can override (e.g. set its game id).
         env.update(self.server_env)
         return env
 
     def start(self) -> "EnvServerProcess":
-        # Refuse to start onto an occupied port. Every env's server/app.py binds a
-        # fixed port from its own env var, so a leftover server from another env
-        # keeps the port, the new one exits on bind, and wait_until_ready's socket
+        # Refuse to start onto an occupied port. A leftover server from another
+        # env keeps the port, the new one exits on bind, and the socket
         # probe succeeds against the *wrong* server. Training then runs to
         # completion against it: a browsergym run whose actions all hit a stale
         # reasoning_gym server scored 0 with tools/failure_frequency 1.0 and no
@@ -124,7 +138,8 @@ class EnvServerProcess:
             self.command(),
             cwd=self.repo_envs_path,
             env=self._env(),
-            stdout=subprocess.PIPE,
+            # Inherit the runner's output; an unread PIPE can block the server
+            # once its logs fill the OS buffer and also hides failure evidence.
             stderr=subprocess.STDOUT,
         )
         return self
@@ -172,8 +187,12 @@ class EnvServerProcess:
         self._proc = None
 
     def __enter__(self) -> "EnvServerProcess":
-        self.start()
-        self.wait_until_ready()
+        try:
+            self.start()
+            self.wait_until_ready()
+        except BaseException:
+            self.stop()
+            raise
         return self
 
     def __exit__(self, *exc) -> None:
@@ -200,15 +219,35 @@ def build_env_server(config, domain, python=None) -> EnvServerProcess:
     )
     return EnvServerProcess(
         env_module=domain.server_module,
-        # 8000 is every OpenEnv server's own default. browsergym binds it
-        # unconditionally (its app ignores the --port argv this process passes),
-        # and reasoning_gym honors whatever --port it gets - so one shared
-        # default keeps the readiness probe and the server's actual port equal
-        # for every domain. start() still refuses a port something else already
-        # holds.
+        # One shared entry point binds the configured port for every domain.
         port=int(es.get("port", 8000)),
         repo_envs_path=es.get("repo_path", DEFAULT_REPO_ENVS_PATH),
         max_concurrent=max(8, n_envs),
         server_env=domain.server_env(env_config),
         python=python,
     )
+
+
+def main(argv=None) -> None:
+    """Serve a pinned environment app; retain request deadlines during long compute.
+
+    Model generation can delay the client's Python keepalive loop. A delayed
+    Pong must not destroy its episode. OpenEnv's connect/message timeouts still
+    bound active requests; tool-body failures abort training and evaluation.
+    """
+    import argparse
+
+    import uvicorn
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--env-module", required=True)
+    parser.add_argument("--host", required=True)
+    parser.add_argument("--port", type=int, required=True)
+    args = parser.parse_args(argv)
+    uvicorn.run(
+        f"{args.env_module}:app", host=args.host, port=args.port, ws_ping_timeout=None
+    )
+
+
+if __name__ == "__main__":
+    main()

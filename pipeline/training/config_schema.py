@@ -75,6 +75,7 @@ _KNOWN_TOP_LEVEL_KEYS = {
 }
 
 _KNOWN_REWARD_KEYS = {
+    "successful_length",
     "compose_method",
     "token_length",
     "env_reward",
@@ -136,6 +137,7 @@ _KNOWN_TRAINING_KEYS = {
 # validated, the runner trained at the registry rank, and the frozen config
 # recorded 8. Every key here is read by grpo_runner, train.py or agentic_eval.
 _KNOWN_MODEL_KEYS = {
+    "initial_adapter",
     "slug",
     "revision",
     "lora_r",
@@ -179,6 +181,15 @@ _KNOWN_LOSS_TYPES = {
     "vespo",
 }
 
+
+def resolve_enable_fill(env_config) -> bool:
+    """Read the explicit typing opt-in; reject strings rather than enabling them."""
+    enabled = (env_config or {}).get("enable_fill", False)
+    if not isinstance(enabled, bool):
+        raise ValueError("env_config.enable_fill must be a bool")
+    return enabled
+
+
 _KNOWN_ENV_SERVER_KEYS = {"repo_path", "port"}
 
 # Known sub-keys under training.env_config (union across env types - catches
@@ -196,6 +207,7 @@ _KNOWN_ENV_CONFIG_KEYS = {
     "tasks",
     "benchmark",
     "miniwob_url",
+    "enable_fill",
     # Every multi-turn domain: the ONE turn cap. Read by training
     # (max_tool_calling_iterations) and by the eval loop, and mapped by
     # `server_env` to the server's own var for any env that has a server-side
@@ -236,6 +248,7 @@ _COMMON_REWARD_SUBKEYS = {"enabled", "weight"}
 # position. It does not guarantee matched total-reward variance or gradient
 # noise. Only shaped signals take it - shuffling task reward would be a bug.
 _KNOWN_REWARD_SUBKEYS: dict[str, set[str]] = {
+    "successful_length": _COMMON_REWARD_SUBKEYS | {"kind", "max_len", "placebo"},
     "token_length": _COMMON_REWARD_SUBKEYS
     | {
         "max_len",
@@ -284,7 +297,7 @@ def warn_inert_scalars(
 
     shaped = [
         k
-        for k in ("token_length", "non_termination")
+        for k in ("token_length", "non_termination", "successful_length")
         if (rc.get(k) or {}).get("enabled")
     ]
     if compose_method == "naive_sum" and scale_rewards == "group" and shaped:
@@ -335,6 +348,18 @@ def _max_turns_error(env_cfg: dict, label: str):
     return None
 
 
+def _tasks_error(env_cfg: dict, label: str):
+    """Reject malformed family lists before training or split overrides use them."""
+    tasks = env_cfg.get("tasks")
+    if tasks is not None and (
+        not isinstance(tasks, list)
+        or not tasks
+        or any(not isinstance(task, str) or not task.strip() for task in tasks)
+    ):
+        return f"{label}.tasks must be a nonempty list of nonempty family names"
+    return None
+
+
 def _split_errors(
     splits, train_size: int = 500, default_n_episodes: int = 100
 ) -> list[str]:
@@ -375,6 +400,10 @@ def _split_errors(
             seen.add(name)
         env_cfg = s.get("env_config")
         if isinstance(env_cfg, dict):
+            try:
+                resolve_enable_fill(env_cfg)
+            except ValueError as exc:
+                errors.append(f"eval.agentic.splits[{i}]: {exc}")
             unknown_ec = set(env_cfg) - _KNOWN_ENV_CONFIG_KEYS
             if unknown_ec:
                 errors.append(
@@ -384,6 +413,9 @@ def _split_errors(
             mt_err = _max_turns_error(env_cfg, f"eval.agentic.splits[{i}].env_config")
             if mt_err:
                 errors.append(mt_err)
+            tasks_err = _tasks_error(env_cfg, f"eval.agentic.splits[{i}].env_config")
+            if tasks_err:
+                errors.append(tasks_err)
         n_eps = s.get("n_episodes", default_n_episodes)
         try:
             n_eps = int(n_eps)
@@ -555,6 +587,11 @@ def validate_config(config: dict) -> None:
 
     model = config.get("model")
     if isinstance(model, dict):
+        if "initial_adapter" in model and (
+            not isinstance(model["initial_adapter"], str)
+            or not model["initial_adapter"].strip()
+        ):
+            errors.append("model.initial_adapter must be a nonempty local path")
         unknown_model = set(model) - _KNOWN_MODEL_KEYS
         if unknown_model:
             errors.append(
@@ -563,6 +600,27 @@ def validate_config(config: dict) -> None:
             )
 
     training = config.get("training")
+    successful = rewards.get("successful_length") or {}
+    if successful:
+        if successful.get("kind") not in {"linear", "relative"}:
+            errors.append("rewards.successful_length.kind must be linear or relative")
+        cap = successful.get("max_len")
+        if type(cap) is not int or cap <= 0:
+            errors.append("rewards.successful_length.max_len must be a positive int")
+        weight = successful.get("weight")
+        if not isinstance(weight, (int, float)) or not 0 <= weight < 1:
+            errors.append("rewards.successful_length.weight must be in [0, 1)")
+        if successful.get("enabled"):
+            if rewards.get("compose_method") != "naive_sum" or (
+                (training or {}).get("scale_rewards") != "none"
+            ):
+                errors.append(
+                    "successful_length requires naive_sum and scale_rewards: none"
+                )
+            if (rewards.get("token_length") or {}).get("enabled"):
+                errors.append(
+                    "successful_length cannot be combined with the old cosine"
+                )
     if isinstance(training, dict):
         unknown_tr = set(training) - _KNOWN_TRAINING_KEYS
         if unknown_tr:
@@ -599,6 +657,10 @@ def validate_config(config: dict) -> None:
 
     env_config = (config.get("training") or {}).get("env_config")
     if isinstance(env_config, dict):
+        try:
+            resolve_enable_fill(env_config)
+        except ValueError as exc:
+            errors.append(f"training: {exc}")
         unknown_ec = set(env_config) - _KNOWN_ENV_CONFIG_KEYS
         if unknown_ec:
             errors.append(
@@ -608,6 +670,9 @@ def validate_config(config: dict) -> None:
         mt_err = _max_turns_error(env_config, "training.env_config")
         if mt_err:
             errors.append(mt_err)
+        tasks_err = _tasks_error(env_config, "training.env_config")
+        if tasks_err:
+            errors.append(tasks_err)
 
     eval_cfg = config.get("eval")
     if isinstance(eval_cfg, dict):

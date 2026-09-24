@@ -5,7 +5,7 @@ import pytest
 from probes import readiness, readiness_replay
 
 
-def test_legacy_capture_accepts_only_assessor_changes(monkeypatch, tmp_path):
+def test_legacy_capture_rejected_after_episode_recorder_change(monkeypatch, tmp_path):
     key = "pipeline/probes/readiness.py"
     current = readiness.source_hashes()
     recorded = dict(current, **{key: readiness_replay.LEGACY_READINESS_SHA})
@@ -14,7 +14,7 @@ def test_legacy_capture_accepts_only_assessor_changes(monkeypatch, tmp_path):
     assert readiness_replay.capture_sources_match(current, current, approved)
     unreviewed = dict(current, **{"pipeline/probes/readiness_replay.py": "changed"})
     assert not readiness_replay.capture_sources_match(unreviewed, unreviewed, approved)
-    assert readiness_replay.capture_sources_match(recorded, current, approved)
+    assert not readiness_replay.capture_sources_match(recorded, current, approved)
     assert not readiness_replay.capture_sources_match(
         recorded,
         dict(current, **{"pipeline/probes/readiness_replay.py": "changed"}),
@@ -49,7 +49,9 @@ def test_legacy_capture_accepts_only_assessor_changes(monkeypatch, tmp_path):
 )
 def test_missing_active_e3_evidence_cannot_pass(monkeypatch, tmp_path, failure_type):
     """The controller must run the native replay even after ordinary checks pass."""
-    config = readiness._load_config(Path("configs/readiness/g3-e3.yaml"))
+    config = readiness._load_config(
+        Path("configs/archive/development-2026-09-24/readiness/g3-e3.yaml")
+    )
     capture = tmp_path / "readiness"
     capture.mkdir()
     stack = {"packages": {"trl": "1.6.0"}}
@@ -79,6 +81,7 @@ def test_missing_active_e3_evidence_cannot_pass(monkeypatch, tmp_path, failure_t
     prepared["advantages"] = [0] * 32
     settings = {
         "trl_version": "1.6.0",
+        "episode_boundary": readiness.EPISODE_BOUNDARY,
         "bf16": True,
         "fp16": False,
         "loss_type": "dapo",

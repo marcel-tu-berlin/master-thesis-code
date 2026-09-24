@@ -6,6 +6,11 @@ something different later - a reversal gets its own record that supersedes the
 old one. Minor notes and traps stay in `LAB_NOTES.md`; only decisions broad
 enough to shape the pipeline or the thesis land here.
 
+Historical run paths in these records now resolve under
+`pipeline/runs/archive/development-2026-09-24/`. Original records keep their text;
+the [archive map](../../pipeline/runs/archive/development-2026-09-24/README.md)
+explains the move. Decision 0021 and the E0-E2 campaign are the current protocol.
+
 | # | Decision | Date |
 |---|---|---|
 | [0001](0001-batch-size-4-everywhere.md) | batch_size 4 everywhere | 2026-08-06 |
@@ -21,3 +26,11 @@ enough to shape the pipeline or the thesis land here.
 | [0011](0011-keep-liger-disabled.md) | Keep Liger disabled | 2026-09-11 |
 | [0012](0012-one-update-per-rollout-batch.md) | Use one optimizer update per rollout batch | 2026-09-11 |
 | [0013](0013-keep-vllm-sleep-disabled.md) | Keep vLLM sleep mode disabled | 2026-09-11 |
+| [0014](0014-stop-at-environment-completion.md) | Stop training and evaluation at environment completion | 2026-09-16 |
+| [0015](0015-surface-native-action-errors.md) | Surface native action errors through domain adapters | 2026-09-17 |
+| [0016](0016-development-screen-success-floor.md) | Lower the development-screen success floor to 30% | 2026-09-17 |
+| [0017](0017-budget-exhaustion-is-secondary.md) | Budget exhaustion warns; learning and compression govern admission | 2026-09-18 |
+| [0018](0018-read-table-first-contrast.md) | Keep read-table-2 for the first E1/E2 contrast; success saturation is allowed | 2026-09-21 |
+| [0019](0019-successful-response-compression.md) | Compare successful-response costs, then compress the competent E1 policy | 2026-09-23 |
+| [0020](0020-relative-length-main-candidate.md) | Continue with relative successful-response length cost as the main candidate | 2026-09-24 |
+| [0021](0021-final-e0-e2-from-base.md) | Separate the final E0-E2 from-base comparison from competent-policy continuation | 2026-09-24 |

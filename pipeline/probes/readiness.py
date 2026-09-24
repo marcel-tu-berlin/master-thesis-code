@@ -28,6 +28,7 @@ from training.config_schema import (
     warn_inert_scalars,
 )
 from training.env_stamp import collect_env_stamp
+from training.env_termination import EPISODE_BOUNDARY
 
 ROOT = Path(__file__).resolve().parents[2]
 PIPELINE = ROOT / "pipeline"
@@ -48,7 +49,6 @@ RECIPE_FIELDS = {
     "training.mode": "agentic",
     "training.env": "browsergym",
     "training.env_config.benchmark": "miniwob",
-    "training.env_config.tasks": ["click-menu-2"],
     "training.env_config.miniwob_url": "http://localhost:8080/miniwob/",
     "training.env_config.max_turns": 8,
     "training.env_config.size": 4,
@@ -134,6 +134,10 @@ def _load_config(path: Path) -> dict:
 
 def _condition(config: dict) -> str | None:
     rewards = config.get("rewards") or {}
+    # The legacy assessor knows the old cosine contract only. Never admit a new
+    # cost as task-only just because that assessor does not recognize its key.
+    if (rewards.get("successful_length") or {}).get("enabled"):
+        return None
     enabled = {
         name
         for name in ("env_reward", "token_length", "non_termination")
@@ -159,6 +163,9 @@ def _check_config(path: Path, config: dict, expected_condition: str) -> list[str
         actual = _get(config, dotted)
         if actual != expected:
             errors.append(f"{dotted}: expected {expected!r}, got {actual!r}")
+
+    if not _get(config, "training.env_config.tasks"):
+        errors.append("training.env_config.tasks must name the family explicitly")
 
     if "checkpoint_schedule" in (config.get("eval") or {}):
         errors.append("diagnostic configs must use final-only evaluation")
@@ -537,6 +544,7 @@ class ReadinessRecorder:
             "per_device_train_batch_size": args.per_device_train_batch_size,
             "num_generations": trainer.num_generations,
             "max_completion_length": trainer.max_completion_length,
+            "episode_boundary": getattr(trainer, "episode_boundary", None),
             "model_revision": getattr(model_config, "_commit_hash", None),
             "tokenizer_revision": _resolved_tokenizer_revision(
                 tokenizer, _get(self.config, "model.revision")
@@ -675,6 +683,7 @@ def _assess_capture(
 
     settings = _read_json(capture / "trainer_settings.json")
     expected_settings = {
+        "episode_boundary": EPISODE_BOUNDARY,
         "trl_version": "1.6.0",
         "bf16": True,
         "fp16": False,

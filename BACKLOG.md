@@ -45,42 +45,18 @@ Steps: create a final-recipe D1-style base eval of 4B on the e0m splits (cheap,
 eval-only, answers "does scale alone move menu-2"), then decide whether a
 trained 4B arm is worth the geometry re-run.
 
-## 2. Criterion 3 - confirm the training family before the campaign
+## 2. Expand the campaign after the first read-table-2 result
 
-Gates the lambda campaign. The two environment bars recorded so far
-(`probes/README.md`, `docs/decisions/0002-environment-selection.md`) are
-pre-training: base accuracy in the
-40-80% band and a success/termination gap. Both are measured on the base model.
-Criterion 3 (thesis chapter 6, Environment Selection) is post-training and only
-an E1 run can answer it: the cost a shaped reward targets must still be there
-after task-success-only training. A penalty on a behavior the E1 policy no
-longer shows is a silent no-op, and its sweep can only read as "cost without
-effect". A success ceiling hides the other half of the verdict, because a
-success drop under shaping cannot show against 1.0.
+First execute and review the final from-base E0-E2 campaign in
+`docs/plans/e0-e2-campaign.md`: base evaluation, task-only training, and task
+success plus relative length cost at weight 0.1. Preparation is complete; runs
+have not started. Competent-policy continuation remains a separate future
+option in LAB_NOTES.md, not an active arm.
 
-The check, on the final recipe (kl_beta 0.0, `compose_method: naive_sum`,
-`scale_rewards: none`, current defaults), on the candidate family:
-
-1. Train E1 (env_reward only), one seed. This is the stage 1 E1 cell of the
-   campaign, not an extra run.
-2. Evaluate on the held-out split (unseen seeds, same family) and the shifted
-   split.
-3. Require on held-out: at least 10 budget-exhausted episodes among the first
-   100 same-family calibration episodes (E3's target: `max_turns` plus
-   `hit_generation_cap`, excluding voluntary `no_tool_call` stops),
-   completion length with room to shrink (E2's target), and success below 90%.
-   Treat a confidence interval crossing a bar as inconclusive; allow one
-   predeclared extension to 200 episodes, then decide without sampling further.
-4. Fail any bar: pick a harder family or a mix, repeat.
-
-Do not reuse the seed-42 campaign numbers (e0m, e30-e36): old recipe, group
-scaling, old E3 semantics. Reference only, for orientation: the 300-step E1 on
-click-menu-2 sat at 0.75-0.78 held-out success and inflated length (+247 median
-tokens on both-correct seeds), so menu-2 had E2 headroom under the old recipe;
-click-dialog-2 polished toward 0.97, which fails the ceiling bar as a training
-family; E1 at a working lr compresses length on its own (LAB_NOTES, 4b rung),
-so E2 is always read against the E1 arm, never against the base model.
-Nothing is known about the E1 non-termination rate under the new recipe.
-
-Campaign plan after the pilot (cells, lambda grid, placebo arms, staged seeds)
-lives in the vault BACKLOG.md, Experiments section.
+After E0-E2 are complete and reviewed, declare the non-termination/E3 study.
+Also review the relevant cost-assignment placebo, optional linear comparison,
+at least three training seeds per cell, and additional families or environments.
+Complete paired analysis, training-cost accounting
+and thesis figures with claims bounded to the tested tasks and indicators.
+Freeze the expansion protocol and reserve fresh confirmation data before using
+new weights or making claims selected from the first contrast's test results.

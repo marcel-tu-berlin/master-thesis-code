@@ -1,11 +1,20 @@
+import hashlib
 import json
 import os
 import sys
+from pathlib import Path
 
 import torch
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from peft import (
+    LoraConfig,
+    PeftModel,
+    get_peft_model,
+    get_peft_model_state_dict,
+    prepare_model_for_kbit_training,
+)
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from trl import GRPOConfig, GRPOTrainer
+from trl.chat_template_utils import parse_response
 
 from training.config_schema import (
     DEFAULT_BATCH_SIZE,
@@ -13,10 +22,78 @@ from training.config_schema import (
     resolve_checkpoint_steps,
     resolve_max_turns,
 )
+from training.env_termination import (
+    EPISODE_BOUNDARY,
+    environment_tool_call_loop,
+    verify_native_tool_loop,
+)
 from training.registry import LORA_TARGET_MODULES, get_model_config
 
 
-class _ReadinessGRPOTrainer(GRPOTrainer):
+def _attach_lora(model, lora_config, initial_adapter=None):
+    """Start a new optimizer stage from exact adapter weights, never resume state."""
+    if initial_adapter is None:
+        return get_peft_model(model, lora_config), None
+    from safetensors.torch import load_file
+
+    path = Path(initial_adapter).resolve()
+    if not path.is_dir() or (path / ".smoke").exists():
+        raise ValueError(f"Invalid initial adapter: {path}")
+    saved = LoraConfig.from_pretrained(str(path))
+    for key in (
+        "r",
+        "lora_alpha",
+        "target_modules",
+        "lora_dropout",
+        "bias",
+        "task_type",
+        "use_rslora",
+        "use_dora",
+        "modules_to_save",
+        "rank_pattern",
+        "alpha_pattern",
+    ):
+        if getattr(saved, key) != getattr(lora_config, key):
+            raise ValueError(
+                f"Initial adapter {key} differs from requested LoRA config"
+            )
+    if saved.base_model_name_or_path != model.config._name_or_path:
+        raise ValueError("Initial adapter base model differs from the loaded model")
+    model = PeftModel.from_pretrained(model, str(path), is_trainable=True)
+    expected = load_file(str(path / "adapter_model.safetensors"))
+    actual = get_peft_model_state_dict(model)
+    if actual.keys() != expected.keys() or any(
+        not torch.equal(actual[key].detach().cpu(), expected[key]) for key in expected
+    ):
+        raise ValueError("Loaded initial adapter tensors differ from saved weights")
+    if not any(p.requires_grad for p in model.parameters()):
+        raise ValueError("Initial adapter has no trainable parameters")
+    return model, {
+        "path": str(path),
+        "new_optimizer_and_scheduler": True,
+        "weights_equal_after_load": True,
+        "input_sha256": {
+            name: hashlib.sha256((path / name).read_bytes()).hexdigest()
+            for name in ("adapter_config.json", "adapter_model.safetensors")
+        },
+    }
+
+
+class _EnvironmentGRPOTrainer(GRPOTrainer):
+    """Pinned native GRPO with environment completion as the episode boundary."""
+
+    episode_boundary = EPISODE_BOUNDARY
+
+    def _tool_call_loop(self, *args, **kwargs):
+        if self.environments is None:
+            return super()._tool_call_loop(*args, **kwargs)
+        verify_native_tool_loop(GRPOTrainer._tool_call_loop)
+        return environment_tool_call_loop(
+            self, *args, **kwargs, parse_response=parse_response
+        )
+
+
+class _ReadinessGRPOTrainer(_EnvironmentGRPOTrainer):
     """TRL trainer with opt-in, read-only capture at its native boundaries."""
 
     def __init__(self, *args, readiness_recorder, **kwargs) -> None:
@@ -136,7 +213,9 @@ class GRPORunner:
             bias="none",
             task_type="CAUSAL_LM",
         )
-        self.model = get_peft_model(self.model, lora_config)
+        self.model, self.initial_adapter_info = _attach_lora(
+            self.model, lora_config, config["model"].get("initial_adapter")
+        )
         self.model.enable_input_require_grads()
 
         self._lora_rank = lora_rank
@@ -310,20 +389,26 @@ class GRPORunner:
         # TRL environment_factory against its base_url. Dataset path: both stay
         # None and the trainer runs without environments.
         environment_factory = None
-        if server is not None:
-            if make_factory is None:
-                raise ValueError("train(server=...) requires make_factory(base_url)")
-            # environment_factory is an experimental TRL feature; silence its warn.
-            os.environ.setdefault("TRL_EXPERIMENTAL_SILENCE", "1")
-            server.start()
-            server.wait_until_ready()
-            # The env client (adapter._connect) imports `reasoning_gym_env` from
-            # the OpenEnv repo's envs/ dir, which is not on PyPI - put it on the
-            # training process's path (the server subprocess got it via PYTHONPATH).
-            if server.repo_envs_path not in sys.path:
-                sys.path.insert(0, server.repo_envs_path)
-            environment_factory = make_factory(server.base_url)
+        if self.initial_adapter_info is not None:
+            (Path(output_dir) / "initial_adapter.json").write_text(
+                json.dumps(self.initial_adapter_info, indent=2) + "\n"
+            )
         try:
+            if server is not None:
+                if make_factory is None:
+                    raise ValueError(
+                        "train(server=...) requires make_factory(base_url)"
+                    )
+                # environment_factory is an experimental TRL feature; silence its warn.
+                os.environ.setdefault("TRL_EXPERIMENTAL_SILENCE", "1")
+                server.start()
+                server.wait_until_ready()
+                # The env client (adapter._connect) imports `reasoning_gym_env` from
+                # the OpenEnv repo's envs/ dir, which is not on PyPI - put it on the
+                # training process's path (the server subprocess got it via PYTHONPATH).
+                if server.repo_envs_path not in sys.path:
+                    sys.path.insert(0, server.repo_envs_path)
+                environment_factory = make_factory(server.base_url)
             kwargs = dict(
                 model=self.model,
                 processing_class=self.tokenizer,
@@ -335,7 +420,9 @@ class GRPORunner:
             if environment_factory is not None:
                 kwargs["environment_factory"] = environment_factory
             trainer_class = (
-                _ReadinessGRPOTrainer if readiness_recorder is not None else GRPOTrainer
+                _ReadinessGRPOTrainer
+                if readiness_recorder is not None
+                else _EnvironmentGRPOTrainer
             )
             if readiness_recorder is not None:
                 kwargs["readiness_recorder"] = readiness_recorder

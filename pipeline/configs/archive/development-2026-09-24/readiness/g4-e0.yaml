@@ -1,0 +1,89 @@
+experiment_id: gate4-e0-calibration-s4002
+description: "Gate 4 E0: paired base-model calibration reference; eval only"
+seed: 4002
+
+model:
+  slug: qwen3-1.7b
+  revision: 70d244cc86ccca08cf5af4e1e306ecf908b1ad5e
+  lora_r: 16
+  lora_alpha: 32
+  load_in_4bit: false
+  max_seq_length: 8192
+  use_vllm: true
+  gpu_memory_utilization: 0.3
+  vllm_enable_sleep_mode: false
+
+training:
+  mode: agentic
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    tasks: [click-menu-2]
+    miniwob_url: http://localhost:8080/miniwob/
+    max_turns: 8
+    size: 500
+  env_server:
+    repo_path: /workspace/OpenEnv/envs
+    port: 8000
+  max_prompt_length: 4096
+  batch_size: 4
+  n_rollouts: 8
+  micro_batch_size: 1
+  max_steps: 300
+  save_steps: 100
+  learning_rate: 0.00005
+  kl_beta: 0.0
+  optim: adamw_torch_fused
+  lr_scheduler_type: constant_with_warmup
+  warmup_ratio: 0.1
+  weight_decay: 0.1
+  temperature: 1.0
+  vllm_importance_sampling_mode: token_truncate
+  num_iterations: 1
+  use_liger_kernel: false
+  scale_rewards: none
+  loss_type: dapo
+
+rewards:
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+  token_length:
+    enabled: false
+    weight: 1.0
+    max_len: 4096
+    r_correct_short: 1.0
+    r_correct_long: 0.5
+    r_wrong_short: -1.0
+    r_wrong_long: -0.5
+    placebo: false
+  non_termination:
+    enabled: false
+    weight: 1.0
+    placebo: false
+
+eval:
+  temperature: 0.0
+  do_sample: false
+  max_new_tokens: 4096
+  agentic:
+    splits:
+      - name: calibration_menu
+        n_episodes: 100
+        seed_offset: 300000
+      - name: calibration_dialog
+        n_episodes: 20
+        seed_offset: 400000
+        env_config:
+          tasks: [click-dialog-2]
+      - name: calibration_tree
+        n_episodes: 20
+        seed_offset: 500000
+        env_config:
+          tasks: [navigate-tree]
+      - name: calibration_transfer
+        n_episodes: 20
+        seed_offset: 600000
+        env_config:
+          tasks: [click-checkboxes-transfer]

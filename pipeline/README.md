@@ -6,6 +6,12 @@ and rewarded by a live OpenEnv environment, not by grading an answer string.
 Experiments are YAML configs, so swapping reward signals or an environment does
 not need a code change.
 
+The active study is the [final E0-E2 campaign](../docs/plans/e0-e2-campaign.md):
+E0 evaluates the base policy; E1 and E2 independently train from that base, with
+E2 adding relative successful-response length cost at weight 0.1. Only
+`configs/e0.yaml`, `configs/e1.yaml` and `configs/e2.yaml` are active. E3 is
+deferred. Earlier configs and results are archived; see [runs/README.md](runs/README.md).
+
 ## Setup
 
 - Python 3.12, CUDA 13.0, an NVIDIA GPU (developed on L4 24 GB / RTX 4090).
@@ -53,7 +59,9 @@ python -m training.train --config configs/my-experiment.yaml --smoke --eval
   scores the answer, and `EnvReward` reads that score off the env instance.
 - Reward comes from the environment, so there is no answer column and no
   reasoning-tag format. The live signals are `env_reward` plus the
-  efficiency rewards (`token_length`, `non_termination`).
+  efficiency rewards (`successful_length`, historical `token_length`, and
+  deferred `non_termination`). The active relative cost compares successful
+  responses within each question's rollout group; failures have zero length cost.
   `CosineLengthReward` takes correctness from the env
   (reward >= `CORRECT_REWARD_THRESHOLD`, 0.5 - reasoning_gym scorers are
   graded and hand partial credit to near-misses).
@@ -164,6 +172,18 @@ duplicate run roots are rejected. Historical e30-e36 configs and results are
 unchanged, and their missing intermediate checkpoints cannot be reconstructed.
 See [decision 0009](../docs/decisions/0009-planned-checkpoint-thirds.md).
 
+### BrowserGym typing tasks
+
+Set `training.env_config.enable_fill: true` for tasks that require text entry.
+This adds `fill(bid, text)` to both training and evaluation. It replaces the
+field value through the existing OpenEnv action bridge. Omitted or false keeps
+the original `click` and `noop` tools, including their existing schemas.
+Evaluation splits inherit the flag unless explicitly overridden.
+
+Changing the flag changes the policy's tool context; qualify the new interface
+and keep it fixed across compared arms. It does not change observations, rewards,
+budgets or termination. A typing task still needs its own oracle and model screen.
+
 ### Eval splits
 
 `eval.agentic.splits` runs several splits per eval, keyed by name in the report:
@@ -210,9 +230,16 @@ real `eval_report.json` skips eval. Per-phase logs land at
 `runs/<exp>/batch_{train,eval}.log`; an end-of-batch summary is written to
 `runs/batch_summary_<timestamp>.md`. Exit code is non-zero if any phase failed.
 
+Training refuses an existing frozen `config.yaml` even if the run failed before
+producing its final checkpoint. Retries do not bypass this guard. Inspect the
+failed run and choose a fresh experiment ID; use `--force` only when deliberately
+replacing its training artifacts. A directory containing only launch metadata
+or a batch log remains a valid new-run destination.
+
 ## Run a new experiment
 
-1. Copy the template: `cp configs/_template.yaml configs/my-experiment.yaml`
+1. For a separately approved future study, copy the relevant active config:
+   `cp configs/e1.yaml configs/my-experiment.yaml`.
 2. Edit `experiment_id`, toggle reward signals under `rewards:`, adjust weights.
 3. Run: `python -m training.train --config configs/my-experiment.yaml --eval`
 4. Results land in `runs/<experiment_id>/`.
@@ -225,15 +252,22 @@ The pipeline is built to grow across OpenEnv environments. To add one:
    (returns a zero-arg callable that builds one env adapter against the server
    `base_url`), `build_seed_dataset` (rows of `{prompt, seed, ...}`, one distinct
    question per seed), `episode_messages` (the eval prompt for a question), and
-   set `server_module` (the `python -m ...` server entry point).
-2. Write an adapter whose public surface is exactly `{reset, answer}`. TRL turns
-   every public method except `reset` into a tool, so keep it minimal. The
-   `answer` tool's docstring needs a Google-style `Args:` block or transformers
-   cannot build its JSON schema. Store the env score on `self.reward`.
-3. Register the env id in `build_domain` (`training/train.py`) and in
-   `eval/runner.py`.
+   set `server_module` (the pinned OpenEnv module exposing its ASGI `app`).
+2. Write an adapter exposing `reset` and the environment's intended tools. TRL
+   turns every other public method into a tool; each tool's parameters need a
+   Google-style `Args:` block. Return observations and native action failures
+   through the same adapter path for training and evaluation. Store the task
+   score on `self.reward` and completion on `self.done`; preserve terminal reward.
+   Implement `eval_tools` with the same bound methods and set `multi_turn` for
+   environments that need multiple actions.
+3. Register the env id once in `build_domain` (`domains/__init__.py`), shared by
+   training and evaluation. Keep environment-specific response normalization in
+   the adapter and select task families through configuration.
 
-`reasoning_gym` is the reference implementation.
+`reasoning_gym` shows a single answer tool; `browsergym` shows a multi-turn tool
+interface. Qualify a new environment or family with real reset, valid/invalid
+action, observation, scoring and termination controls before model runs. Shared
+core support does not establish that every upstream task meets those contracts.
 
 ## Architecture
 
@@ -267,8 +301,8 @@ eval/agentic_eval.py:run_agentic_eval()  # N held-out episodes, env-scored repor
 
 ### `configs/`
 
-YAML experiment configs. `_template.yaml` carries the accepted recipe; copy it
-to make a new experiment. Finished and superseded configs live in
+YAML experiment configs. `e0.yaml`, `e1.yaml` and `e2.yaml` carry the final
+from-base recipe. The former template, finished and superseded configs live in
 `configs/archive/` - read its README before re-running one.
 
 ### `domains/`
@@ -307,6 +341,12 @@ a registry entry and the key in `config_schema._KNOWN_REWARD_KEYS`.
 
 - `env_reward.py` - `EnvReward` reads `[e.reward for e in kwargs["environments"]]`
   (the env's task-success score). The live correctness signal in agentic mode.
+- `successful_length.py` - `SuccessfulLengthPenalty`: successful-response-only
+  bounded costs, returned negative. The active E2 uses `kind: relative`, a
+  sigmoid of length centered and scaled among successful peers, with a
+  one-token standard-deviation floor. Linear remains available for a future
+  comparison. See [decision 0021](../docs/decisions/0021-final-e0-e2-from-base.md)
+  for the exact formula and zero-variance cases.
 - `cosine_length.py` - `CosineLengthReward` (Wu/Yeo 2025): correct completions are
   rewarded more when shorter, wrong completions penalized less when longer, so
   wrong-and-short is the most-penalized cell. Correctness comes from the env. The
@@ -357,6 +397,10 @@ a registry entry and the key in `config_schema._KNOWN_REWARD_KEYS`.
 
 ## Reward composition and scale-invariance
 
+The active E1/E2 comparison uses `naive_sum` and `scale_rewards: none`: subtract
+the weighted cost, then center total rewards within each prompt group without
+dividing by their standard deviation. This retains weight 0.1 as a reward dose.
+
 `advantage_weighted` z-scores each component per prompt-group before the weighted
 sum (DIET 3.2): raw variance differs across components, so a naive sum lets a
 high-variance signal dominate regardless of weight. Because z-scoring cancels any
@@ -370,6 +414,7 @@ warns when a configured knob is inert.
 | Signal | Class | When enabled | Config key |
 |--------|-------|--------------|------------|
 | Env reward (task success) | `EnvReward` | Opt-in | `rewards.env_reward` |
+| Successful-response length cost | `SuccessfulLengthPenalty` | E2, relative at weight 0.1 | `rewards.successful_length` |
 | Token length (cosine) | `CosineLengthReward` | Opt-in | `rewards.token_length` |
 | Non-termination penalty | `NonTerminationPenalty` | Opt-in | `rewards.non_termination` |
 

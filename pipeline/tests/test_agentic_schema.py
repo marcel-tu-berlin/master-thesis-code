@@ -70,3 +70,46 @@ def test_build_domain_dispatches_browsergym():
 def test_build_domain_rejects_unknown_env():
     with pytest.raises(NotImplementedError):
         build_domain({"training": {"env": "nope"}})
+
+
+@pytest.mark.parametrize("split", [False, True])
+def test_enable_fill_is_an_explicit_boolean_in_training_and_splits(split):
+    cfg = _agentic()
+    cfg["training"]["env"] = "browsergym"
+    env_cfg = {"enable_fill": True}
+    if split:
+        cfg["eval"] = {
+            "agentic": {
+                "splits": [{"name": "typing", "n_episodes": 3, "env_config": env_cfg}]
+            }
+        }
+    else:
+        cfg["training"]["env_config"] = env_cfg
+    validate_config(cfg)
+    env_cfg["enable_fill"] = "false"
+    with pytest.raises(ValueError, match=r"enable_fill.*bool"):
+        validate_config(cfg)
+
+
+@pytest.mark.parametrize("split", [False, True])
+@pytest.mark.parametrize("tasks", ["read-table-2", [], [None], [42], [""], [" "]])
+def test_tasks_require_a_nonempty_list_of_family_names(split, tasks):
+    cfg = _agentic()
+    cfg["training"]["env"] = "browsergym"
+    env_cfg = {"tasks": ["read-table-2"]}
+    if split:
+        cfg["eval"] = {
+            "agentic": {
+                "splits": [{"name": "table", "n_episodes": 3, "env_config": env_cfg}]
+            }
+        }
+    else:
+        cfg["training"]["env_config"] = env_cfg
+    validate_config(cfg)
+    env_cfg["tasks"] = None
+    validate_config(cfg)
+    del env_cfg["tasks"]
+    validate_config(cfg)
+    env_cfg["tasks"] = tasks
+    with pytest.raises(ValueError, match=r"env_config.tasks.*nonempty list"):
+        validate_config(cfg)

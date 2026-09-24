@@ -4,6 +4,6 @@ What is executing on the GPU box (`ssh gpu-l4`), and nothing else. Rows leave th
 table once the results are harvested. Update rules are in CLAUDE.md; everything that
 is not a live run belongs in `LAB_NOTES.md`.
 
-Updated: 2026-09-13 20:54:18 UTC (box time)
+Updated: 2026-09-24 10:38:48 UTC (box time)
 
 Nothing running.

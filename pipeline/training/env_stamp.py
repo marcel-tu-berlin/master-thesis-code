@@ -19,6 +19,7 @@ import sys
 from importlib.metadata import PackageNotFoundError, version
 
 from training.env_server import clone_head, openenv_pin
+from training.env_termination import EPISODE_BOUNDARY
 
 STAMP_FILE = "env_stamp.json"
 
@@ -37,6 +38,8 @@ STAMPED_PACKAGES = (
     "reasoning-gym",
     "browsergym-core",
     "playwright",
+    "uvicorn",
+    "websockets",
     "numpy",
     # The fused GRPO loss when training.use_liger_kernel is on; None otherwise
     # says the box did not have it.
@@ -63,6 +66,7 @@ def collect_env_stamp(repo_envs_path=None) -> dict:
         "platform": platform.platform(),
         "openenv": openenv,
         "packages": packages,
+        "episode_boundary": EPISODE_BOUNDARY,
     }
 
 

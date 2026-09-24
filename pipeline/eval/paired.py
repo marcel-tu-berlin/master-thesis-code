@@ -352,10 +352,11 @@ def episode_families(config: dict, split: str, seeds) -> dict:
 
 
 # Reward-registry key -> the thesis condition that key defines. A config enabling
-# neither is the lambda=0 control (E1); one enabling both would be E4, which no
+# none is the lambda=0 control (E1); one enabling several would be E4, which no
 # run has yet, so it is labelled and left off the dose axis rather than guessed at.
 _SHAPED_CONDITIONS = {
     "token_length": "E2 cosine",
+    "successful_length": "E2 successful length",
     "non_termination": "E3 non-termination",
 }
 
@@ -376,7 +377,11 @@ def arm_condition(config: dict) -> tuple:
     if not on:
         return "control (task reward only)", 0.0
     if len(on) == 1:
-        return _SHAPED_CONDITIONS[on[0][0]], float(on[0][1])
+        key, weight = on[0]
+        label = _SHAPED_CONDITIONS[key]
+        if key == "successful_length":
+            label = f"E2 {rewards[key]['kind']}"
+        return label, float(weight)
     return "E4 combined", None
 
 

@@ -661,10 +661,6 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
             "training": {**config["training"], "env_config": env_config},
         }
         server = build_env_server(split_config, domain, python=sys.executable)
-        server.start()
-        server.wait_until_ready()
-        if server.repo_envs_path not in sys.path:
-            sys.path.insert(0, server.repo_envs_path)
 
         # Opened before the try so `finally` can always close it: a failure in
         # make_env_factory would otherwise leave the name unbound and raise
@@ -678,6 +674,10 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
             _f.flush()
 
         try:
+            server.start()
+            server.wait_until_ready()
+            if server.repo_envs_path not in sys.path:
+                sys.path.insert(0, server.repo_envs_path)
             env = domain.make_env_factory(server.base_url, env_config)()
             tools = domain.eval_tools(env)
 

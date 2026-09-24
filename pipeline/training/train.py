@@ -173,6 +173,11 @@ def main() -> None:
         action="store_true",
         help="Capture one full rollout batch and its first optimizer update",
     )
+    parser.add_argument(
+        "--observe-groups",
+        action="store_true",
+        help="Save diagnostic prompt-groups at thirds and the last ten updates",
+    )
     args = parser.parse_args()
     if args.readiness_capture and args.smoke:
         parser.error("--readiness-capture requires the real geometry, not --smoke")
@@ -201,9 +206,12 @@ def main() -> None:
     # this guard, a re-invocation with the same experiment_id silently
     # overwrites the prior frozen config and (later) trampling checkpoints.
     existing_final = os.path.join(run_dir, "checkpoint-final")
-    if os.path.isdir(existing_final) and not args.overwrite:
+    frozen_path = os.path.join(run_dir, "config.yaml")
+    if (
+        os.path.exists(frozen_path) or os.path.isdir(existing_final)
+    ) and not args.overwrite:
         raise FileExistsError(
-            f"Run directory {run_dir!r} already has checkpoint-final/. "
+            f"Run directory {run_dir!r} already has config.yaml or checkpoint-final/. "
             "Pass --overwrite to replace, or change experiment_id."
         )
     os.makedirs(run_dir, exist_ok=True)
@@ -212,7 +220,8 @@ def main() -> None:
     # marker so re-running eval against the frozen config does not silently
     # cap each split to 10 samples.
     frozen = {k: v for k, v in config.items() if k != "_smoke"}
-    with open(os.path.join(run_dir, "config.yaml"), "w") as f:
+    # Exclusive creation also protects concurrent launches of the same run ID.
+    with open(frozen_path, "w" if args.overwrite else "x") as f:
         yaml.dump(frozen, f)
 
     domain = build_domain(config)
@@ -251,6 +260,12 @@ def main() -> None:
         trainer_reward_fn = readiness_recorder.wrap_reward(
             reward_fn, diagnostic_components
         )
+
+    if args.observe_groups:
+        from training.group_observation import GroupObservation
+
+        group_observation = GroupObservation(run_dir, config, domain, runner)
+        trainer_reward_fn = group_observation.wrap_reward(trainer_reward_fn)
 
     # The callback holds the same composer instance passed as the reward fn, so
     # it drains the very buffer the trainer's reward calls populate (T2.1).
@@ -300,6 +315,8 @@ def main() -> None:
             readiness_recorder=readiness_recorder,
         )
 
+        if args.observe_groups:
+            group_observation.finish()
         runner.save_lora(checkpoint_dir)
         mark_smoke_checkpoint(checkpoint_dir, bool(config.get("_smoke")))
 

@@ -31,7 +31,9 @@ class ReasoningGymEnvAdapter:
         # .sync() wrapper is required because TRL rejects async tools.
         from reasoning_gym_env import ReasoningGymEnv
 
-        return ReasoningGymEnv(base_url).sync()
+        # Match the shared server's compute-tolerant keepalive policy; active
+        # OpenEnv connection and message timeouts retain their defaults.
+        return ReasoningGymEnv(base_url, websocket_ping_timeout_s=None).sync()
 
     def _action(self, answer):
         if self._action_cls is None:

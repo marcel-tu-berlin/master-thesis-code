@@ -1,8 +1,9 @@
 # Archived configs
 
 Configs of finished or superseded experiments. Kept for the record; nothing here
-backs a planned run. The parent directory contains only the template until a new
-experiment is explicitly planned.
+backs a planned run. The parent directory contains only the final E0-E2 configs.
+The former template, readiness configs and read-table development configs moved
+unchanged into `development-2026-09-24/`. Earlier archived configs remain here.
 
 Two warnings before re-running anything from this directory:
 

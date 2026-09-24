@@ -5,3 +5,5 @@ grpo_trainer_lora_model
 .venv-test
 __pycache__
 .DS_Store
+# Local thesis reference; maintained in the separate writing workspace.
+/thesis.pdf

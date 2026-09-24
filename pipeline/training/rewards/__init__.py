@@ -18,6 +18,7 @@ from collections.abc import Callable
 from training.rewards.cosine_length import CosineLengthReward
 from training.rewards.env_reward import EnvReward
 from training.rewards.non_termination import NonTerminationPenalty
+from training.rewards.successful_length import SuccessfulLengthPenalty
 
 
 def _build_token_length(domain, runner, training_cfg, cfg):
@@ -41,6 +42,15 @@ def _build_env_reward(domain, runner, training_cfg, cfg):
     return EnvReward()
 
 
+def _build_successful_length(domain, runner, training_cfg, cfg):
+    return SuccessfulLengthPenalty(
+        runner.tokenizer,
+        kind=cfg.get("kind", "linear"),
+        num_generations=int(training_cfg.get("n_rollouts", 8)),
+        max_len=int(cfg.get("max_len", 4096)),
+    )
+
+
 def _build_non_termination(domain, runner, training_cfg, cfg):
     # E3: -1 per episode that ran out of budget (turn cap or completion budget)
     # without the env reporting done. Reads env.done off the live env instances
@@ -55,4 +65,5 @@ REWARD_REGISTRY: dict[str, tuple[bool, float, Callable]] = {
     "token_length": (False, 1.0, _build_token_length),
     "env_reward": (False, 1.0, _build_env_reward),
     "non_termination": (False, 1.0, _build_non_termination),
+    "successful_length": (False, 1.0, _build_successful_length),
 }

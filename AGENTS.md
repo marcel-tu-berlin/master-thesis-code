@@ -2,11 +2,29 @@
 
 This file guides Codex (Codex.ai/code) when working in this repository.
 
-The project studies token-efficiency reward shaping in GRPO (a cosine length
-reward, a non-termination penalty) in an agentic, multi-environment setting.
+The project studies token-efficiency reward shaping in agentic GRPO. The active
+E2 signal is relative successful-response length cost; cosine is historical and
+non-termination training is deferred until E0-E2 are complete.
 Training runs against live OpenEnv environments through TRL's
 `environment_factory`; the policy is a tool-calling model (Qwen3-1.7B) rewarded by
 the environment, not by grading an answer string. The pipeline is agentic-only.
+
+## Current campaign
+
+Decision 0021 and `docs/plans/e0-e2-campaign.md` define the active experiment:
+E0 is base-model evaluation, E1 is task-only training from base, and E2 is task
+success plus relative successful-response length cost at weight 0.1 from the
+same base. No warm start. Both trained arms use 300 updates, batch size 4,
+eight rollouts, `naive_sum` and `scale_rewards: none`; only the shaped component's
+`enabled` flag differs. Only `pipeline/configs/e0.yaml`, `e1.yaml` and `e2.yaml`
+are active. E3 follows E0-E2; do not launch it as an automatic readiness gate.
+
+Earlier runs and findings moved unchanged to
+`pipeline/runs/archive/development-2026-09-24/`; original references below and
+in historical plans resolve through that prefix. Former active configs and the
+template are in `pipeline/configs/archive/development-2026-09-24/`; still older
+configs remain in `pipeline/configs/archive/`. Do not reuse archived run IDs.
+Competent-policy continuation is a separate future option recorded in LAB_NOTES.
 
 ## This is scientific work, so a regression is the worst outcome
 
@@ -62,10 +80,10 @@ form lives here so no argument gets rebuilt on them.
 
 The 4096-cap pair (`e24bs4` / `e25bs4`) is the first comparison free of both. Its
 configs were never tracked and existed only as frozen run copies; they are now in
-`configs/` so the pair can be re-run and seed-replicated.
+`configs/archive/` as historical records.
 
-**Re-running a void-era config does not reproduce its void run.** 26 configs in
-`configs/` predate `a19b1ff` and state no `batch_size`, so they trained at 1 but
+**Re-running a void-era config does not reproduce its void run.** 26 historical
+configs in `configs/archive/` predate `a19b1ff` and state no `batch_size`, so they trained at 1 but
 would resolve to 4 today - a different experiment under the same
 `experiment_id`. The overwrite refusal catches the collision, not the semantic
 change. `e24` and `e25` carry a header pointing at their `bs4` successors because
@@ -263,12 +281,13 @@ The pipeline is the surface for systematic experimentation. Full docs in
 `pipeline/README.md`. Run from `pipeline/`:
 
 ```bash
-python -m training.train --config configs/e30-browsergym-e1-menu-qwen3-1_7b.yaml --eval
-python -m eval.runner --config configs/e30-browsergym-e1-menu-qwen3-1_7b.yaml
-python -m training.batch configs/e3*-*.yaml --train --eval --seeds 42 43 44
+python -m eval.runner --config configs/e0.yaml --base-model
+python -m training.train --config configs/e1.yaml --observe-groups --eval
+python -m training.train --config configs/e2.yaml --observe-groups --eval
 ```
 
-Add `--smoke` to any command for a fast sanity check (3 steps, 10 eval episodes).
+For separately requested diagnostics, use a throwaway config and experiment ID
+with `--smoke`; never smoke-test into a final-campaign run directory.
 
 Results on disk are protected by three refusals, all of them there because the
 overwrite already happened once: `training.train` refuses to clobber an existing
@@ -312,7 +331,7 @@ value without making it visible.
 runs). Built for unattended ablation and seed sweeps on a single GPU.
 
 ```bash
-python -m training.batch configs/e3*-*.yaml --train --eval
+python -m training.batch configs/e1.yaml configs/e2.yaml --train --eval
 ```
 
 Phase flags `--train` and `--eval` are independent and combinable; default when
@@ -399,9 +418,10 @@ model calls the tool, env reward flows into the composer, and the LoRA saves.
 
 Rewards are wired via `REWARD_REGISTRY` in `pipeline/training/rewards/__init__.py`.
 Each entry maps a config key (under `rewards:`) to `(default_enabled,
-default_weight, builder)`. Three exist: `env_reward` (task success), `token_length`
-(cosine length), `non_termination`. All default off; configs enable what they
-study. Adding a reward requires both a builder + registry entry and the matching
+default_weight, builder)`. Four exist: `env_reward` (task success),
+`successful_length` (the active relative cost, with optional linear form),
+`token_length` (historical cosine length), and `non_termination` (deferred E3).
+All default off; configs enable what they study. Adding a reward requires both a builder + registry entry and the matching
 key in `_KNOWN_REWARD_KEYS` (`pipeline/training/config_schema.py`), or validation
 rejects it. `train.build_reward_components` iterates the registry, so there are no
 per-reward branches in `train.py`.
@@ -420,7 +440,13 @@ registry weight stays positive. It is binary, so `advantage_weighted` z-scores i
 to zero in any prompt-group where all rollouts terminate - run the lambda sweep
 under `naive_sum`; `warn_inert_scalars` warns otherwise.
 
-`CosineLengthReward` (Wu/Yeo 2025) is the single token-length reward: correct
+`SuccessfulLengthPenalty` is the active E2 reward. For each prompt group it
+returns zero on failures and negative sigmoid-standardized length on successes,
+using only successful peers and a one-token population-SD floor. The composer
+adds task reward and weights this component by 0.1. See decision 0021 for the
+formula and equal-length cases. It requires `naive_sum` / `scale_rewards: none`.
+
+`CosineLengthReward` (Wu/Yeo 2025) is retained for historical experiments: correct
 completions are rewarded more when shorter, wrong completions penalized less when
 longer, making wrong-and-short the most-penalized cell. The reward is non-linear
 in length and gated by correctness, so it survives per-group z-scoring with real

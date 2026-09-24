@@ -1,6 +1,29 @@
 # Validate the instrument before the campaign
 
+2026-09-24 status: this is the historical development/readiness plan. Decision
+0021 prepares the [final from-base E0-E2 campaign](e0-e2-campaign.md), with no
+further readiness runs requested. Earlier run paths now resolve under
+`pipeline/runs/archive/development-2026-09-24/`; diagnostic configs are under
+`pipeline/configs/archive/development-2026-09-24/readiness/`. The chronology and
+earlier admission decisions below remain historical evidence.
+
 Date: 2026-09-11. Status: implemented through Gate 3, not a launch authorization.
+
+2026-09-21 active amendment: decision 0018 admits read-table-2 despite the
+seed-4009 pilot's historical success-ceiling failure. The first E1/E2 contrast,
+fresh held-out allocation and inference rules are frozen in
+[read-table-first-contrast.md](read-table-first-contrast.md). Its admission
+supersedes the final-E1 below-90% requirement below. E3 stays secondary;
+other families and environments follow the first result.
+
+2026-09-17 review: Gate 4 is complete and fails family suitability. Its trajectory
+audit also found a training/evaluation episode-boundary discrepancy. Decision
+0014 accepts termination alignment; fresh E1/E2/E3 requalification now passes.
+The original captures remain evidence of their recorded protocol. Results are
+in `pipeline/runs/termination_readiness_findings.md` and
+`pipeline/runs/gate4_e1_findings.md`. The admitted next research step is the
+bounded harder-family screen in `docs/plans/environment-options.md`, not another
+menu pilot. The model-free audit has narrowed that screen to read-table-2.
 
 The next work should establish that the pipeline measures and optimizes the
 intended quantities. Then run one E1 pilot, inspect it, and release one shaped
@@ -149,6 +172,9 @@ updates, and saves an evaluable policy. This admits the first real E1 run.
 
 ## Gate 4: one E1 run decides whether the experiment is informative
 
+The launch-specific configuration, calibration allocation and numeric rules are
+declared in [the Gate 4 pilot protocol](gate4-pilot.md).
+
 Train one E1 from the base model with the accepted recipe. Do not add another
 50-step learnability run before it. If its recipe and family survive the pilot,
 retain this E1 as the first exploratory campaign cell. If they change, keep its
@@ -172,12 +198,15 @@ outputs after protocol freeze. Never change the protocol in a completed
 scheduled-eval directory; its resume guard deliberately rejects that change.
 Retain checkpoint and training-run provenance when using separate eval IDs.
 
-Write numeric feasibility criteria before reading the new E1 results. Suggested
-starting rules, to be agreed as design choices rather than treated as facts:
+Write numeric feasibility criteria before reading new E1 results. Decision 0017
+amends the active admission policy after the seed-4008 development diagnostic:
+learning headroom and E2 opportunity are core; E3 is secondary. Preserve earlier
+verdicts under their original rules.
 
-- **E3 opportunity:** at least 10 budget-exhausted episodes out of the first
+- **E3 opportunity warning:** retain a 10% budget-exhaustion reference for the first
   100 same-family calibration episodes. Compute this from `max_turns` plus
-  `hit_generation_cap`; voluntary `no_tool_call` stops do not qualify.
+  `hit_generation_cap`; voluntary `no_tool_call` stops do not qualify. A Wilson
+  lower bound below 10% warns, but does not block advancement or add samples.
 - **Success headroom:** same-family E1 success below 90%. Report its interval;
   a borderline value is inconclusive. A ceiling is a design concern, not an
   assertion that success degradation is mathematically unmeasurable at 100%.
@@ -188,7 +217,7 @@ starting rules, to be agreed as design choices rather than treated as facts:
 - **Readable off-target panel:** blind a small stratified trajectory sample to
   condition, including efficient correct negative controls. Retain harmful-
   behavior labels only where task observations and actions support them.
-- **Bounded ambiguity:** allow at most one predeclared extension to 200
+- **Bounded ambiguity:** for the core success-headroom rate only, allow at most one predeclared extension to 200
   same-family calibration episodes. If still inconclusive, report that and make
   a design decision; do not sample indefinitely until a bar is crossed.
 
@@ -216,7 +245,8 @@ Failure blocks the affected shaped campaign, not the reporting of the E1 result.
 ## Gate 5: release research work in small units
 
 The first informative contrast is E1 against one predeclared E2 weight on the
-same paired instances, followed by one E3 weight if its opportunity gate passes.
+same paired instances. E3 is an optional, separately interpreted extra under
+decision 0017; its opportunity warning does not block the E1/E2 contrast.
 Every trained arm starts from the same base, not from E1's trained adapter.
 Hold training steps, prompt exposure, sampling, precision, and budgets fixed.
 

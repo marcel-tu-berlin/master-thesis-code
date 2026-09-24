@@ -20,7 +20,7 @@ class ReasoningGymDomain(EnvDomain):
     adapter exposes exactly one tool (answer).
     """
 
-    # `python -m <server_module>` launches the OpenEnv env server (no Docker).
+    # The shared launcher serves <server_module>:app from the pinned OpenEnv tree.
     server_module = "reasoning_gym_env.server.app"
 
     def make_env_factory(self, base_url, env_config=None, client_factory=None):

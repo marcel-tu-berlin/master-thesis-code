@@ -7,10 +7,12 @@ surviving any tool call the model makes after the episode ends.
 """
 
 import inspect
+from types import SimpleNamespace
 
 import pytest
 
 from domains.browsergym.adapter import BrowserGymEnvAdapter
+from domains.browsergym.domain import BrowserGymDomain
 
 
 class _Obs:
@@ -160,6 +162,59 @@ def test_env_error_is_surfaced_as_feedback_not_raised():
     assert "bid not found" in out and "page" in out
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("via_eval", [False, True])
+def test_native_action_error_reaches_training_and_eval_tools(enabled, via_eval):
+    observation = SimpleNamespace(
+        axtree_txt="unchanged page",
+        error="",
+        last_action_error=True,
+        metadata={"browsergym_obs": {"last_action_error": "Element is not editable"}},
+    )
+    client = _FakeClient(steps=[_Result(observation)])
+    domain = BrowserGymDomain()
+    env = domain.make_env_factory(
+        "http://x", {"enable_fill": enabled}, client_factory=lambda: client
+    )()
+    env._make_action = lambda tool, args: (tool, args)
+    name = "fill" if enabled else "click"
+    tool = (
+        next(tool for tool in domain.eval_tools(env) if tool.__name__ == name)
+        if via_eval
+        else getattr(env, name)
+    )
+    arguments = {"bid": "17", "text": "value"} if enabled else {"bid": "999"}
+
+    assert tool(**arguments) == (
+        "Action error: Element is not editable\nPage now:\nunchanged page"
+    )
+    assert env.reward == 0 and not env.done
+    assert client.actions == [(name, arguments)]
+
+
+def test_native_error_flag_without_details_is_not_silent():
+    observation = SimpleNamespace(
+        axtree_txt="page", error="", last_action_error=True, metadata=None
+    )
+    env = _adapter(_FakeClient(steps=[_Result(observation)]))
+
+    assert env.click(bid="999") == (
+        "Action error: Action failed (no error details provided).\nPage now:\npage"
+    )
+
+
+def test_explicit_error_keeps_precedence_over_native_metadata():
+    observation = SimpleNamespace(
+        axtree_txt="page",
+        error="wrapper error",
+        last_action_error=True,
+        metadata={"browsergym_obs": {"last_action_error": "native error"}},
+    )
+    env = _adapter(_FakeClient(steps=[_Result(observation)]))
+
+    assert env.click(bid="999") == "Action error: wrapper error\nPage now:\npage"
+
+
 def test_long_observation_is_truncated():
     c = _FakeClient(steps=[_Result(_Obs(axtree_txt="x" * 5000))])
     a = _adapter(c)
@@ -194,3 +249,31 @@ def test_noop_is_a_countable_stall_not_an_absence():
     a.reset(seed=0)
     a.noop()
     assert len(c.actions) == 1 and a.done is False
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_fill_opt_in_preserves_training_eval_tool_parity(enabled):
+    client = _FakeClient(steps=[_Result(_Obs(), reward=1.0, done=True)])
+    domain = BrowserGymDomain()
+    env = domain.make_env_factory(
+        "http://x", {"enable_fill": enabled}, client_factory=lambda: client
+    )()
+    training_tools = {
+        name
+        for name, _ in inspect.getmembers(env, inspect.ismethod)
+        if not name.startswith("_") and name != "reset"
+    }
+    expected = {"click", "noop", "fill"} if enabled else {"click", "noop"}
+    assert training_tools == {t.__name__ for t in domain.eval_tools(env)} == expected
+    if enabled:
+        env._make_action = lambda tool, args: (tool, args)
+        env.fill(bid="33", text="O'Brien\\value")
+        assert client.actions == [("fill", {"bid": "33", "text": "O'Brien\\value"})]
+        assert env.reward == 1.0 and env.done
+        env.fill(bid="36", text="later")
+        assert len(client.actions) == 1 and env.reward == 1.0
+
+
+def test_fill_factory_rejects_truthy_non_boolean():
+    with pytest.raises(ValueError, match=r"enable_fill.*bool"):
+        BrowserGymDomain().make_env_factory("http://x", {"enable_fill": "false"})

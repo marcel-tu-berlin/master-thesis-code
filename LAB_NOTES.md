@@ -11,6 +11,10 @@ what is here is the reasoning around them.
 Sections below run operations first, then decisions, then history in roughly reverse
 chronological order.
 
+Historical `pipeline/runs/<path>` references below moved unchanged to
+`pipeline/runs/archive/development-2026-09-24/<path>`. See the archive README;
+do not follow old launch commands as the current protocol.
+
 **Operations**
 - [Before any browsergym launch](#before-any-browsergym-launch)
 - [Box state - read before the next run](#box-state---read-before-the-next-run)
@@ -27,6 +31,92 @@ chronological order.
 - [Killed](#killed)
 - Then the narrative record, newest first, from the poly cosine re-run through the
   batch_size root cause, the e27 baseline saga, and the two e28 kills.
+
+## Final from-base E0-E2 campaign and retained continuation option, 2026-09-24
+
+Decision [0021](docs/decisions/0021-final-e0-e2-from-base.md) fixes E0 as the
+original base evaluation, E1 as task-only training from base, and E2 as task
+success plus relative length cost from the same base. The complete declaration
+is [docs/plans/e0-e2-campaign.md](docs/plans/e0-e2-campaign.md). The active configs
+contain no initial adapter. E3 is deferred until E0-E2 are complete and reviewed.
+
+Keep competent-policy compression as a separate future training design: first
+train a task-competent E1 policy, then fork its exact adapter into matched
+task-only and relative-cost continuation arms with fresh, identical optimizer
+and scheduler states. That asks whether an already competent policy can be
+compressed, whereas the current campaign asks how shaping affects learning
+from the original base. The archived 300-update E1 plus 90-update continuation
+study provides development evidence for that option, not a from-base result.
+Its numbers remain in the archived `table_compression_s4009_findings.md` and its
+declaration in `docs/plans/read-table-compression.md`. No continuation is queued.
+
+All prior run artifacts and the former active configs were moved, without
+content changes, into their respective `archive/development-2026-09-24/`
+directories on both machines. Earlier config archives stay in place. Raw
+evidence remains Git-ignored; server checkpoints remain on the server. The
+completed development review LaunchAgent was disabled and unloaded before the
+move; its files and receipts remain available, but its old paths must not be
+reactivated for this campaign. This is operational housekeeping only.
+
+Preparing the final configs exposed a reporting-label omission:
+`eval.paired.arm_condition` treated `successful_length` as task-only because it
+only knew the cosine and non-termination keys. It now labels the configured
+linear/relative cost and its actual weight. This changes dose-panel labels, not
+reward arithmetic, token measurement or saved results; the continuation findings
+were computed by their explicit comparison, not that mislabeled dose panel.
+
+## Competent-policy compression, 2026-09-23
+
+Automation is operational support, not a thesis contribution or research task.
+The user's priority is completing the approved experiments. Repair operational
+bookkeeping directly when evidence permits; reserve decisions for actual research
+changes or unresolved validity issues.
+
+The start-stage review initially required `checkpoint_step: 300` for an external
+adapter. That contradicted `eval.checkpoints.checkpoint_step` and its existing
+test: another run's checkpoint deliberately reports a null step. The one-off
+checker now verifies source step 300 through checkpoint_origin, the explicit
+launch path and admitted adapter hashes. Reports and trajectories were preserved;
+no experiment or runtime change, rerun or requalification was necessary. Original
+blocked reviews and admission are retained under the compression ops directory's
+provenance-checker-correction archive.
+
+Decision 0019 records the approved linear/relative successful-response cost
+comparison and matched E1 continuation. The declaration is in
+docs/plans/read-table-compression.md; evidence and calibration results belong in
+pipeline/runs/table_compression_s4009_findings.md. Gradient-history collection
+was explicitly declined and remains unchanged.
+
+`model.initial_adapter` starts a new optimizer/scheduler stage from verified
+adapter tensors. It is not an interrupted-run resume. Both continuation arms
+must share the initializer and fresh optimizer recipe. This changes the study's
+initial policy; it does not invalidate or overwrite the earlier base-start runs.
+The persistent reviewer admits only the declared readiness/start/control/relative
+sequence, with final review requiring the user's next decision.
+
+## Read-table first contrast, 2026-09-21
+
+Decision 0018 records the user's choice to continue read-table-2 through the
+first E1/E2 result, with other families and environments deferred. The completed
+pilot's historical success-ceiling failure stays intact. The accepted amendment
+changes admission, not measurement or runtime. Concrete configs, fresh held-out
+allocation, success margin and analysis live in docs/plans/read-table-first-contrast.md.
+
+The existing persistent review job now admits the three table-first stages:
+E0 review -> saved-E1 review -> E2 training/evaluation -> first-result review.
+It retains the same canonical remote state and old claims. Its installed files
+match the copies in runs/table-first-s4009-ops/automatic-review/. Delivery
+fixtures reject missing held-out evidence and a promised-but-unlaunched next
+stage; a real launchd probe confirmed SSH access. A temporary launchctl submit
+probe repeated on exit, so it was removed after recording its evidence; the
+regular fifteen-minute LaunchAgent was preserved. Reviews still require the
+Mac to be awake, logged in and connected. GPU phases run independently.
+
+For saved E1 thirds, use byte-identical copies of only the adapter config and
+weights, with checkpoint_origin.json and hashes of every copy. Directory
+symlinks resolve to the original training run, so the existing checkpoint-step
+resolver would not identify them as the new evaluation run's planned thirds.
+No runtime change or extra E1 training is needed.
 
 ## Before any browsergym launch
 
@@ -83,10 +173,11 @@ chronological order.
   `EnvServerProcess` runs the env server with `sys.executable`, so the server
   subprocess needs it in the same venv as training. The only version move was
   `greenlet 3.5.2 -> 3.0.3` for playwright's pin.
-- **The browsergym server takes its port from `BROWSERGYM_PORT`, not the `--port`
-  argv** `EnvServerProcess` passes. It always binds 8000 by default, which is what
-  the configs ask for. A different `training.env_server.port` would fail loud
-   (nothing answers the client), not silent.
+- **Use the shared server launcher (2026-09-17).** It serves the pinned OpenEnv
+  ASGI app on the configured host/port and retains active request deadlines
+  while tolerating long model-compute pauses. Directly invoking BrowserGym's
+  upstream module instead uses its own port and default keepalive settings.
+  Decision 0015 records the correction and its required requalification.
 - **OpenEnv clone updated** `d372fab` -> `024eedc`. Rollback point is `d372fab`,
   and rolling back means editing `pipeline/OPENENV_COMMIT` - a `git checkout` in
   the clone alone is reverted by the next setup and refused at the next launch.
@@ -104,13 +195,168 @@ chronological order.
   log.** Episodes are written and flushed one per line, but Python block-buffers
   stdout to a file, so the log sits frozen at "loading model" for the whole run
   and reads like a hang.
+- **Harvest scheduled evaluations separately from adapters.** The usual
+  `--exclude 'checkpoint*'` also excludes `checkpoint-evals/`. After the main
+  harvest, copy `runs/<exp>/checkpoint-evals/` separately with `rsync -a` and
+  verify all scheduled reports. That subtree contains evaluation artifacts,
+  while the adapter checkpoints live directly under the experiment directory.
+  The same broad exclusion also matches `checkpoint_origin.json`; explicitly
+  include that provenance file before the exclusion, or copy it separately.
 - **Never write a watcher as `while pgrep -f '<pattern>'; do sleep N; done`.** The
   watcher's own command line contains the pattern, so it matches itself and spins
   forever after the job it watches exits. Three have been killed this way (273631,
   297350, 908606). Poll the output file instead, or match on the pid.
+- **Resume long qualification work after completion, not on repeated prompts.**
+  The read-table-2 follow-up uses the existing launchd/CLI approach:
+  `com.openai.codex.read-table-feedback-review` checks the bounded controller's
+  state every fifteen minutes. Its helper and prompt live under
+  `/private/tmp/read-table-feedback-review*`. Its initial checks exited cleanly,
+  but the completion-triggered CLI resume failed: the desktop app retains an
+  active-writer lock even when the thread is idle. The job was unloaded after
+  the review was completed in the existing thread. An idle lifecycle event is
+  not proof that a second process can own the thread. Do not reuse this handoff
+  without verifying an app-owned continuation or separate review job.
+  This Mac must be awake and able to reach the box for the follow-up to start;
+  GPU-side continuation runs independently. Status, errors and the final review
+  remain in those local files. Use model/effort values from `models.env`.
+  The replacement `com.openai.codex.table-diagnostic-review` uses a separate
+  CLI thread, verified by an actual launchd-triggered code review while the
+  desktop writer stayed open. It locks each diagnostic review; inspect
+  `~/Library/Application Support/ThesisReview/claims/<run>/status.json` and
+  `result.md`
+  before reviewing completed artifacts manually. This avoids duplicate work.
+  The user reaffirmed unattended harvesting and progression through passing
+  authorized stages on 2026-09-18 (local date). Routine completion needs no
+  approval; a failed gate or a new finding requiring a protocol decision does.
+  The reviewer must verify the completion trigger before ending a launch turn.
+  The watcher recognizes the seed-4008 pair, its single paired extension, and
+  the declared seed-4009 pilot/extension IDs. Every controller must update the
+  same `table-diagnostic-s4008-ops/state.json`; other runs are refused.
+  On 2026-09-18 the automatic review harvested E1 but ended with the admitted
+  extension only listed as a next step. A successful CLI exit proved review
+  execution, not continuation. The repaired watcher requires a structured
+  receipt, hashes of the review and canonical inputs, and an admitted next
+  phase with a verified live process (or successful completion). A legitimate
+  gate decision must be recorded in remote state. A passing gate cannot be
+  replaced with a proposed next step. Incomplete delivery gets one retry;
+  another failure is recorded as blocked, with both attempts retained.
+  The scheduled rehearsal first exposed a macOS Documents read denial in the
+  watcher. It now reads canonical input hashes over SSH and takes a copy of
+  the review JSON in its attempt directory, without broader Mac permissions.
+  A real launchd -> separate CLI reviewer -> harmless next-process rehearsal
+  then passed. The old zero-exit/no-work case fails the completion check, and
+  the saved regression checks cover recovery, duplicate prevention and gate
+  stops. Evidence and runnable checks are under
+  `pipeline/runs/table-diagnostic-s4008-ops/automatic-review-verification/`.
+  This verifies review delivery, not the scientific verdict. A laptop restart
+  on 2026-09-18 removed the temporary helper and launchd registration while E1
+  completed normally on the GPU box. The helper, prompt, contract and claims
+  now live under `~/Library/Application Support/ThesisReview/`, with the plist
+  in `~/Library/LaunchAgents/com.openai.codex.table-diagnostic-review.plist`
+  so login loads it again. The deployment and runnable checks are saved under
+  `pipeline/runs/table-diagnostic-s4008-ops/automatic-review-installation/`.
+  The historical verification bundle remains unchanged; use the installation
+  bundle's test, which loads its adjacent helper instead of a temporary path.
+  Checks run on load and every fifteen minutes. This Mac still needs to be
+  awake, logged in and able to reach the box. The GPU controller remains
+  independent of this local review step.
+  Completion receipts use repository-relative `pipeline/runs/...` input keys;
+  launcher `review_gate.json` uses filenames relative to its run directory.
+  Mixing these formats left the seed-4009 E0 claim incomplete even though its
+  automatic review had launched E1. On 2026-09-19 the receipt was corrected
+  separately, preserving the original attempt, and passed the existing
+  validator against remote hashes and the live E1 process. The completion
+  contract now spells out both path formats. Evidence is under
+  `pipeline/runs/table-pilot-s4009-ops/review-reconciliation-20260919/`.
+  On 2026-09-22, automatic review and advancement were wired, but their results
+  still had no delivery into the research conversation. The current conversation
+  was verified as a CLI process under tmux; the desktop app is not required.
+  A `codex queue` follow-up to this session was actually received and answered.
+  The same persistent LaunchAgent now runs `table-review-delivery.py`, which
+  calls the unchanged admitted reviewer and queues phase changes, review outcomes
+  and blockers into that CLI session. Unchanged state is deduplicated; failed
+  queue attempts retain the previous receipt and retry on the next check.
+  Notification failures do not prevent review execution. A real launchd check
+  queued a report successfully, and a second check queued no duplicate. Queue
+  acceptance is recorded separately from consumption in the conversation.
+  The admitted reviewer, prompt, contract and all 25 bound input files remain
+  unchanged. Deployment evidence and a runnable regression check are under
+  `pipeline/runs/table-first-s4009-ops/cli-delivery-20260922/`.
+  Keep this CLI session loaded for automatic conversational updates. Local
+  checks still require the Mac awake, logged in and connected to the GPU box;
+  the persistent LaunchAgent reloads at login. The declared E2 result ends this
+  tranche and requires user review before any further experiments.
 
 ## Traps that have each cost real time
 
+- **Budget exhaustion is secondary (2026-09-18).** The user accepted
+  [decision 0017](docs/decisions/0017-budget-exhaustion-is-secondary.md) after
+  the paired diagnostic review. Its 10% reference now produces a warning;
+  learning headroom and compression opportunity govern core admission.
+  Preserve the original failed review and use a separately bound amended
+  admission for the seed-4009 pilot. Runtime and measurement definitions stay
+  unchanged, so the completed readiness evidence remains applicable.
+
+- **Development admission floor amended after observation (2026-09-17).** The
+  user chose to retain read-table-2 after its technically clean screen missed
+  the original 40% lower bound. Decision 0016 records the new 30% floor,
+  unchanged within-group/cost guards, and the requirement to preserve the
+  original failed verdict. The diagnostic uses fresh seed block 4008.
+
+- **Transport exceptions are not policy failures (2026-09-17).** The first
+  corrected-feedback E1 diagnostic exposed keepalive closures that the native
+  training loop converted into error feedback. Training now follows eval's
+  argument-binding/body-exception distinction. A controlled native compute
+  pause reproduces the old timeout; the shared transport fix passes that case
+  while active RPC deadlines remain effective. Server output also inherited
+  an unread pipe, a separate reproduced deadlock hazard now removed. Evidence
+  and affected captures are in `pipeline/runs/feedback_requalification_findings.md`.
+
+- **Native BrowserGym action errors can have an empty error string (2026-09-17).**
+  The harder-family screen exposed a second error path: the pinned wrapper
+  sets `last_action_error` and retains the native message in observation
+  metadata while leaving `error` empty. The old shared adapter therefore
+  omitted that feedback in both training and evaluation. Real invalid-action
+  replays confirm the gap; an injected nonempty `error` test misses it.
+  The technical stop, diagnostic samples and next-family decision are recorded
+  in `pipeline/runs/family_screen_findings.md`. The user approved the common
+  adapter repair and read-table-2 requalification in decision
+  `docs/decisions/0015-surface-native-action-errors.md`. The repair passes CPU
+  regressions and native click/fill, recovery, scoring and tool-schema controls.
+  Fresh E1/E2/E3 captures must qualify the changed observation protocol before
+  repeating the bounded family screen; preserve the old captures.
+- **Environment completion is not native trainer completion (2026-09-16).**
+  The Gate 4 trajectory review found that TRL 1.6.0 continues generating after
+  the environment finishes; the adapter's done guard preserves reward but does
+  not stop generation. Evaluation stops immediately. Evidence and the required
+  protocol correction are in `pipeline/runs/gate4_e1_findings.md` and accepted
+  decision `docs/decisions/0014-stop-at-environment-completion.md`. Earlier replay
+  passes validated their captured inputs, not train/eval episode-boundary parity.
+  Preserve the old captures; a correction requires affected readiness checks.
+  Decision 0014's correction passed fresh E1/E2/E3 qualification on 2026-09-17;
+  evidence is in `pipeline/runs/termination_readiness_findings.md`.
+- **Harder-family qualification and typing opt-in (2026-09-16).**
+  `enable_fill: true` adds the same text-entry tool in BrowserGym training and
+  evaluation; omitted/false preserves the old two-tool schema. This is a new
+  tool context, not a comparable rerun of a click-only experiment. The bounded
+  oracle findings, including inaccessible link IDs and Search Engine's
+  URL-fragment reward failure, live in `pipeline/runs/family_oracle_findings.md`.
+- **Launch-safety corrections (2026-09-16).** An unfinished run's frozen config
+  now blocks accidental re-invocation, including a concurrent launch. Batch retries
+  do not authorize replacement; use a new ID or explicit overwrite after review.
+  Training, evaluation and server context entry now clean up startup failures.
+  Regression failures were reproduced before the fixes; the full local gate and
+  native review passed. This changes failure handling, not the reward or successful
+  episode process. Completed Gate 4 source snapshots retain their original hashes.
+- **Pilot observation is a separate qualification from the Gate 3 capture.**
+  `--observe-groups` records fixed batches including the last ten updates,
+  without adding diagnostic costs to the reward. Its native CPU parity check
+  covers rewards, advantages, loss, selected-log-prob gradients and random state.
+  The old Gate 3 report retains its original source digest; its strict source
+  guard is not weakened to accept the new observer. The pilot records the
+  admitted baseline plus the verified observer delta. Details and reproducible
+  evidence are in `pipeline/runs/gate4_observer_findings.md`. No measurement or
+  reward definition changed, and no collected result is invalidated.
 - **A bounded first-batch capture can miss a live shaping signal.** The E3
   diagnostic activated its penalty in later optimizer steps, while every penalty
   in the saved first batch was zero. Runtime completion and finite updates did

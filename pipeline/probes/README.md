@@ -4,9 +4,16 @@ Standalone diagnostic scripts. Not part of the pipeline: they run outside
 `training/` and `eval/`, answer one question each, and are kept because the
 question recurs.
 
+These are development tools, not prerequisites for the prepared
+[E0-E2 campaign](../../docs/plans/e0-e2-campaign.md). Historical paths below
+refer to the layout before the 2026-09-24 archive; run evidence moved under
+`runs/archive/development-2026-09-24/`, and the diagnostic configs moved under
+`configs/archive/development-2026-09-24/readiness/`. Source-bound probes require
+their original source and layout; do not rerun old admissions against new code.
+
 ## `readiness.py` - staged experiment admission
 
-Validates the final recipe and the E1/E2/E3 diagnostic bundle, runs the local
+Validates the historical cosine E1/E2/E3 diagnostic bundle, runs the local
 gate, rejects stale captures, and inspects completed run artifacts. It admits
 one next phase at a time and exits 2 while evidence is still missing.
 
@@ -34,12 +41,11 @@ The full protocol and pass conditions are in
 
 ## `bg_probe.py` - BrowserGym/MiniWoB difficulty probe
 
-Measures base-model success per MiniWoB task so an environment can be checked
-against the two bars before anything is trained: base accuracy in 40-80% (so GRPO
-gets within-group variance and the task-success baseline has headroom) and a
-success/termination gap (so the off-target axis is not collinear with task
-performance). Mirrors the agentic eval loop - native tool calling, greedy,
-stop-reason bookkeeping - so the numbers transfer.
+Legacy base-model difficulty diagnostic. Its displayed 40-80% band, greedy
+decoding and per-turn budget describe the earlier probe; they do not admit an
+experiment under the current pipeline. Use the fixed sampled-group screen in
+`docs/plans/family-suitability.md` instead. Decision 0016 sets its current band
+to 30-80% and retains explicit reward/cost variation and technical checks.
 
 Results and interpretation: `pipeline/runs/browsergym_feasibility_findings.md`.
 

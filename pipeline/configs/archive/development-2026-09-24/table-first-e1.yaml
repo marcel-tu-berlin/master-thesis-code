@@ -1,0 +1,75 @@
+description: First declared read-table-2 contrast; saved task-only checkpoints
+eval:
+  agentic:
+    n_episodes: 200
+    splits:
+    - name: held_out_table
+      n_episodes: 200
+      seed_offset: 100000
+  checkpoint_schedule: thirds
+  do_sample: false
+  max_new_tokens: 4096
+  reference_report: runs/table-first-s4009-ops/reference.json
+  temperature: 0.0
+experiment_id: table-first-e1-s4009
+model:
+  gpu_memory_utilization: 0.3
+  load_in_4bit: false
+  lora_alpha: 32
+  lora_r: 16
+  max_seq_length: 8192
+  revision: 70d244cc86ccca08cf5af4e1e306ecf908b1ad5e
+  slug: qwen3-1.7b
+  use_vllm: true
+  vllm_enable_sleep_mode: false
+rewards:
+  compose_method: naive_sum
+  env_reward:
+    enabled: true
+    weight: 1.0
+  non_termination:
+    enabled: false
+    placebo: false
+    weight: 1.0
+  token_length:
+    enabled: false
+    max_len: 4096
+    placebo: false
+    r_correct_long: 0.5
+    r_correct_short: 1.0
+    r_wrong_long: -0.5
+    r_wrong_short: -1.0
+    weight: 1.0
+seed: 4009
+training:
+  batch_size: 4
+  env: browsergym
+  env_config:
+    benchmark: miniwob
+    enable_fill: true
+    max_turns: 8
+    miniwob_url: http://localhost:8080/miniwob/
+    size: 500
+    tasks:
+    - read-table-2
+  env_server:
+    port: 8000
+    repo_path: /workspace/OpenEnv/envs
+  kl_beta: 0.0
+  learning_rate: 5.0e-05
+  loss_type: dapo
+  lr_scheduler_type: constant_with_warmup
+  max_prompt_length: 4096
+  max_steps: 300
+  micro_batch_size: 1
+  mode: agentic
+  n_rollouts: 8
+  num_iterations: 1
+  optim: adamw_torch_fused
+  save_steps: 100
+  scale_rewards: none
+  temperature: 1.0
+  use_liger_kernel: false
+  vllm_importance_sampling_mode: token_truncate
+  warmup_ratio: 0.1
+  weight_decay: 0.1
