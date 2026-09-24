@@ -381,6 +381,8 @@ def arm_condition(config: dict) -> tuple:
         label = _SHAPED_CONDITIONS[key]
         if key == "successful_length":
             label = f"E2 {rewards[key]['kind']}"
+        if rewards[key].get("placebo", False):
+            label += " placebo"
         return label, float(weight)
     return "E4 combined", None
 

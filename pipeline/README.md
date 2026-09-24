@@ -8,9 +8,24 @@ not need a code change.
 
 The active study is the [final E0-E2 campaign](../docs/plans/e0-e2-campaign.md):
 E0 evaluates the base policy; E1 and E2 independently train from that base, with
-E2 adding relative successful-response length cost at weight 0.1. Only
-`configs/e0.yaml`, `configs/e1.yaml` and `configs/e2.yaml` are active. E3 is
+E2 adding relative successful-response length cost at weights 0.05/0.1/0.2.
+Active configs are `e0.yaml`, `e1.yaml`, `e2.yaml` (0.1), `e2-l005.yaml`,
+`e2-l020.yaml` and `e2-placebo-l020.yaml`, all under `configs/`. E3 is
 deferred. Earlier configs and results are archived; see [runs/README.md](runs/README.md).
+
+## Measured costs
+
+Training and evaluation write append-only `costs.jsonl` start/end records beside
+their outputs, including failed attempts, wall seconds and allocated GPU hours.
+Scheduled checkpoints keep their own evaluation ledger in their canonical output
+directory; the final checkpoint uses the run root. Training closes its record
+before `--eval` replaces the process. A missing end record means incomplete cost.
+
+Evaluation flushes `episode_wall_seconds` and `inference_wall_seconds` with each
+episode and includes them in JSON report samples and split totals. Episode time
+includes reset and tool calls; inference time covers policy calls only. Historical
+untimed records remain null. See the [campaign cost definitions](../docs/plans/e0-e2-campaign.md#cost-accounting-from-the-first-run)
+for timing boundaries and break-even accounting. No cost changes the reward.
 
 ## Setup
 
@@ -301,8 +316,8 @@ eval/agentic_eval.py:run_agentic_eval()  # N held-out episodes, env-scored repor
 
 ### `configs/`
 
-YAML experiment configs. `e0.yaml`, `e1.yaml` and `e2.yaml` carry the final
-from-base recipe. The former template, finished and superseded configs live in
+YAML experiment configs. The six active configs listed above carry the final
+from-base recipe and full E2 dose/placebo grid. The former template, finished and superseded configs live in
 `configs/archive/` - read its README before re-running one.
 
 ### `domains/`
@@ -399,7 +414,7 @@ a registry entry and the key in `config_schema._KNOWN_REWARD_KEYS`.
 
 The active E1/E2 comparison uses `naive_sum` and `scale_rewards: none`: subtract
 the weighted cost, then center total rewards within each prompt group without
-dividing by their standard deviation. This retains weight 0.1 as a reward dose.
+dividing by their standard deviation. This retains the configured weight as a reward dose.
 
 `advantage_weighted` z-scores each component per prompt-group before the weighted
 sum (DIET 3.2): raw variance differs across components, so a naive sum lets a
@@ -414,7 +429,7 @@ warns when a configured knob is inert.
 | Signal | Class | When enabled | Config key |
 |--------|-------|--------------|------------|
 | Env reward (task success) | `EnvReward` | Opt-in | `rewards.env_reward` |
-| Successful-response length cost | `SuccessfulLengthPenalty` | E2, relative at weight 0.1 | `rewards.successful_length` |
+| Successful-response length cost | `SuccessfulLengthPenalty` | E2, relative at weights 0.05/0.1/0.2 | `rewards.successful_length` |
 | Token length (cosine) | `CosineLengthReward` | Opt-in | `rewards.token_length` |
 | Non-termination penalty | `NonTerminationPenalty` | Opt-in | `rewards.non_termination` |
 

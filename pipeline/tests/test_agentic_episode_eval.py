@@ -150,5 +150,7 @@ def test_metrics_to_dict_shape():
         "n_actions": None,
         "n_invalid_actions": None,
         "n_repeated_actions": None,
+        "episode_wall_seconds": None,
+        "inference_wall_seconds": None,
     }
     assert "mean_token_count" in d and "mean_steps" in d

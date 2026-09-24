@@ -23,6 +23,7 @@ from eval.checkpoints import (
     resolve_checkpoint_evals,
 )
 from training.config_schema import resolve_checkpoint_steps
+from training.cost import measure_phase
 
 
 def preflight_checkpoints(config: dict, targets) -> None:
@@ -132,20 +133,28 @@ def _run_checkpoint_schedule(config: dict, run_dir: str, checkpoint=None) -> Non
             if target.checkpoint is None:
                 raise ValueError("Scheduled evaluation requires a trained checkpoint")
             stage = temp / f"step-{target.step}"
-            subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "eval.runner",
-                    "--config",
-                    str(config_path),
-                    "--checkpoint",
-                    target.checkpoint,
-                    "--output-dir",
-                    str(stage),
-                ],
-                check=True,
-            )
+            # Keep timing in the canonical directory even when a failed worker's
+            # temporary outputs are discarded. Do not publish its nested timer.
+            with measure_phase(
+                target.output_dir,
+                "eval",
+                checkpoint=target.checkpoint,
+                scope="checkpoint_worker_process",
+            ):
+                subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "eval.runner",
+                        "--config",
+                        str(config_path),
+                        "--checkpoint",
+                        target.checkpoint,
+                        "--output-dir",
+                        str(stage),
+                    ],
+                    check=True,
+                )
             staged_target = type(target)(target.checkpoint, target.step, str(stage))
             if not completed(staged_target, smoke=bool(config.get("_smoke"))):
                 raise RuntimeError(f"Worker did not finish checkpoint {target.step}")

@@ -11,13 +11,17 @@ the environment, not by grading an answer string. The pipeline is agentic-only.
 
 ## Current campaign
 
-Decision 0021 and `docs/plans/e0-e2-campaign.md` define the active experiment:
+Decisions 0021/0022 and `docs/plans/e0-e2-campaign.md` define the active experiment:
 E0 is base-model evaluation, E1 is task-only training from base, and E2 is task
-success plus relative successful-response length cost at weight 0.1 from the
-same base. No warm start. Both trained arms use 300 updates, batch size 4,
-eight rollouts, `naive_sum` and `scale_rewards: none`; only the shaped component's
-`enabled` flag differs. Only `pipeline/configs/e0.yaml`, `e1.yaml` and `e2.yaml`
-are active. E3 follows E0-E2; do not launch it as an automatic readiness gate.
+success plus relative successful-response length cost at weights 0.05/0.1/0.2
+from the same base. A 0.2 placebo uniformly shuffles only the shaped term within
+each prompt group. No warm start. All trained arms use 300 updates, batch size 4,
+eight rollouts, `naive_sum` and `scale_rewards: none`; only the shaped component
+changes. Six active configs cover E0, E1, three E2 doses and the placebo. Run
+seed 4016 first, then the same cells at 4017/4018 with matching E0 reports.
+E3 follows E0-E2; do not launch it as an automatic readiness gate. Statistical
+precision and off-target validation are interpretation tasks, not launch gates.
+Costs are recorded from the first run, independently of reward measurements.
 
 Earlier runs and findings moved unchanged to
 `pipeline/runs/archive/development-2026-09-24/`; original references below and
@@ -306,7 +310,8 @@ agentic eval report (`eval_report.json` / `eval_report.md`, keyed under the
 Every arm of a comparison runs `batch_size: 4`, `n_rollouts: 8` and the same
 `max_steps`. Fixing only one of the three rebuilds the confound: an arm that saw
 more prompts, or more optimizer updates, than its baseline is not a reward
-ablation. Two configs being compared should differ in exactly one `rewards:` key,
+ablation. Only the studied reward component may differ between arms (enabled, dose or
+placebo assignment); all other reward settings must match,
 and the diff of their frozen `runs/<exp>/config.yaml` files is what proves it -
 check that diff, not the config you intended to write. The reasoning behind the
 value 4, and why it is not a memory knob, is in
@@ -443,8 +448,8 @@ under `naive_sum`; `warn_inert_scalars` warns otherwise.
 `SuccessfulLengthPenalty` is the active E2 reward. For each prompt group it
 returns zero on failures and negative sigmoid-standardized length on successes,
 using only successful peers and a one-token population-SD floor. The composer
-adds task reward and weights this component by 0.1. See decision 0021 for the
-formula and equal-length cases. It requires `naive_sum` / `scale_rewards: none`.
+adds task reward and weights this component by the declared dose. See decisions
+0021/0022 for the formula, equal-length cases and weight grid. It requires `naive_sum` / `scale_rewards: none`.
 
 `CosineLengthReward` (Wu/Yeo 2025) is retained for historical experiments: correct
 completions are rewarded more when shorter, wrong completions penalized less when

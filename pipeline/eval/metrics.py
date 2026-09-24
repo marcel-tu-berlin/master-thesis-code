@@ -54,6 +54,11 @@ class SampleResult:
     n_actions: int | None = None
     n_invalid_actions: int | None = None
     n_repeated_actions: int | None = None
+    # Monotonic wall time. Episode includes reset/tools; inference sums policy
+    # calls (prompt encoding, generation and parsing), excluding environment I/O.
+    # None means the historical record was not timed, never zero cost.
+    episode_wall_seconds: float | None = None
+    inference_wall_seconds: float | None = None
 
 
 @dataclass

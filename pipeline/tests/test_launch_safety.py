@@ -1,6 +1,7 @@
 """Exercise real entry points with model loading and server I/O stubbed out."""
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -110,6 +111,55 @@ def test_metadata_only_directory_and_explicit_overwrite_are_allowed(
         train.main()
     assert yaml.safe_load((run / "config.yaml").read_text()) == cfg
     assert (run / "launch.json").read_text() == "{}"
+    cost = [json.loads(line) for line in (run / "costs.jsonl").read_text().splitlines()]
+    assert [r["event"] for r in cost] == ["start", "end"]
+    assert cost[-1]["status"] == "failed"
+    assert cost[-1]["error_type"] == "LookupError"
+
+
+def test_training_cost_finishes_before_eval_process_replacement(
+    entrypoints, tmp_path, monkeypatch
+):
+    train, _ = entrypoints
+    monkeypatch.chdir(tmp_path)
+    cfg = {
+        "experiment_id": "cost",
+        "model": {"slug": "qwen3-1.7b"},
+        "training": {"env": "browsergym", "max_steps": 300},
+        "eval": {"checkpoint_schedule": "thirds", "reference_report": "e0.json"},
+    }
+    Path("launch.yaml").write_text(yaml.safe_dump(cfg))
+    monkeypatch.setattr(sys, "argv", ["train", "--config", "launch.yaml", "--eval"])
+    domain = SimpleNamespace(build_seed_dataset=lambda *a, **k: [])
+    model = SimpleNamespace(
+        train=lambda *a, **k: None,
+        save_lora=lambda path: Path(path).mkdir(),
+    )
+    monkeypatch.setattr(train, "build_domain", lambda cfg: domain)
+    monkeypatch.setattr(train, "GRPORunner", lambda cfg: model)
+    monkeypatch.setattr(train, "build_reward_components", lambda *a: [(lambda: 1, 1)])
+    monkeypatch.setattr(train, "build_composer", lambda *a: object())
+    monkeypatch.setattr(train, "write_env_stamp", lambda *a: None)
+    monkeypatch.setattr(
+        train,
+        "build_env_server",
+        lambda *a, **k: SimpleNamespace(
+            repo_envs_path="unused",
+            base_url="unused",
+            max_concurrent=32,
+        ),
+    )
+
+    def exec_eval(executable, cmd):
+        assert "eval.runner" in cmd
+        end = json.loads(Path("runs/cost/costs.jsonl").read_text().splitlines()[-1])
+        assert end["event"] == "end" and end["status"] == "complete"
+        assert end["phase"] == "train"
+        raise SystemExit(0)
+
+    monkeypatch.setattr(train.os, "execv", exec_eval)
+    with pytest.raises(SystemExit):
+        train.main()
 
 
 @pytest.mark.parametrize("force", [False, True])

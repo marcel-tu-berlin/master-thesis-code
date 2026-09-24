@@ -32,6 +32,30 @@ do not follow old launch commands as the current protocol.
 - Then the narrative record, newest first, from the poly cosine re-run through the
   batch_size root cause, the e27 baseline saga, and the two e28 kills.
 
+## Final dose grid and cost instrumentation, 2026-09-24
+
+Decision [0022](docs/decisions/0022-e2-dose-grid-and-analysis-followups.md)
+restores the thesis dose/placebo grid while keeping the independent from-base
+comparison. Statistical precision and off-target validation are deferred to
+interpretation at the user's request. Allocation and timing definitions live in
+[the campaign declaration](docs/plans/e0-e2-campaign.md).
+
+Training/evaluation now append phase timings, and completed evaluation episodes
+retain both total episode and policy-call wall time. Scheduled worker failures
+keep their timing outside the discarded temporary output directory. Training
+finishes its timing before process replacement by evaluation. This is additive
+instrumentation: no reward, token ruler, seed mapping, stopping rule or optimizer
+setting changed. Archived runs lack these measurements and are not retroactively
+assigned zero cost. No archived scientific result is invalidated by this change.
+
+Activating the placebo exposed another reporting-label omission: `arm_condition`
+ignored `placebo: true`, so it put shuffled and genuine costs on the same dose
+curve. The label now distinguishes the placebo; a regression test reproduced
+and closes the omission. Reward arithmetic is unchanged. New run IDs use distinct
+leading handles (`e2l005`, `e2l020`, `e2placebol020`) because existing plot labels
+and output filenames shorten IDs at the first hyphen. This avoids collisions
+without changing historical naming or rewriting the plot code.
+
 ## Final from-base E0-E2 campaign and retained continuation option, 2026-09-24
 
 Decision [0021](docs/decisions/0021-final-e0-e2-from-base.md) fixes E0 as the

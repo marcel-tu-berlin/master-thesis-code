@@ -9,11 +9,13 @@ import inspect
 import json
 import os
 import sys
+import time
 
 from domains.env_base import CORRECT_REWARD_THRESHOLD
 from eval.checkpoints import checkpoint_step, refuse_existing_outputs
 from eval.metrics import SampleResult, compute_metrics, load_reference_thresholds
 from training.config_schema import SEED_BLOCK, resolve_max_turns
+from training.cost import measure_phase
 
 # Held-out offset: training takes the bottom of a seed's block, so eval at
 # block + OFFSET evaluates on questions the model was not trained on.
@@ -141,8 +143,11 @@ def _run_episodes(
     """
     results = []
     for i in range(n):
+        episode_started = time.perf_counter()
         question = env.reset(seed=seed_base + i)
+        inference_started = time.perf_counter()
         answer, n_tokens = gen_fn(question)
+        inference_seconds = time.perf_counter() - inference_started
         env.answer(answer if answer is not None else "")
         r = float(env.reward)
         terminated = answer is not None
@@ -157,6 +162,8 @@ def _run_episodes(
                     "env_done" if terminated else _no_call_reason(n_tokens, gen_cap)
                 ),
                 tool_calls=["answer"] if terminated else [],
+                episode_wall_seconds=time.perf_counter() - episode_started,
+                inference_wall_seconds=inference_seconds,
             )
         )
         if on_result is not None:
@@ -256,6 +263,8 @@ def _run_multiturn_episodes(
     """
     results = []
     for i in range(n):
+        episode_started = time.perf_counter()
+        inference_seconds = 0.0
         obs = env.reset(seed=seed_base + i)
         messages = list(make_messages(obs))
         total_tokens = 0
@@ -276,7 +285,9 @@ def _run_multiturn_episodes(
             if budget is not None and budget <= 0:
                 stop_reason = "hit_generation_cap"
                 break
+            inference_started = time.perf_counter()
             msg, turn_calls, n_tok = turn_fn(messages, budget)
+            inference_seconds += time.perf_counter() - inference_started
             total_tokens += int(n_tok)
             # Recorded before the no-call exit: a turn that spent its tokens and
             # emitted nothing usable is the one worth reading afterwards.
@@ -360,6 +371,8 @@ def _run_multiturn_episodes(
                 n_actions=n_actions,
                 n_invalid_actions=n_invalid,
                 n_repeated_actions=n_repeated,
+                episode_wall_seconds=time.perf_counter() - episode_started,
+                inference_wall_seconds=inference_seconds,
             )
         )
         if on_result is not None:
@@ -412,6 +425,17 @@ def _metrics_to_dict(m) -> dict:
         "stop_reasons": m.stop_reasons,
         "n_samples": m.n_samples,
         "n_correct": m.n_correct,
+        "cost": {
+            "n_timed_episodes": sum(r.episode_wall_seconds is not None for r in m.raw),
+            **{
+                key: (
+                    sum(getattr(r, key) for r in m.raw)
+                    if m.raw and all(getattr(r, key) is not None for r in m.raw)
+                    else None
+                )
+                for key in ("episode_wall_seconds", "inference_wall_seconds")
+            },
+        },
         "samples": [
             {
                 "correct": r.correct,
@@ -424,6 +448,8 @@ def _metrics_to_dict(m) -> dict:
                 "n_actions": r.n_actions,
                 "n_invalid_actions": r.n_invalid_actions,
                 "n_repeated_actions": r.n_repeated_actions,
+                "episode_wall_seconds": r.episode_wall_seconds,
+                "inference_wall_seconds": r.inference_wall_seconds,
             }
             for r in m.raw
         ],
@@ -452,6 +478,8 @@ def _episode_line(index: int, seed: int, r) -> str:
         "n_actions": r.n_actions,
         "n_invalid_actions": r.n_invalid_actions,
         "n_repeated_actions": r.n_repeated_actions,
+        "episode_wall_seconds": r.episode_wall_seconds,
+        "inference_wall_seconds": r.inference_wall_seconds,
     }
     # Additive: the per-turn text is written when the loop recorded it and the
     # key is simply absent otherwise, so every earlier episodes_*.jsonl still
@@ -570,6 +598,11 @@ def run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -
             raise FileExistsError(conflict)
     if (config.get("eval") or {}).get("checkpoint_schedule"):
         refuse_existing_outputs(run_dir)
+    with measure_phase(run_dir, "eval", checkpoint=checkpoint_dir):
+        return _run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes)
+
+
+def _run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) -> dict:
     import torch
     from peft import PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig

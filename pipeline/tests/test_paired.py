@@ -163,6 +163,20 @@ def test_arm_condition_control_is_lambda_zero():
     assert paired.arm_condition(cfg) == ("control (task reward only)", 0.0)
 
 
+def test_arm_condition_distinguishes_relative_placebo_from_real_dose():
+    cfg = {
+        "rewards": {
+            "successful_length": {
+                "enabled": True,
+                "kind": "relative",
+                "weight": 0.2,
+                "placebo": True,
+            }
+        }
+    }
+    assert paired.arm_condition(cfg) == ("E2 relative placebo", 0.2)
+
+
 @pytest.mark.parametrize("kind", ["linear", "relative"])
 def test_arm_condition_successful_length_preserves_kind_and_weight(kind):
     cfg = {

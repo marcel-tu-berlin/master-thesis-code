@@ -196,12 +196,40 @@ def test_resume_only_missing_and_preserve_final_layout(scheduled):
     before = {p: p.read_bytes() for p in Path(targets[0].output_dir).iterdir()}
     runner.run_checkpoint_schedule(cfg, run_dir)
     assert calls == [100, 150]
+
     assert preflight == [[50, 100, 150]]
     assert all(completed(t) for t in targets)
     assert all(p.read_bytes() == data for p, data in before.items())
     assert not (Path(run_dir) / "checkpoint-evals/checkpoint-150").exists()
     runner.run_checkpoint_schedule(cfg, run_dir)
     assert calls == [100, 150]
+
+
+def test_worker_failure_keeps_cost_and_retry_does_not_double_count(
+    scheduled, monkeypatch
+):
+    cfg, run_dir, _, _ = scheduled
+    worker = runner.subprocess.run
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "1")
+
+    def fail(cmd, check):
+        raise subprocess.CalledProcessError(1, cmd)
+
+    monkeypatch.setattr(runner.subprocess, "run", fail)
+    with pytest.raises(subprocess.CalledProcessError):
+        runner.run_checkpoint_schedule(cfg, run_dir)
+    cost_path = Path(run_dir) / "checkpoint-evals/checkpoint-50/costs.jsonl"
+    end = json.loads(cost_path.read_text().splitlines()[-1])
+    assert end["status"] == "failed" and end["allocated_gpu_hours"] >= 0
+    monkeypatch.setattr(runner.subprocess, "run", worker)
+    runner.run_checkpoint_schedule(cfg, run_dir)
+    records = [json.loads(line) for line in cost_path.read_text().splitlines()]
+    assert [r["status"] for r in records if r["event"] == "end"] == [
+        "failed",
+        "complete",
+    ]
+    runner.run_checkpoint_schedule(cfg, run_dir)
+    assert cost_path.read_text().splitlines() == [json.dumps(r) for r in records]
 
 
 @pytest.mark.parametrize(

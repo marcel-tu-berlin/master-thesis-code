@@ -26,6 +26,7 @@ from training.config_schema import (
     validate_config,
     warn_inert_scalars,
 )
+from training.cost import measure_phase
 from training.env_server import build_env_server
 from training.env_stamp import write_env_stamp
 from training.grpo_runner import GRPORunner
@@ -224,126 +225,127 @@ def main() -> None:
     with open(frozen_path, "w" if args.overwrite else "x") as f:
         yaml.dump(frozen, f)
 
-    domain = build_domain(config)
-    runner = GRPORunner(config)
+    with measure_phase(run_dir, "train"):
+        domain = build_domain(config)
+        runner = GRPORunner(config)
 
-    # Build composed reward function (shared by both modes; the enabled set
-    # differs per config — agentic configs enable env_reward + token_length).
-    components = build_reward_components(config, domain, runner)
-    if not components:
-        raise ValueError("No reward components enabled. Check config rewards section.")
-
-    method = config.get("rewards", {}).get("compose_method", "advantage_weighted")
-    # The composer z-scores per GRPO group, cut positionally in blocks of
-    # num_generations - the same resolution grpo_runner hands TRL.
-    n_rollouts = int(config["training"].get("n_rollouts", DEFAULT_N_ROLLOUTS))
-    reward_fn = build_composer(components, method, n_rollouts)
-    trainer_reward_fn = reward_fn
-    readiness_recorder = None
-    if args.readiness_capture:
-        from probes.readiness import ReadinessRecorder
-
-        readiness_recorder = ReadinessRecorder(
-            run_dir, frozen, started_monotonic=readiness_started
-        )
-        rewards_cfg = config.get("rewards") or {}
-        training_cfg = config.get("training") or {}
-        diagnostic_components = {
-            key: builder(
-                domain,
-                runner,
-                training_cfg,
-                rewards_cfg.get(key) or {},
+        # Build composed reward function (shared by both modes; the enabled set
+        # differs per config — agentic configs enable env_reward + token_length).
+        components = build_reward_components(config, domain, runner)
+        if not components:
+            raise ValueError(
+                "No reward components enabled. Check config rewards section."
             )
-            for key, (_enabled, _weight, builder) in REWARD_REGISTRY.items()
-        }
-        trainer_reward_fn = readiness_recorder.wrap_reward(
-            reward_fn, diagnostic_components
-        )
 
-    if args.observe_groups:
-        from training.group_observation import GroupObservation
+        method = config.get("rewards", {}).get("compose_method", "advantage_weighted")
+        # The composer z-scores per GRPO group, cut positionally in blocks of
+        # num_generations - the same resolution grpo_runner hands TRL.
+        n_rollouts = int(config["training"].get("n_rollouts", DEFAULT_N_ROLLOUTS))
+        reward_fn = build_composer(components, method, n_rollouts)
+        trainer_reward_fn = reward_fn
+        readiness_recorder = None
+        if args.readiness_capture:
+            from probes.readiness import ReadinessRecorder
 
-        group_observation = GroupObservation(run_dir, config, domain, runner)
-        trainer_reward_fn = group_observation.wrap_reward(trainer_reward_fn)
-
-    # The callback holds the same composer instance passed as the reward fn, so
-    # it drains the very buffer the trainer's reward calls populate (T2.1).
-    callbacks: list[TrainerCallback] = (
-        [_ComponentMetricsCallback(reward_fn)]
-        if hasattr(reward_fn, "pop_step_metrics")
-        else []
-    )
-
-    print(f"Experiment: {exp_id}  (agentic)")
-    print(f"Reward components: {[type(fn).__name__ for fn, _ in components]}")
-    print(f"Compose method: {method}")
-
-    checkpoint_dir = os.path.join(run_dir, "checkpoint-final")
-
-    # Native tool-calling template (NOT a reasoning-tag one). Each seed-row is a
-    # distinct reasoning_gym question; the runner owns the env-server subprocess
-    # and builds the TRL environment_factory against its base_url.
-    env_config = config["training"].get("env_config", {}) or {}
-    n_prompts = int(env_config.get("size", 500))
-    # Each seed trains on its own block of the seed -> question mapping. Passing
-    # the raw seed through made --seeds 42 43 44 share 499 of 500 questions.
-    dataset = domain.build_seed_dataset(
-        env_config, n=n_prompts, seed_base=seed_block(seed)
-    )
-    server = build_env_server(config, domain, python=sys.executable)
-    # The frozen config records what the run asked for; this records what the box
-    # actually had installed while it trained. A hand-installed package between
-    # two arms is otherwise invisible.
-    write_env_stamp(run_dir, "train", server.repo_envs_path)
-
-    def make_factory(base_url):
-        return domain.make_env_factory(base_url, env_config)
-
-    print(
-        f"Agentic env: {config['training']['env']}  seed-rows: {len(dataset)}  "
-        f"server: {server.base_url} (max_concurrent={server.max_concurrent})"
-    )
-    try:
-        runner.train(
-            dataset,
-            trainer_reward_fn,
-            output_dir=run_dir,
-            callbacks=callbacks or None,
-            server=server,
-            make_factory=make_factory,
-            readiness_recorder=readiness_recorder,
-        )
+            readiness_recorder = ReadinessRecorder(
+                run_dir, frozen, started_monotonic=readiness_started
+            )
+            rewards_cfg = config.get("rewards") or {}
+            training_cfg = config.get("training") or {}
+            diagnostic_components = {
+                key: builder(
+                    domain,
+                    runner,
+                    training_cfg,
+                    rewards_cfg.get(key) or {},
+                )
+                for key, (_enabled, _weight, builder) in REWARD_REGISTRY.items()
+            }
+            trainer_reward_fn = readiness_recorder.wrap_reward(
+                reward_fn, diagnostic_components
+            )
 
         if args.observe_groups:
-            group_observation.finish()
-        runner.save_lora(checkpoint_dir)
-        mark_smoke_checkpoint(checkpoint_dir, bool(config.get("_smoke")))
+            from training.group_observation import GroupObservation
 
-        if args.eval:
-            if checkpoint_steps:
-                if readiness_recorder is not None:
-                    readiness_recorder.finish("complete")
-                # Replace training's process so its policy and vLLM allocations are gone.
-                cmd = [
-                    sys.executable,
-                    "-m",
-                    "eval.runner",
-                    "--config",
-                    os.path.join(run_dir, "config.yaml"),
-                ]
-                if args.smoke:
-                    cmd.append("--smoke")
-                os.execv(sys.executable, cmd)
-            from eval.agentic_eval import run_agentic_eval
+            group_observation = GroupObservation(run_dir, config, domain, runner)
+            trainer_reward_fn = group_observation.wrap_reward(trainer_reward_fn)
 
-            run_agentic_eval(config, checkpoint_dir, domain, run_dir)
-        if readiness_recorder is not None:
-            readiness_recorder.finish("complete")
-    except BaseException as exc:
-        if readiness_recorder is not None:
-            readiness_recorder.finish("failed", str(exc))
-        raise
+        # The callback holds the same composer instance passed as the reward fn, so
+        # it drains the very buffer the trainer's reward calls populate (T2.1).
+        callbacks: list[TrainerCallback] = (
+            [_ComponentMetricsCallback(reward_fn)]
+            if hasattr(reward_fn, "pop_step_metrics")
+            else []
+        )
+
+        print(f"Experiment: {exp_id}  (agentic)")
+        print(f"Reward components: {[type(fn).__name__ for fn, _ in components]}")
+        print(f"Compose method: {method}")
+
+        checkpoint_dir = os.path.join(run_dir, "checkpoint-final")
+
+        # Native tool-calling template (NOT a reasoning-tag one). Each seed-row is a
+        # distinct reasoning_gym question; the runner owns the env-server subprocess
+        # and builds the TRL environment_factory against its base_url.
+        env_config = config["training"].get("env_config", {}) or {}
+        n_prompts = int(env_config.get("size", 500))
+        # Each seed trains on its own block of the seed -> question mapping. Passing
+        # the raw seed through made --seeds 42 43 44 share 499 of 500 questions.
+        dataset = domain.build_seed_dataset(
+            env_config, n=n_prompts, seed_base=seed_block(seed)
+        )
+        server = build_env_server(config, domain, python=sys.executable)
+        # The frozen config records what the run asked for; this records what the box
+        # actually had installed while it trained. A hand-installed package between
+        # two arms is otherwise invisible.
+        write_env_stamp(run_dir, "train", server.repo_envs_path)
+
+        def make_factory(base_url):
+            return domain.make_env_factory(base_url, env_config)
+
+        print(
+            f"Agentic env: {config['training']['env']}  seed-rows: {len(dataset)}  "
+            f"server: {server.base_url} (max_concurrent={server.max_concurrent})"
+        )
+        try:
+            runner.train(
+                dataset,
+                trainer_reward_fn,
+                output_dir=run_dir,
+                callbacks=callbacks or None,
+                server=server,
+                make_factory=make_factory,
+                readiness_recorder=readiness_recorder,
+            )
+
+            if args.observe_groups:
+                group_observation.finish()
+            runner.save_lora(checkpoint_dir)
+            mark_smoke_checkpoint(checkpoint_dir, bool(config.get("_smoke")))
+
+            if readiness_recorder is not None:
+                readiness_recorder.finish("complete")
+        except BaseException as exc:
+            if readiness_recorder is not None:
+                readiness_recorder.finish("failed", str(exc))
+            raise
+    if args.eval:
+        if checkpoint_steps:
+            # Replace training's process so its policy and vLLM allocations are gone.
+            cmd = [
+                sys.executable,
+                "-m",
+                "eval.runner",
+                "--config",
+                os.path.join(run_dir, "config.yaml"),
+            ]
+            if args.smoke:
+                cmd.append("--smoke")
+            os.execv(sys.executable, cmd)
+        from eval.agentic_eval import run_agentic_eval
+
+        run_agentic_eval(config, checkpoint_dir, domain, run_dir)
 
 
 if __name__ == "__main__":
