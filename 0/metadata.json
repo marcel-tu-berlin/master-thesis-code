@@ -1,0 +1,82 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M3PQKSAVTF98G9KYGQZ7SEYQ",
+  "session_id": "01a0ecfc-5d8e-70f1-8580-cae64651ce2e",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-29T14:03:04.863642Z",
+  "branch": "master",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "BACKLOG.md",
+    "LAB_NOTES.md",
+    "RUNNING.md",
+    "docs/decisions/0024-qualify-stateful-families-before-expansion.md",
+    "docs/decisions/README.md",
+    "docs/plans/inbox-family-extension.md",
+    "pipeline/README.md",
+    "pipeline/domains/browsergym/adapter.py",
+    "pipeline/domains/browsergym/domain.py",
+    "pipeline/domains/browsergym/server.py",
+    "pipeline/runs/family_extension_s4019_findings.md",
+    "pipeline/tests/test_browsergym_adapter.py",
+    "pipeline/training/config_schema.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "412c9c2509f3",
+  "checkpoint_transcript_start": 360,
+  "transcript_lines_at_start": 360,
+  "compact_transcript_start": 45,
+  "token_usage": {
+    "input_tokens": 553522,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 28627072,
+    "output_tokens": 147033,
+    "api_call_count": 231
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-29T14:03:04.723667Z",
+    "agent_lines": 232,
+    "agent_removed": 2,
+    "human_added": 222,
+    "human_modified": 16,
+    "human_removed": 0,
+    "total_committed": 470,
+    "total_lines_changed": 482,
+    "agent_percentage": 48.54771784232365,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 301,
+      "user_lines_removed": 16,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7,
+        "LAB_NOTES.md": 25,
+        "RUNNING.md": 4,
+        "docs/decisions/0024-qualify-stateful-families-before-expansion.md": 32,
+        "docs/decisions/README.md": 3,
+        "pipeline/README.md": 15,
+        "pipeline/domains/browsergym/adapter.py": 16,
+        "pipeline/domains/browsergym/domain.py": 8,
+        "pipeline/domains/browsergym/server.py": 26,
+        "pipeline/runs/family_extension_s4019_findings.md": 129,
+        "pipeline/tests/test_browsergym_adapter.py": 25,
+        "pipeline/training/config_schema.py": 10
+      },
+      "user_removed_per_file": {
+        "RUNNING.md": 4,
+        "docs/decisions/README.md": 1,
+        "pipeline/domains/browsergym/adapter.py": 6,
+        "pipeline/domains/browsergym/domain.py": 5
+      }
+    }
+  ]
+}
