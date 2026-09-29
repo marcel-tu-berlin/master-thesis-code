@@ -7,23 +7,13 @@
 # make a non-termination penalty indistinguishable from a task reward.
 _DEFAULT_TASKS = ("click-option", "click-checkboxes")
 
-# Cap the accessibility tree injected back after each action. The probed families
-# render ~300 chars, but a MiniWoB page with a long list can be much larger, and
-# in a multi-turn episode every result re-enters the context. Qwen3's think block
-# already costs ~300 tokens per turn and accumulates, so an unbounded observation
-# is what pushes a later turn past the budget.
-_MAX_OBS_CHARS = 2000
-
 
 def _obs_text(observation) -> str:
-    """The page as the model should see it: accessibility tree, bids included."""
+    """Keep the full page, including trailing controls and their action IDs."""
     text = (
         getattr(observation, "axtree_txt", "") or getattr(observation, "text", "") or ""
     )
-    text = str(text).strip()
-    if len(text) > _MAX_OBS_CHARS:
-        text = text[:_MAX_OBS_CHARS] + "\n...[truncated]"
-    return text
+    return str(text).strip()
 
 
 def task_for_seed(tasks, seed) -> str:

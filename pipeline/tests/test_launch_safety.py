@@ -15,7 +15,9 @@ from training import batch, env_server, env_stamp
 
 @pytest.fixture
 def entrypoints(monkeypatch):
-    model = SimpleNamespace(eval=lambda: None)
+    model = SimpleNamespace(
+        eval=lambda: None, config=SimpleNamespace(max_position_embeddings=32768)
+    )
     loader = SimpleNamespace(from_pretrained=lambda *a, **k: model)
     modules = {
         "torch": SimpleNamespace(

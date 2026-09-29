@@ -215,12 +215,20 @@ def test_explicit_error_keeps_precedence_over_native_metadata():
     assert env.click(bid="999") == "Action error: wrapper error\nPage now:\npage"
 
 
-def test_long_observation_is_truncated():
-    c = _FakeClient(steps=[_Result(_Obs(axtree_txt="x" * 5000))])
-    a = _adapter(c)
-    a.reset(seed=0)
-    out = a.click(bid="1")
-    assert "[truncated]" in out and len(out) < 2500
+@pytest.mark.parametrize("field", ["axtree_txt", "text"])
+def test_long_observation_preserves_trailing_controls_on_reset_and_step(field):
+    page = "[1] paragraph 'Long page'\n" * 250 + "[99] button 'Submit'"
+    observation = SimpleNamespace(goal="Submit the form.", **{field: page})
+    client = _FakeClient(steps=[_Result(observation)])
+    client.reset = lambda **kwargs: _Result(observation)
+    env = _adapter(client)
+
+    outputs = (env.reset(seed=0), env.click(bid="99"))
+
+    assert outputs == (
+        f"Task: Submit the form.\n\nPage:\n{page}",
+        f"Page now:\n{page}",
+    )
 
 
 # --- the tool surface TRL will expose ---

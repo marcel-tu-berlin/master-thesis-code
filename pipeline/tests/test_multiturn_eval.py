@@ -422,7 +422,7 @@ def test_tool_feedback_is_charged_against_the_budget():
     # Training counts interleaved tool results toward max_completion_length
     # (TRL rolls back results that would exceed it). An eval that charged only
     # model tokens ran materially longer trajectories than the cap it claims to
-    # mirror - browsergym injects pages of up to 2000 chars per turn for free.
+    # mirror - browsergym would inject full pages per turn for free.
     env = _FakeGameEnv("zzzzz", fail_after=99)
     budgets = []
 

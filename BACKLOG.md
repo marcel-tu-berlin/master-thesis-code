@@ -4,27 +4,17 @@ Open code/research work only. Taskwarrior (`project:thesis`) tracks execution;
 RUNNING.md tracks live GPU phases. Finished work and rejected alternatives belong
 in the decision records or history, not here.
 
-## Execute the declared E0-E2 study
+## Thesis presentation
 
-Run and review all conditions at seed 4016, then repeat all trained conditions
-at 4017 and 4018 with matching E0 coverage. Follow
-[the campaign declaration](docs/plans/e0-e2-campaign.md) for the fixed grid,
-allocation, checkpoint schedule and cost definitions. Preparation does not launch.
-
-## Interpret results
-
-- Quantify paired precision/minimum detectable effects, training-seed variation
-  and multiplicity when interpreting the fixed sample. Do not increase n after
-  inspecting results or treat a later calculation as prospective power.
-- Validate off-target interpretations against task-grounded trajectory review
-  with efficient correct controls. Until then, keep action/stop proxies
-  descriptive. Resolve the three-state verdict and any length-conditioned
-  sensitivity analysis at interpretation, not as a launch gate.
-- Complete paired comparisons, measured cost/break-even accounting and thesis
-  figures. Separate deployment inference, expert training and research-evaluation
-  expenditure. Account for failed attempts and incomplete cost records.
+- Prepare thesis figures and text from the reviewed initial comparison in
+  `pipeline/runs/e0_e2_s4016_findings.md`, preserving its paired statistics,
+  measured costs and single-seed limitations.
 
 ## Subsequent studies
+
+- After reviewing the initial E0/E1/E2 result with the user, decide whether the
+  setup warrants further doses, a separate placebo and seed replication, or
+  whether it needs to be reconsidered. None is automatically authorized.
 
 - After the first read-table-2 result, declare shifted-family evaluation and
   assess additional families/environments. Qualify the observation/reward

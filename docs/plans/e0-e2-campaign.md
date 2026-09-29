@@ -1,11 +1,15 @@
-# Final E0-E2 campaign on read-table-2
+# Initial E0-E2 comparison on read-table-2
 
 Declared: 2026-09-24, before any run in this campaign. Decision
 [0021](../decisions/0021-final-e0-e2-from-base.md) fixes the independent
 from-base comparison; decision [0022](../decisions/0022-e2-dose-grid-and-analysis-followups.md)
 restores the full relative-cost grid and records the deferred interpretation work.
-Status: prepared; no final-campaign run has started. Preparation includes no
-further readiness runs. Await the user's instruction to launch.
+Decision [0023](../decisions/0023-review-one-seed-before-expansion.md) narrows
+current execution to E0, E1 and E2 at weight 0.1 and seed 4016. E0 launched on
+2026-09-24. Automatically harvest, review and advance only through these three
+runs, then STOP for the user's decision. Additional weights, placebo and seeds
+require new explicit approval. Live state is in RUNNING.md; operational evidence
+is under `pipeline/runs/e0-e2-campaign-ops/`.
 
 ## Conditions and fixed recipe
 
@@ -14,19 +18,14 @@ further readiness runs. Await the user's instruction to launch.
 | E0 | `pipeline/configs/e0.yaml` | Original base, no adapter | No training |
 | E1 | `pipeline/configs/e1.yaml` | Original base, new LoRA | Task success |
 | E2 | `pipeline/configs/e2.yaml` | Original base, new LoRA | Task success - 0.1 * relative successful-response cost |
-| E2, weak | `pipeline/configs/e2-l005.yaml` | Original base, new LoRA | Task success - 0.05 * relative successful-response cost |
-| E2, strong | `pipeline/configs/e2-l020.yaml` | Original base, new LoRA | Task success - 0.2 * relative successful-response cost |
-| E2 placebo | `pipeline/configs/e2-placebo-l020.yaml` | Original base, new LoRA | Task success - 0.2 * within-group uniformly shuffled relative cost |
 
-The new dose/placebo run IDs begin with `e2l005`, `e2l020` and `e2placebol020`,
-respectively, so existing short plot labels and filenames stay distinct.
-
-The weight grid is fixed before results: E1 supplies zero, E2 uses 0.05/0.1/0.2.
-The placebo shuffles only the shaped component, including its failure zeros;
-it preserves the within-group cost multiset, not total-reward variance or
-gradient noise. Against E1 only the shaped component differs; between E2 doses
-only its weight differs, and against the matching placebo only its assignment
-differs. No optimizer, initialization or data differences accompany the reward.
+Only the shaped component differs between E1 and E2. The previously prepared
+0.05/0.2 dose configs and the 0.2 placebo config remain deferred, together with
+seeds 4017/4018. The placebo would be a separate training run that shuffles only
+the shaped component, including failure zeros, within each prompt group; it
+preserves the cost multiset, not total-reward variance or gradient noise. It is
+not included in this initial comparison. No optimizer, initialization or data
+differences accompany the active reward comparison.
 
 Use Qwen3-1.7B revision `70d244cc86ccca08cf5af4e1e306ecf908b1ad5e`, bf16,
 LoRA rank 16 / alpha 32, and the pinned dependency/OpenEnv stack. E1/E2 use the
@@ -45,13 +44,11 @@ non-termination penalty or other condition is mixed into this comparison.
 
 ## Fresh allocation and observations
 
-Training seeds are 4016, 4017 and 4018. Execute all conditions at 4016 first,
-review their technical integrity, then repeat every trained condition at 4017
-and 4018 with matching E0 coverage. Replicate null/adverse outcomes too. There
-are five trained conditions per seed: 15 training runs and three E0 evaluations,
-with 45 trained checkpoint evaluations. These are actual research runs, not
-readiness batches. The first seed supplies an informative result but not a
-training-seed uncertainty estimate.
+Use seed 4016 only: one E0 evaluation and two trained runs, E1 and E2 at weight
+0.1. Each trained run has three checkpoint evaluations, for seven evaluations
+in total. These are actual research runs. Harvest and review the full initial
+comparison, then stop for the user's decision before any expansion, regardless
+of the result's direction. One seed cannot estimate training-seed uncertainty.
 
 Each seed owns a disjoint block. Arms within a seed answer identical questions;
 different training seeds also have different question sets. For seed 4016:
@@ -69,11 +66,10 @@ its own samples; all E1/E2 observations read that same report. The reference
 must remain unchanged. This threshold calibration does not tune the reward or
 change the primary paired token measure. Do not extend the sample after seeing
 results, reuse development questions, or add a shifted family to this run.
-For seeds 4017/4018 use the same offsets and counts in their own million-seed
-blocks. Before their launches, copy each active config and change only `seed`,
-the experiment ID suffix and `eval.reference_report` to that seed's E0 report.
-Do not use `training.batch --seeds` for this campaign: that helper does not
-rewrite the reference-report path. Each seed must use its own E0 thresholds.
+If seeds 4017/4018 are later authorized, retain the same offsets/counts and
+change only `seed`, the experiment ID suffix and `eval.reference_report` to
+that seed's E0 report. Do not use `training.batch --seeds`: it does not rewrite
+the reference-report path. Each seed needs its own E0 thresholds.
 Shifted-family evaluation remains a separately declared extension after the
 first read-table-2 result, with its own task/reward qualification.
 
@@ -89,10 +85,11 @@ GPU server from `/workspace/master-thesis-code/pipeline`:
 CUDA_VISIBLE_DEVICES=1 ../.venv/bin/python -m eval.runner --config configs/e0.yaml --base-model
 CUDA_VISIBLE_DEVICES=1 ../.venv/bin/python -m training.train --config configs/e1.yaml --observe-groups --eval
 CUDA_VISIBLE_DEVICES=1 ../.venv/bin/python -m training.train --config configs/e2.yaml --observe-groups --eval
-CUDA_VISIBLE_DEVICES=1 ../.venv/bin/python -m training.train --config configs/e2-l005.yaml --observe-groups --eval
-CUDA_VISIBLE_DEVICES=1 ../.venv/bin/python -m training.train --config configs/e2-l020.yaml --observe-groups --eval
-CUDA_VISIBLE_DEVICES=1 ../.venv/bin/python -m training.train --config configs/e2-placebo-l020.yaml --observe-groups --eval
 ```
+
+After E2, harvest and review all three conditions, report the result, disable
+automatic advancement and wait for the user's decision. Do not launch any
+additional cell automatically.
 
 E0 must finish before scheduled E1/E2 evaluation can load its reference. Do not
 pass E0 to the training batch runner. Retain the existing bounded group
@@ -104,12 +101,12 @@ block the declared comparison. Do not overwrite failed or completed runs.
 
 The old development watcher is retired. Operational review/delivery can use
 the existing tools after launch; no new automation framework is a research
-prerequisite. Nothing is queued by this preparation.
+prerequisite. The dedicated watcher may advance only through this initial trio.
 
 ## Declared analysis
 
 Carry forward the first contrast's success-preservation margin and efficiency
-target. Pair each E2 dose versus E1 at update 300 by question seed and confirm identical
+target. Pair E2 at weight 0.1 versus E1 at update 300 by question seed and confirm identical
 initial observations. Report success counts, Wilson intervals, gain/loss
 transitions, exact McNemar, both-correct count, paired absolute token changes,
 and the paired percentage change `100 * (E2 tokens / E1 tokens - 1)` on jointly
@@ -143,15 +140,15 @@ efficient correct controls; disclose any prior knowledge of aggregate results.
 Report active-group fractions, zero-gradient updates and measured training and
 inference costs. More active groups are part of the shaping intervention; this
 contrast alone does not isolate length assignment from gradient activation.
-The declared 0.2 placebo supplies the cost-assignment comparison against real
-E2 at 0.2; also report it against E1.
+The deferred placebo could supply a cost-assignment comparison later. The
+initial comparison alone does not separate assignment from gradient activation.
 
-Report every weight and every seed. Episode-level intervals within a seed do
+Report all three active conditions. Episode-level intervals within this seed do
 not measure training-seed variation; checkpoints are repeated observations,
 not independent replications. A positive, negative, null or inconclusive result
-completes a condition. Review integrity before matched seed replication, without
-requiring a positive result. Non-termination training is deferred until E0-E2
-are finished and reviewed.
+completes the initial comparison and triggers the same stop for a user decision.
+Do not infer permission for replication from a completed or positive result.
+Non-termination training remains deferred.
 
 ## Interpretation follow-ups, explicitly deferred
 

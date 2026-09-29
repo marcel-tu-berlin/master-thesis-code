@@ -9,7 +9,7 @@ enough to shape the pipeline or the thesis land here.
 Historical run paths in these records now resolve under
 `pipeline/runs/archive/development-2026-09-24/`. Original records keep their text;
 the [archive map](../../pipeline/runs/archive/development-2026-09-24/README.md)
-explains the move. Decisions 0021/0022 and the E0-E2 campaign are the current protocol.
+explains the move. Decisions 0021/0022/0023 and the E0-E2 campaign are the current protocol.
 
 | # | Decision | Date |
 |---|---|---|
@@ -35,3 +35,4 @@ explains the move. Decisions 0021/0022 and the E0-E2 campaign are the current pr
 | [0020](0020-relative-length-main-candidate.md) | Continue with relative successful-response length cost as the main candidate | 2026-09-24 |
 | [0021](0021-final-e0-e2-from-base.md) | Separate the final E0-E2 from-base comparison from competent-policy continuation | 2026-09-24 |
 | [0022](0022-e2-dose-grid-and-analysis-followups.md) | Restore the E2 dose grid and defer interpretation checks | 2026-09-24 |
+| [0023](0023-review-one-seed-before-expansion.md) | Run E0/E1/E2 at weight 0.1 and seed 4016, then stop for review before expansion | 2026-09-24 |

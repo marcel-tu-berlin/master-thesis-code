@@ -55,6 +55,19 @@ def _completion_budget(config, model_max_seq):
     return max_seq - max_prompt
 
 
+def _generate_with_context_limit(model, enc, budget, context_limit, **kwargs):
+    """Refuse an undersized protocol before inference; never clip task state."""
+    prompt_tokens = enc["input_ids"].shape[1]
+    if prompt_tokens + budget > context_limit:
+        raise ValueError(
+            f"Evaluation needs {prompt_tokens} prompt/history tokens + {budget} "
+            f"completion tokens, exceeding the {context_limit}-token context. "
+            "Increase model.max_seq_length within the model's supported context "
+            "or revise the shared training/evaluation token budget."
+        )
+    return model.generate(**enc, max_new_tokens=budget, **kwargs)
+
+
 def _tool_calls(msg: dict) -> list[tuple]:
     """Every (name, arguments) tool call in a parsed assistant message, in order.
 
@@ -659,6 +672,10 @@ def _run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) 
         n_episodes if n_episodes is not None else agentic_cfg.get("n_episodes", 100)
     )
     max_new = _completion_budget(config, model_cfg["max_seq_length"])
+    context_limit = min(
+        int(config["model"].get("max_seq_length", model_cfg["max_seq_length"])),
+        int(model.config.max_position_embeddings),
+    )
     do_sample = bool(eval_cfg.get("do_sample", False))
     seed = int(config.get("seed", 42))
     splits = _resolve_splits(config, base_n)
@@ -724,8 +741,8 @@ def _run_agentic_eval(config, checkpoint_dir, domain, run_dir, n_episodes=None) 
                 ).to(model.device)
                 plen = enc["input_ids"].shape[1]
                 with torch.no_grad():
-                    out = model.generate(
-                        **enc, max_new_tokens=budget, do_sample=do_sample
+                    out = _generate_with_context_limit(
+                        model, enc, budget, context_limit, do_sample=do_sample
                     )
                 comp_ids = out[0][plen:]
                 # parse_response, not a regex over the decoded text: the same

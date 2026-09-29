@@ -11,13 +11,16 @@ the environment, not by grading an answer string. The pipeline is agentic-only.
 
 ## Current campaign
 
-Decision 0021 and `docs/plans/e0-e2-campaign.md` define the active experiment:
-E0 is base-model evaluation, E1 is task-only training from base, and E2 is task
-success plus relative successful-response length cost at weight 0.1 from the
-same base. No warm start. Both trained arms use 300 updates, batch size 4,
-eight rollouts, `naive_sum` and `scale_rewards: none`; only the shaped component's
-`enabled` flag differs. Only `pipeline/configs/e0.yaml`, `e1.yaml` and `e2.yaml`
-are active. E3 follows E0-E2; do not launch it as an automatic readiness gate.
+Decisions 0021/0022/0023 and `docs/plans/e0-e2-campaign.md` define the active
+experiment: E0 base-model evaluation, E1 task-only training from base, and E2
+relative successful-response length cost at weight 0.1, all at seed 4016.
+Automatically run, harvest and review this trio, then STOP for the user's
+explicit decision before any further experiment. Other weights (0.05/0.2),
+the separate placebo run, and seeds 4017/4018 remain prepared but deferred.
+No warm start. Both trained arms use 300 updates, batch size 4, eight rollouts,
+`naive_sum` and `scale_rewards: none`; only the shaped component changes.
+E3 remains deferred. Statistical precision and off-target validation are
+interpretation tasks, not launch gates. Costs are recorded from the first run.
 
 Earlier runs and findings moved unchanged to
 `pipeline/runs/archive/development-2026-09-24/`; original references below and

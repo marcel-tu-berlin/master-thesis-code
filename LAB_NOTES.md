@@ -32,7 +32,49 @@ do not follow old launch commands as the current protocol.
 - Then the narrative record, newest first, from the poly cosine re-run through the
   batch_size root cause, the e27 baseline saga, and the two e28 kills.
 
+## Full BrowserGym observations, 2026-09-29
+
+At the user's request, removed the adapter's fixed 2,000-character observation
+cutoff. It could discard task content and action IDs on richer pages. Both reset
+and action feedback now retain the full accessibility text (or text fallback),
+through the same helper used by training and evaluation. Adjustable observation
+and token budgets are setup choices when assessing new families, not reasons to
+reject a scientifically useful task.
+
+This changes the observation protocol for pages exceeding the old cutoff.
+Trajectory-token accounting and turn limits are unchanged. Evaluation now checks
+the tokenized prompt/history plus remaining completion allowance against the
+configured context and the model's supported context before generation. It fails
+explicitly on an undersized protocol, without clipping observations, reducing
+the generation allowance or recording an infrastructure failure as a wrong answer.
+Size the next study's budgets for its pages and keep them matched across arms. Record
+the new source version in fresh runs. Historical reproduction uses its original
+source and frozen protocol; do not silently mix observations across versions.
+
+No saved result is invalidated by this change. All 5,682 stored page observations
+from the initial trio's 1,400 evaluation trajectories are below the old cutoff
+(maximum 669 characters), as are all 3,373 observations in the 832 captured E1/E2
+training rollouts (maximum 653). None contains the adapter's truncation marker.
+Uncaptured training observations were not audited. Raw runs and review receipts
+remain unchanged. The regression test fails under the old helper and passes
+with full observations, including controls beyond the former cutoff on reset
+and step, for both accessibility text and its fallback.
+
 ## Final dose grid and cost instrumentation, 2026-09-24
+
+Decision [0023](docs/decisions/0023-review-one-seed-before-expansion.md) limits
+unattended execution to E0, E1 and E2 at weight 0.1 and seed 4016, followed by
+harvest, review and a mandatory stop for the user's decision. Its operations bundle is
+`pipeline/runs/e0-e2-campaign-ops/`; the archived development watcher remains
+retired. The active manifest admits only the initial trio; the launcher rejects
+all further indices. The original 18-cell manifest and script are preserved in
+`before-initial-scope-20260924/` so E0's launch evidence remains verifiable. Its
+one-run controller requires hash-bound integrity reviews of prior cells.
+Completion notifications return to the explicitly approved research conversation.
+The dedicated five-minute LaunchAgent requires this Mac awake, the TU VPN
+connected, and the conversation loaded; GPU phases run independently. Installation
+and delivery receipts live with the operations bundle. The initial SSH timeout
+was resolved by reconnecting the TU VPN, before any run was launched.
 
 Decision [0022](docs/decisions/0022-e2-dose-grid-and-analysis-followups.md)
 restores the thesis dose/placebo grid while keeping the independent from-base

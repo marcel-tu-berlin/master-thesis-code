@@ -1,6 +1,11 @@
+from types import SimpleNamespace
+
+import pytest
+
 from eval.agentic_eval import (
     _answer_from,
     _completion_budget,
+    _generate_with_context_limit,
     _metrics_to_dict,
     _run_episodes,
 )
@@ -23,6 +28,18 @@ def test_completion_budget_respects_explicit_override():
 def test_completion_budget_honors_max_prompt_length():
     cfg = {"model": {"max_seq_length": 2048}, "training": {"max_prompt_length": 256}}
     assert _completion_budget(cfg, 2048) == 1792
+
+
+def test_full_page_must_fit_with_completion_budget_before_generation():
+    calls = []
+    model = SimpleNamespace(generate=lambda **kwargs: calls.append(kwargs))
+    enc = {"input_ids": SimpleNamespace(shape=(1, 4097))}
+    with pytest.raises(ValueError, match=r"4097.*4096.*8192-token context"):
+        _generate_with_context_limit(model, enc, 4096, 8192)
+    assert calls == []
+
+    _generate_with_context_limit(model, enc, 4096, 16384, do_sample=False)
+    assert calls == [{**enc, "max_new_tokens": 4096, "do_sample": False}]
 
 
 # --- _answer_from: the answer argument of a parsed assistant message ---
