@@ -1,0 +1,2 @@
+why did this happen? this is an absolute no-go. i never approved changing the token budget in the first place because this would change the entire experiment compared to our previous run of e0-e2.
+if we did this because the new family needs more token budget then this would be a problem but Im quite surprised by this. please ensure that our AI agents in the experiments have the same token budgets in all experiments. if this is possible just implement it and then relaunch the entire campaign as well as e0. if not explain to me why not in short
