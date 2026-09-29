@@ -40,6 +40,8 @@ campaign's limits. Decision 0025 owns the standing budget rule;
 `docs/plans/inbox-family-extension.md` owns the corrected protocol. Removing an
 observation cutoff does not authorize changing model budgets. The old 5,120-token
 E0 and failed E1 remain separate diagnostics, with their receipts unchanged.
+The ordinary three-update check and corrected restart are reviewed in
+`pipeline/runs/inbox_s4021_c4096_restart_findings.md`.
 
 The old `inbox-s4021` watcher is retired. Corrected operations use
 `pipeline/runs/inbox-campaign-s4021-c4096-ops/` and the dedicated
