@@ -1,6 +1,6 @@
-# PROPOSED ONLY. Awaiting final user approval; no launch authorized.
+# Approved 2026-09-29: E0 -> E1 -> E2 at seed 4021, then stop.
 # Protocol: docs/plans/inbox-family-extension.md
-description: Proposed mixed-inbox specialist with relative successful-response length
+description: mixed-inbox specialist with relative successful-response length
   cost
 eval:
   agentic:

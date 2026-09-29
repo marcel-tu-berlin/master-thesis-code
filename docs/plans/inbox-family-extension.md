@@ -1,7 +1,8 @@
-# Proposed mixed-inbox E0/E1/E2 extension
+# Mixed-inbox E0/E1/E2 extension
 
-Status: prepared for review, not authorized to launch. The user must approve this
-extension before any of its three conditions runs. Qualification is recorded in
+Approved: 2026-09-29. The user authorized E0 -> E1 -> E2 with automatic harvest,
+review and advancement unless a new issue requires a decision. Stop after this
+trio. Qualification is recorded in
 [`family_extension_s4019_findings.md`](../../pipeline/runs/family_extension_s4019_findings.md).
 Decision [0024](../decisions/0024-qualify-stateful-families-before-expansion.md)
 preserves the first read-table result and this approval boundary.
@@ -33,15 +34,15 @@ The final development screen has 11/32 successes over four questions and task
 signal in three groups. This falls below the earlier 40-80% point-estimate
 preference; it is not a claim that the preferred success band was met. The
 proposal favors observed within-question learning signal over aggregate accuracy
-alone. It remains a small-sample, provisional choice requiring the user's review.
+alone. The user approved proceeding with this small-sample, provisional choice.
 
-## Proposed conditions
+## Conditions
 
 | Condition | Config | Initialization | Reward |
 | --- | --- | --- | --- |
-| E0 | `pipeline/configs/e0-inbox-proposed.yaml` | Original base, no adapter | Evaluation only |
-| E1 | `pipeline/configs/e1-inbox-proposed.yaml` | Original base, new LoRA | Native task success |
-| E2 | `pipeline/configs/e2-inbox-proposed.yaml` | Original base, new LoRA | Task success minus 0.1 times relative successful-response cost |
+| E0 | `pipeline/configs/e0-inbox.yaml` | Original base, no adapter | Evaluation only |
+| E1 | `pipeline/configs/e1-inbox.yaml` | Original base, new LoRA | Native task success |
+| E2 | `pipeline/configs/e2-inbox.yaml` | Original base, new LoRA | Task success minus 0.1 times relative successful-response cost |
 
 Use fresh seed 4021. Training uses question seeds 4021000000-4021000499;
 `held_out_inbox` uses 200 questions, 4021100000-4021100199. These are disjoint
@@ -60,7 +61,7 @@ The new protocol uses full visible HTML, the documented ordered-tool-batch promp
 click/fill/noop, 12 turns, 5,120 whole-trajectory tokens and a 9,216-token context
 with 4,096 prompt allowance. Tool observations count against the trajectory
 budget; only assistant tokens count toward the length reward. vLLM reservation
-is 0.24. Qualification and proposed execution use physical GPU 1 only. The
+is 0.24. Qualification and execution use physical GPU 1 only. The
 8,192- and 6,144-token settings failed native training memory checks; their
 saved samples are separate protocols, not pooled evidence for this setting.
 
@@ -91,9 +92,31 @@ calling the family a solution to interface saturation.
 
 ## Execution boundary
 
-After explicit approval, sync the whole pipeline, record source/config hashes
-and GPU allocation, then run E0, E1 and E2 using the existing CLI and RUNNING.md
-discipline. E0 must finish before the reference-dependent evaluations. Harvest
-and review each phase. Stop after this trio; other families, doses, seeds and
-non-termination training require a further decision. No new watcher or queued
-campaign has been installed for this proposal.
+Sync the whole pipeline and record source/config hashes and GPU allocation.
+Execute E0, E1 and E2 using the existing CLI and RUNNING.md discipline. E0 must
+finish before the reference-dependent evaluations. Harvest and review each run,
+then automatically launch the next declared condition when its predecessor's
+integrity review passes. Pause advancement for a runtime/integrity failure or a
+new finding that calls the protocol's validity into question; do not silently
+change settings or retry under the same run ID. The known qualification limits
+above are already accepted, and a null or adverse result alone is not a failure.
+
+Reuse the previous campaign's one-run controller and completion watcher in a new
+`pipeline/runs/inbox-campaign-s4021-ops/` bundle. The controller admits exactly
+three runs and requires hash-bound review receipts before advancement. The
+watcher returns changed phases to the current research conversation; it does
+not launch a run itself. Continuation requires this Mac awake, connected to the
+TU VPN and this conversation loaded. GPU phases continue independently.
+
+The commands admitted in sequence, on GPU 1, are:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 ../.venv/bin/python -m eval.runner --config configs/e0-inbox.yaml --base-model
+CUDA_VISIBLE_DEVICES=1 ../.venv/bin/python -m training.train --config configs/e1-inbox.yaml --observe-groups --eval
+CUDA_VISIBLE_DEVICES=1 ../.venv/bin/python -m training.train --config configs/e2-inbox.yaml --observe-groups --eval
+```
+
+The controller uses frozen copies of these configs. After E2 is harvested and
+reviewed, report the full trio and stop. Other families, doses, seeds and
+non-termination training remain deferred. Commit/push of the launch updates was
+explicitly requested; do not interpret this as permission to expand the study.

@@ -34,3 +34,12 @@ measurement limitations and verification evidence. Then stop for the user's fina
 approval. Do not launch the proposed E0, E1 or E2, other doses, replications or E3
 automatically. Decisions 0021/0022/0023 continue to govern the retained first trio
 and its deferred extensions.
+
+## Approval received, 2026-09-29
+
+The user approved the prepared mixed-inbox E0/E1/E2 trio at seed 4021, including
+automatic harvest, review and advancement unless new issues arise. The executed
+scope and stop rules are in `docs/plans/inbox-family-extension.md`. This approval
+supersedes the launch hold above for these three conditions only; it does not
+authorize other families, doses, seeds, placebo or E3. Commit/push was also
+explicitly requested.

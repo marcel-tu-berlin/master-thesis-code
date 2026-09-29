@@ -32,6 +32,21 @@ do not follow old launch commands as the current protocol.
 - Then the narrative record, newest first, from the poly cosine re-run through the
   batch_size root cause, the e27 baseline saga, and the two e28 kills.
 
+## Approved inbox campaign, 2026-09-29
+
+The user approved the prepared seed-4021 E0/E1/E2 trio, automatic harvest/review
+and advancement unless new issues arise, and commit/push of the changes.
+`docs/plans/inbox-family-extension.md` owns the protocol and stop rules. The
+existing controller/watcher pattern is reused in a new
+`pipeline/runs/inbox-campaign-s4021-ops/` bundle; the previous campaign's records
+and retired watcher are preserved. LaunchAgent `com.openai.codex.inbox-s4021`
+returns changed phases to the current research conversation every five minutes.
+Continuation requires this Mac awake, the TU VPN connected and the conversation
+loaded. GPU phases continue independently. The scope is exactly three runs on
+GPU 1, with integrity review receipts before each advancement and a stop after
+the complete comparison. Preparation changes no runtime source or qualified
+experimental setting; it activates the previously proposed configs.
+
 ## Visible BrowserGym controls, 2026-09-29
 
 Live resets confirmed that the email tasks' custom clickable rows have no action

@@ -10,7 +10,7 @@ Historical run paths in these records now resolve under
 `pipeline/runs/archive/development-2026-09-24/`. Original records keep their text;
 the [archive map](../../pipeline/runs/archive/development-2026-09-24/README.md)
 explains the move. Decisions 0021/0022/0023 govern the retained first E0-E2 campaign.
-Decision 0024 permits family qualification; a new experiment batch requires approval.
+Decision 0024 records family qualification and approval of the seed-4021 inbox trio.
 
 | # | Decision | Date |
 |---|---|---|
