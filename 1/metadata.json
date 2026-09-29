@@ -1,0 +1,105 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M3PH1NGD4BVFQGGC9JAPYJB3",
+  "session_id": "01a0ecfc-5d8e-70f1-8580-cae64651ce2e",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-29T12:08:21.900626Z",
+  "branch": "master",
+  "checkpoints_count": 2,
+  "save_step_count": 2,
+  "files_touched": [
+    "AGENTS.md",
+    "BACKLOG.md",
+    "CLAUDE.md",
+    "LAB_NOTES.md",
+    "RUNNING.md",
+    "docs/decisions/README.md",
+    "docs/plans/e0-e2-campaign.md",
+    "pipeline/domains/browsergym/adapter.py",
+    "pipeline/eval/agentic_eval.py",
+    "pipeline/tests/test_agentic_episode_eval.py",
+    "pipeline/tests/test_browsergym_adapter.py",
+    "pipeline/tests/test_launch_safety.py",
+    "pipeline/tests/test_multiturn_eval.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "1cffbb5f2208",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 185821,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5605632,
+    "output_tokens": 21421,
+    "api_call_count": 42,
+    "subagent_tokens_complete": true
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-29T12:08:21.858954Z",
+    "agent_lines": 0,
+    "agent_removed": 19,
+    "human_added": 0,
+    "human_modified": 45,
+    "human_removed": 39,
+    "total_committed": 2,
+    "total_lines_changed": 103,
+    "agent_percentage": 18.446601941747574,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 1012,
+      "user_lines_removed": 79,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7,
+        "AGENTS.md": 10,
+        "BACKLOG.md": 8,
+        "CLAUDE.md": 10,
+        "LAB_NOTES.md": 14,
+        "RUNNING.md": 2,
+        "docs/decisions/0023-review-one-seed-before-expansion.md": 32,
+        "docs/decisions/README.md": 2,
+        "docs/plans/e0-e2-campaign.md": 35,
+        "pipeline/runs/e0_e2_s4016_deep_review_findings.md": 430,
+        "pipeline/runs/e0_e2_s4016_findings.md": 461
+      },
+      "user_removed_per_file": {
+        "AGENTS.md": 11,
+        "BACKLOG.md": 18,
+        "CLAUDE.md": 7,
+        "RUNNING.md": 4,
+        "docs/decisions/README.md": 1,
+        "docs/plans/e0-e2-campaign.md": 38
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1004,
+      "agent_lines_removed": 79,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1045,
+      "agent_lines_removed": 98,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    }
+  ]
+}

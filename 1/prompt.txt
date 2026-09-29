@@ -1,0 +1,39 @@
+after we ran the first successful experiment batch of e0-e2 we realized that the current family might be a bit too simple in order to monitor actually interesting behavior. therefore Id like to try other families as well. here a report regarding this. i want you to evaluate first which families solves our current problem that the models learn the interface too quickly. the family needs to be complex and dynamic enough to still justify our story of a specialized agent but to make it possible to monitor any reward bias substitution. does this make sense?
+
+here the report: ## Other interesting MiniWoB++ families
+
+We are using **MiniWoB++ through BrowserGym/OpenEnv**. There is considerably more variety available than `read-table-2`.
+
+These are the candidates I would consider:
+
+| Family | What the model does | What it adds |
+|---|---|---|
+| [**multi-orderings (https://miniwob.farama.org/environments/multi-orderings/)**](<https://miniwob.farama.org/environments/multi-orderings/>) | Fills a movie-search form whose fields appear in shuffled order | Directly challenges reliance on fixed field positions |
+| [**multi-layouts (https://miniwob.farama.org/environments/multi-layouts/)**](<https://miniwob.farama.org/environments/multi-layouts/>) | Completes the search task across different form layouts | Broader interface variation, although we must check how much survives conversion to accessibility text |
+| [**email-inbox-reply (https://miniwob.farama.org/environments/email-inbox-reply/)**](<https://miniwob.farama.org/environments/email-inbox-reply/>) | Finds a specified sender's email and replies with requested text | Navigation through different page states and a longer workflow; this variant avoids scrolling |
+| [**login-user-popup (https://miniwob.farama.org/environments/login-user-popup/)**](<https://miniwob.farama.org/environments/login-user-popup/>) | Logs in while handling an unexpected popup | Interruptions and recovery rather than uninterrupted form filling |
+| [**guess-number (https://miniwob.farama.org/environments/guess-number/)**](<https://miniwob.farama.org/environments/guess-number/>) | Guesses a hidden number using feedback from previous guesses | Iterative information gathering; useful for examining whether feedback improves the strategy |
+| [**click-checkboxes-soft (https://miniwob.farama.org/environments/click-checkboxes-soft/)**](<https://miniwob.farama.org/environments/click-checkboxes-soft/>) | Selects options matching paraphrased words or synonyms | Semantic matching and multiple selections rather than literal value copying |
+
+Other available directions include file-tree navigation (`navigate-tree`), email forwarding, autocomplete, date picking, and form sequences involving different widgets. The [official catalog (https://miniwob.farama.org/environments/list/)](<https://miniwob.farama.org/environments/list/>) includes descriptions and interactive demos.
+
+### My shortlist
+
+I would first screen:
+
+1. **`multi-orderings` and `multi-layouts`** for the interface-specialization concern.
+2. **`email-inbox-reply`** for a substantially different workflow.
+3. **`login-user-popup`** for reacting to interruptions.
+4. **`guess-number`** for feedback-guided interaction.
+
+`click-checkboxes-soft` is a useful additional candidate, but its documented reward allows partial credit, so we must verify what our wrapper reports as success. Also, `guess-number` permits unlimited guesses within the environment; enumeration is possible, so success alone would not prove effective feedback use.
+
+These are **candidates to screen, not already validated replacements**. I confirmed their task files exist at our pinned MiniWoB revision, but could not test the live wrapper because GPU SSH currently times out. In particular, some tasks use custom clickable elements whose IDs may be missing from our accessibility observations.
+
+We already found such problems in earlier screens of tab/collapsible tasks, and a scoring problem with `search-engine`, so I would start with the new candidates above.
+
+also i think we should keep the results of the last batch. if we dont collect new insights which invalidate the results this might be already a run that we can include in our thesis as first evidence
+
+---
+
+can we just increase the limit of our adapter? in general we should not constrain ourselves with factors that are easily changed

@@ -3,7 +3,7 @@
   "checkpoint_id": "01M3PH1NGD4BVFQGGC9JAPYJB3",
   "strategy": "manual-commit",
   "branch": "master",
-  "checkpoints_count": 29,
+  "checkpoints_count": 31,
   "files_touched": [
     "AGENTS.md",
     "BACKLOG.md",
@@ -13,8 +13,14 @@
     "docs/decisions/0023-review-one-seed-before-expansion.md",
     "docs/decisions/README.md",
     "docs/plans/e0-e2-campaign.md",
+    "pipeline/domains/browsergym/adapter.py",
+    "pipeline/eval/agentic_eval.py",
     "pipeline/runs/e0_e2_s4016_deep_review_findings.md",
-    "pipeline/runs/e0_e2_s4016_findings.md"
+    "pipeline/runs/e0_e2_s4016_findings.md",
+    "pipeline/tests/test_agentic_episode_eval.py",
+    "pipeline/tests/test_browsergym_adapter.py",
+    "pipeline/tests/test_launch_safety.py",
+    "pipeline/tests/test_multiturn_eval.py"
   ],
   "sessions": [
     {
@@ -23,14 +29,21 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": "/0/prompt.txt"
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 2247131,
+    "input_tokens": 2432952,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 27860736,
-    "output_tokens": 189415,
-    "api_call_count": 241,
+    "cache_read_tokens": 33466368,
+    "output_tokens": 210836,
+    "api_call_count": 283,
     "subagent_tokens_complete": true
   }
 }
