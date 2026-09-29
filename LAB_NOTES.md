@@ -32,6 +32,40 @@ do not follow old launch commands as the current protocol.
 - Then the narrative record, newest first, from the poly cosine re-run through the
   batch_size root cause, the e27 baseline saga, and the two e28 kills.
 
+## Visible BrowserGym controls, 2026-09-29
+
+Live resets confirmed that the email tasks' custom clickable rows have no action
+IDs in the accessibility text. The original OpenEnv pruned HTML exposes those
+IDs but also includes hidden inbox panes and collapsed tree children. Added an
+opt-in `visible_html` observation using the installed BrowserGym formatter's
+visibility filter. The small pipeline server entry point replaces only OpenEnv's
+HTML renderer; the pinned clone, tasks and scorer remain unchanged. The default
+observation format remains `axtree`.
+
+The shared prompt and tool descriptions now support HTML IDs and ordered tool
+batches. Feedback-dependent calls must wait for their input. This corrects the
+previous instruction/runtime mismatch and is an explicit protocol change for new
+runs. Reproducing the first trio requires its original source and frozen configs;
+its observations and results have not been rewritten or invalidated.
+
+Qualification evidence is retained in `pipeline/runs/family-extension-s4019-ops/`.
+The first tree negative-control script accidentally selected the target folder
+while exploring; its successful reward was correct. The failed trace is retained
+and the corrected probe excludes the target on deliberately wrong paths. Trees
+with no reachable wrong file can remain unfinished with zero reward. The v1
+diagnostic prompt counter also counted two `BatchEncoding` keys after the
+Transformers 5 API change; a separate audit recounts saved observations with
+`return_dict=False`. Production reward and trajectory token counters are unaffected.
+
+On the pinned bf16 recipe, longer trajectories failed during dense-logit
+conversion or native backward despite reduced vLLM reservation. The completed
+family screens use 5,120 trajectory tokens, 9,216 context and reservation 0.24 on
+GPU 1. `expandable_segments` was already a runner default, not a new fix. A
+saved-tensor replay can check memory before paying for another generation pass;
+cropped replay tensors cannot support task-success estimates. Do not silently
+enable Liger or vLLM sleep to make a run fit: decisions 0011/0013 document their
+semantic failures. Attempt details and costs belong in the family findings.
+
 ## Full BrowserGym observations, 2026-09-29
 
 At the user's request, removed the adapter's fixed 2,000-character observation

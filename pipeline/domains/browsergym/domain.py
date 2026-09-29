@@ -1,6 +1,6 @@
 from domains.browsergym.adapter import BrowserGymEnvAdapter, _BrowserGymFillEnvAdapter
 from domains.env_base import EnvDomain
-from training.config_schema import resolve_enable_fill
+from training.config_schema import resolve_enable_fill, resolve_observation_format
 
 # Brief task framing prepended to each prompt's user message. The tool spec is
 # injected by the model's native tool-calling template (tools=...); this only
@@ -15,9 +15,11 @@ from training.config_schema import resolve_enable_fill
 # adapter exposing two tools where the first probe used five. See
 # runs/browsergym_difficulty_correction.md.
 _LEAD_IN = (
-    "You are controlling a web page. Read the goal and the accessibility tree, "
-    "then call one tool per turn to act on the page. Element ids are the numbers "
-    "in square brackets.\n\n"
+    "You are controlling a web page. Read the goal and page observation. "
+    "Element ids are the numbers in square brackets or HTML bid attributes. "
+    "You may issue multiple tool calls in one response; they execute in order. "
+    "To use a tool's result when choosing a later action, wait for that result "
+    "before issuing the dependent call.\n\n"
 )
 
 
@@ -46,7 +48,7 @@ class BrowserGymDomain(EnvDomain):
     """
 
     # The shared launcher serves <server_module>:app from the pinned OpenEnv tree.
-    server_module = "browsergym_env.server.app"
+    server_module = "domains.browsergym.server"
     multi_turn = True
 
     def make_env_factory(self, base_url, env_config=None, client_factory=None):
@@ -105,6 +107,7 @@ class BrowserGymDomain(EnvDomain):
             "BROWSERGYM_BENCHMARK": str(cfg.get("benchmark", "miniwob")),
             "BROWSERGYM_TASK_NAME": str(tasks[0]),
             "BROWSERGYM_HEADLESS": "true",
+            "BROWSERGYM_OBSERVATION_FORMAT": resolve_observation_format(cfg),
         }
         # MiniWoB's HTML is not shipped with browsergym-miniwob; it is served from
         # a clone of miniwob-plusplus. Without this the env raises at the first

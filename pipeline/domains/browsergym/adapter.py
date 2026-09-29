@@ -1,3 +1,5 @@
+from training.config_schema import resolve_observation_format
+
 # The two MiniWoB families the feasibility probe selected (see
 # pipeline/runs/browsergym_feasibility_findings.md). click-option supplies
 # headroom (0.50 base success, inside the 40-80% band); click-checkboxes supplies
@@ -8,8 +10,13 @@
 _DEFAULT_TASKS = ("click-option", "click-checkboxes")
 
 
-def _obs_text(observation) -> str:
+def _obs_text(observation, observation_format="axtree") -> str:
     """Keep the full page, including trailing controls and their action IDs."""
+    if observation_format == "visible_html":
+        text = getattr(observation, "pruned_html", "")
+        if not text:
+            raise ValueError("visible_html observation is missing from the env server")
+        return str(text).strip()
     text = (
         getattr(observation, "axtree_txt", "") or getattr(observation, "text", "") or ""
     )
@@ -61,6 +68,7 @@ class BrowserGymEnvAdapter:
 
     def __init__(self, base_url, env_config=None, client=None):
         self._env_config = dict(env_config or {})
+        self._observation_format = resolve_observation_format(self._env_config)
         # An ABSENT `tasks` takes the default mix; an explicitly EMPTY one is a
         # config error. Collapsing the two would silently train the default mix
         # under a config that says otherwise.
@@ -120,7 +128,7 @@ class BrowserGymEnvAdapter:
                 (metadata.get("browsergym_obs") or {}).get("last_action_error")
                 or "Action failed (no error details provided)."
             )
-        page = _obs_text(observation)
+        page = _obs_text(observation, self._observation_format)
         if error:
             return f"Action error: {error}\nPage now:\n{page}"
         return f"Page now:\n{page}"
@@ -142,7 +150,9 @@ class BrowserGymEnvAdapter:
         self.done = False
         observation = getattr(result, "observation", None)
         goal = str(getattr(observation, "goal", "") or "").strip()
-        return f"Task: {goal}\n\nPage:\n{_obs_text(observation)}"
+        return (
+            f"Task: {goal}\n\nPage:\n{_obs_text(observation, self._observation_format)}"
+        )
 
     def click(self, bid: str) -> str:
         """Click an element on the page and see the page that results.
@@ -153,8 +163,8 @@ class BrowserGymEnvAdapter:
         parameter.
 
         Args:
-            bid: The element id in square brackets in the accessibility tree, without
-                the brackets (for `[24] radio 'O2F2ioz'`, pass "24").
+            bid: The element id in square brackets or the HTML bid attribute
+                (for `[24] radio` or `bid="24"`, pass "24").
         """
         return self._act("click", bid=str(bid))
 
@@ -173,7 +183,7 @@ class _BrowserGymFillEnvAdapter(BrowserGymEnvAdapter):
         """Replace a text field's value and see the resulting page.
 
         Args:
-            bid: The text field's element id from the accessibility tree.
+            bid: The text field's element id in square brackets or its HTML bid attribute.
             text: The complete value to enter in the field.
         """
         return self._act("fill", bid=str(bid), text=str(text))

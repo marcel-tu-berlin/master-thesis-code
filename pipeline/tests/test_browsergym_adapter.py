@@ -231,6 +231,31 @@ def test_long_observation_preserves_trailing_controls_on_reset_and_step(field):
     )
 
 
+def test_visible_html_exposes_custom_controls_on_reset_and_step():
+    html = '<div bid="18" class="email-thread">Maitilde</div>'
+    observation = SimpleNamespace(
+        goal="Open Maitilde's email.",
+        axtree_txt="StaticText 'Maitilde'",
+        pruned_html=html,
+    )
+    client = _FakeClient(steps=[_Result(observation)])
+    client.reset = lambda **kwargs: _Result(observation)
+    env = _adapter(client, observation_format="visible_html")
+    assert html in env.reset(seed=0)
+    assert env.click(bid="18") == f"Page now:\n{html}"
+    assert (
+        BrowserGymDomain().server_env({"observation_format": "visible_html"})[
+            "BROWSERGYM_OBSERVATION_FORMAT"
+        ]
+        == "visible_html"
+    )
+
+
+def test_invalid_observation_format_is_rejected():
+    with pytest.raises(ValueError, match="observation_format"):
+        _adapter(_FakeClient(), observation_format="html_typo")
+
+
 # --- the tool surface TRL will expose ---
 
 

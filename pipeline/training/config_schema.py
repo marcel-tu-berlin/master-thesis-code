@@ -190,6 +190,13 @@ def resolve_enable_fill(env_config) -> bool:
     return enabled
 
 
+def resolve_observation_format(env_config) -> str:
+    value = (env_config or {}).get("observation_format", "axtree")
+    if value not in ("axtree", "visible_html"):
+        raise ValueError("env_config.observation_format must be axtree or visible_html")
+    return value
+
+
 _KNOWN_ENV_SERVER_KEYS = {"repo_path", "port"}
 
 # Known sub-keys under training.env_config (union across env types - catches
@@ -208,6 +215,7 @@ _KNOWN_ENV_CONFIG_KEYS = {
     "benchmark",
     "miniwob_url",
     "enable_fill",
+    "observation_format",
     # Every multi-turn domain: the ONE turn cap. Read by training
     # (max_tool_calling_iterations) and by the eval loop, and mapped by
     # `server_env` to the server's own var for any env that has a server-side
@@ -402,6 +410,7 @@ def _split_errors(
         if isinstance(env_cfg, dict):
             try:
                 resolve_enable_fill(env_cfg)
+                resolve_observation_format(env_cfg)
             except ValueError as exc:
                 errors.append(f"eval.agentic.splits[{i}]: {exc}")
             unknown_ec = set(env_cfg) - _KNOWN_ENV_CONFIG_KEYS
@@ -659,6 +668,7 @@ def validate_config(config: dict) -> None:
     if isinstance(env_config, dict):
         try:
             resolve_enable_fill(env_config)
+            resolve_observation_format(env_config)
         except ValueError as exc:
             errors.append(f"training: {exc}")
         unknown_ec = set(env_config) - _KNOWN_ENV_CONFIG_KEYS

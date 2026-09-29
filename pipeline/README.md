@@ -199,6 +199,21 @@ Changing the flag changes the policy's tool context; qualify the new interface
 and keep it fixed across compared arms. It does not change observations, rewards,
 budgets or termination. A typing task still needs its own oracle and model screen.
 
+### BrowserGym observation formats
+
+`training.env_config.observation_format` defaults to `axtree`. Use `visible_html`
+for tasks whose custom controls lack accessibility-tree action IDs. The server
+uses BrowserGym's existing DOM formatter with `filter_visible_only=True`, then
+its HTML pruner. The adapter returns this page with its `bid` attributes on reset
+and after every action. Hidden inbox panes and collapsed tree children stay hidden.
+Missing HTML fails explicitly. Evaluation splits inherit the format unless overridden.
+
+This is a different observation protocol. Freeze the format and budgets across
+compared arms and retain the producing source revision. The shared prompt permits
+ordered tool batches and explains that a later action which depends on a tool's
+result must wait for that result. Historical reproduction requires historical
+source, including its prompt. Neither observation format changes the native scorer.
+
 ### Eval splits
 
 `eval.agentic.splits` runs several splits per eval, keyed by name in the report:
