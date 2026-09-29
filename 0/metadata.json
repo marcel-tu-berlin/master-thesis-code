@@ -1,0 +1,53 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M3QE80MK1KQV4ZDJ28D769JQ",
+  "session_id": "01a0ecfc-5d8e-70f1-8580-cae64651ce2e",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-29T20:38:36.532561Z",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "pipeline/tests/test_campaign_budgets.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "1f94e55c9465",
+  "checkpoint_transcript_start": 3277,
+  "transcript_lines_at_start": 3277,
+  "compact_transcript_start": 380,
+  "token_usage": {
+    "input_tokens": 216829,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2787456,
+    "output_tokens": 14970,
+    "api_call_count": 25
+  },
+  "session_metrics": {
+    "turn_count": 9
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-29T20:38:36.333486Z",
+    "agent_lines": 28,
+    "agent_removed": 0,
+    "human_added": 108,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 136,
+    "total_lines_changed": 169,
+    "agent_percentage": 16.56804733727811,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    }
+  ]
+}
