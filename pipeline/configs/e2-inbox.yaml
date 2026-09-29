@@ -1,4 +1,4 @@
-# Approved 2026-09-29: E0 -> E1 -> E2 at seed 4021, then stop.
+# Corrected by user 2026-09-29: match the retained campaign budgets; restart all arms.
 # Protocol: docs/plans/inbox-family-extension.md
 description: mixed-inbox specialist with relative successful-response length
   cost
@@ -11,16 +11,16 @@ eval:
       seed_offset: 100000
   checkpoint_schedule: thirds
   do_sample: false
-  max_new_tokens: 5120
-  reference_report: runs/e0-email-inbox-noscroll-s4021/eval_report.json
+  max_new_tokens: 4096
+  reference_report: runs/e0-email-inbox-noscroll-s4021-c4096/eval_report.json
   temperature: 0.0
-experiment_id: e2-email-inbox-noscroll-s4021
+experiment_id: e2-email-inbox-noscroll-s4021-c4096
 model:
   gpu_memory_utilization: 0.24
   load_in_4bit: false
   lora_alpha: 32
   lora_r: 16
-  max_seq_length: 9216
+  max_seq_length: 8192
   revision: 70d244cc86ccca08cf5af4e1e306ecf908b1ad5e
   slug: qwen3-1.7b
   use_vllm: true
@@ -34,7 +34,7 @@ rewards:
     enabled: true
     kind: relative
     weight: 0.1
-    max_len: 5120
+    max_len: 4096
     placebo: false
   token_length:
     enabled: false
@@ -47,7 +47,7 @@ training:
   env_config:
     benchmark: miniwob
     enable_fill: true
-    max_turns: 12
+    max_turns: 8
     miniwob_url: http://localhost:8080/miniwob/
     size: 500
     tasks:

@@ -32,20 +32,20 @@ do not follow old launch commands as the current protocol.
 - Then the narrative record, newest first, from the poly cosine re-run through the
   batch_size root cause, the e27 baseline saga, and the two e28 kills.
 
-## Approved inbox campaign, 2026-09-29
+## Corrected inbox campaign, 2026-09-29
 
-The user approved the prepared seed-4021 E0/E1/E2 trio, automatic harvest/review
-and advancement unless new issues arise, and commit/push of the changes.
-`docs/plans/inbox-family-extension.md` owns the protocol and stop rules. The
-existing controller/watcher pattern is reused in a new
-`pipeline/runs/inbox-campaign-s4021-ops/` bundle; the previous campaign's records
-and retired watcher are preserved. LaunchAgent `com.openai.codex.inbox-s4021`
-returns changed phases to the current research conversation every five minutes.
-Continuation requires this Mac awake, the TU VPN connected and the conversation
-loaded. GPU phases continue independently. The scope is exactly three runs on
-GPU 1, with integrity review receipts before each advancement and a stop after
-the complete comparison. Preparation changes no runtime source or qualified
-experimental setting; it activates the previously proposed configs.
+The user rejected the budget increase carried from family qualification into the
+inbox campaign and authorized a complete restart, including E0, at the retained
+campaign's limits. Decision 0025 owns the standing budget rule;
+`docs/plans/inbox-family-extension.md` owns the corrected protocol. Removing an
+observation cutoff does not authorize changing model budgets. The old 5,120-token
+E0 and failed E1 remain separate diagnostics, with their receipts unchanged.
+
+The old `inbox-s4021` watcher is retired. Corrected operations use
+`pipeline/runs/inbox-campaign-s4021-c4096-ops/` and the dedicated
+`com.openai.codex.inbox-s4021-c4096` watcher. Continuation requires this Mac awake,
+the TU VPN connected and the conversation loaded. GPU phases continue
+independently. Review each run before advancing; stop after the corrected trio.
 
 ## Visible BrowserGym controls, 2026-09-29
 
@@ -94,9 +94,9 @@ semantic failures. Attempt details and costs belong in the family findings.
 At the user's request, removed the adapter's fixed 2,000-character observation
 cutoff. It could discard task content and action IDs on richer pages. Both reset
 and action feedback now retain the full accessibility text (or text fallback),
-through the same helper used by training and evaluation. Adjustable observation
-and token budgets are setup choices when assessing new families, not reasons to
-reject a scientifically useful task.
+through the same helper used by training and evaluation. Observation limits can be assessed when screening new families. Decision 0025
+supersedes the earlier assumption that token budgets could also be changed
+without separate user approval.
 
 This changes the observation protocol for pages exceeding the old cutoff.
 Trajectory-token accounting and turn limits are unchanged. Evaluation now checks
@@ -104,7 +104,8 @@ the tokenized prompt/history plus remaining completion allowance against the
 configured context and the model's supported context before generation. It fails
 explicitly on an undersized protocol, without clipping observations, reducing
 the generation allowance or recording an infrastructure failure as a wrong answer.
-Size the next study's budgets for its pages and keep them matched across arms. Record
+Keep the original agent budgets across families unless the user explicitly
+authorizes a change (decision 0025). Record
 the new source version in fresh runs. Historical reproduction uses its original
 source and frozen protocol; do not silently mix observations across versions.
 

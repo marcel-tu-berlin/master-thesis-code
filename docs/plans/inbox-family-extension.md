@@ -1,6 +1,10 @@
 # Mixed-inbox E0/E1/E2 extension
 
-Approved: 2026-09-29. The user authorized E0 -> E1 -> E2 with automatic harvest,
+Corrected and restart authorized: 2026-09-29. The user requires the original
+seed-4016 budgets for all experiments, including a fresh inbox E0. The earlier
+5,120-token attempt was not authorized as a budget change and is superseded.
+Decision [0025](../decisions/0025-preserve-agent-budgets-across-families.md) governs
+this correction. The user authorized E0 -> E1 -> E2 with automatic harvest,
 review and advancement unless a new issue requires a decision. Stop after this
 trio. Qualification is recorded in
 [`family_extension_s4019_findings.md`](../../pipeline/runs/family_extension_s4019_findings.md).
@@ -44,9 +48,13 @@ alone. The user approved proceeding with this small-sample, provisional choice.
 | E1 | `pipeline/configs/e1-inbox.yaml` | Original base, new LoRA | Native task success |
 | E2 | `pipeline/configs/e2-inbox.yaml` | Original base, new LoRA | Task success minus 0.1 times relative successful-response cost |
 
-Use fresh seed 4021. Training uses question seeds 4021000000-4021000499;
+Use seed 4021 and fresh run IDs `e0-email-inbox-noscroll-s4021-c4096`,
+`e1-email-inbox-noscroll-s4021-c4096`, and
+`e2-email-inbox-noscroll-s4021-c4096`. Training uses question seeds 4021000000-4021000499;
 `held_out_inbox` uses 200 questions, 4021100000-4021100199. These are disjoint
-from qualification and the retained/deferred campaigns. E0 supplies the fixed
+from qualification and the retained/deferred campaigns. The allocation matches
+the superseded inbox attempt; it is not a new sample selected after its results.
+The new 4,096-token E0 supplies the fixed
 threshold reference for both trained arms. Each trained arm is evaluated at
 updates 100, 200 and 300; update 300 is primary. Do not choose a checkpoint or
 extend the sample after inspecting outcomes.
@@ -57,13 +65,27 @@ constant schedule with 10% warmup, `naive_sum`, and `scale_rewards: none`.
 E1 and E2 differ only in length-cost enablement, apart from their names and
 descriptions. No warm start, Liger, vLLM sleep, placebo or E3.
 
-The new protocol uses full visible HTML, the documented ordered-tool-batch prompt,
-click/fill/noop, 12 turns, 5,120 whole-trajectory tokens and a 9,216-token context
-with 4,096 prompt allowance. Tool observations count against the trajectory
-budget; only assistant tokens count toward the length reward. vLLM reservation
-is 0.24. Qualification and execution use physical GPU 1 only. The
-8,192- and 6,144-token settings failed native training memory checks; their
-saved samples are separate protocols, not pooled evidence for this setting.
+The corrected protocol uses full visible HTML, the documented ordered-tool-batch
+prompt and click/fill/noop. Every active experiment uses the retained trio's
+limits: **8 turns, 4,096 whole-trajectory tokens, 4,096 prompt tokens and an
+8,192-token context**. Evaluation and every checkpoint use the same 4,096-token
+trajectory allowance; the successful-length reference maximum is also 4,096.
+Tool observations count against the trajectory budget; only assistant tokens
+count toward the length reward. The config regression check enforces these
+limits across all active YAML files. Changing them requires explicit user approval.
+vLLM reservation remains 0.24; execution uses physical GPU 1 only.
+
+Before restarting E0, test three ordinary native training updates with the
+corrected budgets and the intended 4-by-8 geometry. This disposable engineering
+check does not use smoke overrides, readiness capture or saved-tensor replay.
+It does not supply weights to E1/E2 or establish safety for every later update.
+A failure stops the relaunch; do not change budgets again to make it fit.
+
+Keep the previous 5,120-token E0 and failed E1, qualification samples, costs and
+review receipts unchanged. They describe separate diagnostic protocols and must
+not be reused as the corrected baseline or pooled with the corrected campaign.
+There is no evidence that this family requires a larger allowance; the corrected
+E0 will measure policy performance at the original allowance.
 
 ## Review and interpretation
 
@@ -71,8 +93,8 @@ Carry forward the initial plan's paired success/compression analysis, fixed
 margins, bootstrap procedure, costs and explicit uncertainty about one training
 seed. Compare new E2 against new E1 on identical questions and observations.
 The old read-table trio remains first evidence; differences between studies
-cannot be attributed solely to family because observation, prompt and budgets
-also changed.
+cannot be attributed solely to family because observation and prompt
+still differ, although the token and turn budgets now match.
 
 Alongside the pooled result, report reply/forward/delete/important counts and
 paired outcomes. The fixed sample was not sized for four separate equivalence
@@ -102,7 +124,7 @@ change settings or retry under the same run ID. The known qualification limits
 above are already accepted, and a null or adverse result alone is not a failure.
 
 Reuse the previous campaign's one-run controller and completion watcher in a new
-`pipeline/runs/inbox-campaign-s4021-ops/` bundle. The controller admits exactly
+`pipeline/runs/inbox-campaign-s4021-c4096-ops/` bundle. The controller admits exactly
 three runs and requires hash-bound review receipts before advancement. The
 watcher returns changed phases to the current research conversation; it does
 not launch a run itself. Continuation requires this Mac awake, connected to the

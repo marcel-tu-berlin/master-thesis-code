@@ -11,6 +11,7 @@ Historical run paths in these records now resolve under
 the [archive map](../../pipeline/runs/archive/development-2026-09-24/README.md)
 explains the move. Decisions 0021/0022/0023 govern the retained first E0-E2 campaign.
 Decision 0024 records family qualification and approval of the seed-4021 inbox trio.
+Decision 0025 restores the original budgets and authorizes its complete restart.
 
 | # | Decision | Date |
 |---|---|---|
@@ -38,3 +39,4 @@ Decision 0024 records family qualification and approval of the seed-4021 inbox t
 | [0022](0022-e2-dose-grid-and-analysis-followups.md) | Restore the E2 dose grid and defer interpretation checks | 2026-09-24 |
 | [0023](0023-review-one-seed-before-expansion.md) | Run E0/E1/E2 at weight 0.1 and seed 4016, then stop for review before expansion | 2026-09-24 |
 | [0024](0024-qualify-stateful-families-before-expansion.md) | Qualify stateful families and prepare the next batch, then wait for approval | 2026-09-29 |
+| [0025](0025-preserve-agent-budgets-across-families.md) | Preserve agent budgets across families and restart the inbox trio | 2026-09-29 |

@@ -21,6 +21,12 @@ harvest and review E0 -> E1 -> E2 at seed 4021 on GPU 1, then stop. The protocol
 a new scientific issue requiring a decision. The accepted qualification caveats
 are in `pipeline/runs/family_extension_s4019_findings.md`. Other weights (0.05/0.2),
 the separate placebo run, and seeds 4017/4018 remain prepared but deferred.
+The user's correction restarts all three inbox arms with fresh `-c4096` run IDs;
+the earlier 5,120-token attempt is retained separately and cannot supply E0.
+Decision 0025 fixes all active experiments at 4,096 trajectory tokens (including
+tool feedback), 4,096 prompt tokens, 8,192 context and 8 turns, including checkpoint
+evaluation. Family approval does not authorize budget changes. Changing these
+limits requires explicit user approval; `test_campaign_budgets.py` guards them.
 No warm start. Both trained arms use 300 updates, batch size 4, eight rollouts,
 `naive_sum` and `scale_rewards: none`; only the shaped component changes.
 E3 remains deferred. Statistical precision and off-target validation are
