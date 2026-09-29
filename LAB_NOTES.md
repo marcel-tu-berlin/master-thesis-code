@@ -49,6 +49,14 @@ experimental setting; it activates the previously proposed configs.
 
 ## Visible BrowserGym controls, 2026-09-29
 
+The subsequent ordinary inbox training attempt exhausted backward memory despite
+the completed one-batch qualification. A passing zero-LR capture or cropped
+replay does not establish reliable peak-memory headroom for the ordinary training
+path across different questions. Preserve failed costs and inputs, stop
+advancement, and qualify the corrective path before retrying. Evidence and the
+paused campaign boundary are in
+`pipeline/runs/inbox_s4021_e1_failure_findings.md`.
+
 Live resets confirmed that the email tasks' custom clickable rows have no action
 IDs in the accessibility text. The original OpenEnv pruned HTML exposes those
 IDs but also includes hidden inbox panes and collapsed tree children. Added an
