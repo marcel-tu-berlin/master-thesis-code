@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M3QFTFN4S906KA7H2XX7WN6N",
+  "session_id": "01a0ecfc-5d8e-70f1-8580-cae64651ce2e",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-29T21:06:10.281012Z",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "1f94e55c9465",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1376473,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 55371264,
+    "output_tokens": 277038,
+    "api_call_count": 451
+  },
+  "session_metrics": {
+    "turn_count": 9
+  }
+}
