@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M3WJNP4GNKWFB7P74N91W2QQ",
+  "strategy": "manual-commit",
+  "branch": "master",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "BACKLOG.md",
+    "LAB_NOTES.md",
+    "docs/decisions/0024-qualify-stateful-families-before-expansion.md",
+    "docs/decisions/README.md",
+    "docs/plans/inbox-family-extension.md",
+    "pipeline/README.md",
+    "pipeline/domains/browsergym/adapter.py",
+    "pipeline/domains/browsergym/domain.py",
+    "pipeline/domains/browsergym/server.py",
+    "pipeline/eval/agentic_eval.py",
+    "pipeline/runs/family_extension_s4019_findings.md",
+    "pipeline/runs/inbox_s4021_e0_findings.md",
+    "pipeline/runs/inbox_s4021_e1_failure_findings.md",
+    "pipeline/tests/test_agentic_episode_eval.py",
+    "pipeline/tests/test_browsergym_adapter.py",
+    "pipeline/tests/test_campaign_budgets.py",
+    "pipeline/tests/test_launch_safety.py",
+    "pipeline/tests/test_multiturn_eval.py",
+    "pipeline/training/config_schema.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1694801,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 64238720,
+    "output_tokens": 313784,
+    "api_call_count": 531
+  }
+}

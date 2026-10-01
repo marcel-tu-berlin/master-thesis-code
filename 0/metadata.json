@@ -1,0 +1,70 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M3WJNP4GNKWFB7P74N91W2QQ",
+  "session_id": "01a0ecfc-5d8e-70f1-8580-cae64651ce2e",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-01T20:32:11.902964Z",
+  "branch": "master",
+  "checkpoints_count": 3,
+  "save_step_count": 1,
+  "files_touched": [
+    "BACKLOG.md",
+    "LAB_NOTES.md",
+    "docs/decisions/0024-qualify-stateful-families-before-expansion.md",
+    "docs/decisions/README.md",
+    "docs/plans/inbox-family-extension.md",
+    "pipeline/README.md",
+    "pipeline/domains/browsergym/adapter.py",
+    "pipeline/domains/browsergym/domain.py",
+    "pipeline/domains/browsergym/server.py",
+    "pipeline/eval/agentic_eval.py",
+    "pipeline/runs/family_extension_s4019_findings.md",
+    "pipeline/runs/inbox_s4021_e0_findings.md",
+    "pipeline/runs/inbox_s4021_e1_failure_findings.md",
+    "pipeline/tests/test_agentic_episode_eval.py",
+    "pipeline/tests/test_browsergym_adapter.py",
+    "pipeline/tests/test_campaign_budgets.py",
+    "pipeline/tests/test_launch_safety.py",
+    "pipeline/tests/test_multiturn_eval.py",
+    "pipeline/training/config_schema.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "13c5301d9b55",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1694801,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 64238720,
+    "output_tokens": 313784,
+    "api_call_count": 531
+  },
+  "session_metrics": {
+    "turn_count": 5
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-01T20:32:11.646443Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 0,
+    "total_lines_changed": 0,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.local.json": 7
+      }
+    }
+  ]
+}
