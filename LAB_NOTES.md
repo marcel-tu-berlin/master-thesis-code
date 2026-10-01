@@ -49,6 +49,12 @@ The old `inbox-s4021` watcher is retired. Corrected operations use
 the TU VPN connected and the conversation loaded. GPU phases continue
 independently. Review each run before advancing; stop after the corrected trio.
 
+On 2026-10-01, the superseded watcher was loaded again and delivered its old
+memory-failure status. Unloading alone had not persisted retirement. Retire a
+LaunchAgent with `launchctl disable gui/<uid>/<label>` and then `bootout`;
+verify both the disabled override and the absence of a loaded service. The old
+inbox watcher is now disabled and unloaded; the corrected watcher remains active.
+
 ## Visible BrowserGym controls, 2026-09-29
 
 The subsequent ordinary inbox training attempt exhausted backward memory despite
