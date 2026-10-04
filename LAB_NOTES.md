@@ -34,6 +34,16 @@ do not follow old launch commands as the current protocol.
 
 ## Corrected inbox campaign, 2026-09-29
 
+The corrected trio is harvested and reviewed; its comparison is in
+`pipeline/runs/inbox_s4021_c4096_findings.md`. No further run is authorized.
+During the final arm, the watcher's last successful snapshot was
+2026-10-02 17:29:56 UTC. Its latest retained error before the manual status check
+was an SSH exit 255 at 2026-10-04 22:43:17 UTC. The completion had therefore not
+been delivered when the user requested status. The GPU phase completed normally;
+the precise connection-failure cause was not established. Keep compute-finish
+estimates separate from review/delivery estimates when the watcher cannot reach
+the box. The completion evidence preserves these monitor snapshots.
+
 The user rejected the budget increase carried from family qualification into the
 inbox campaign and authorized a complete restart, including E0, at the retained
 campaign's limits. Decision 0025 owns the standing budget rule;

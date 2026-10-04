@@ -6,9 +6,10 @@ in the decision records or history, not here.
 
 ## Thesis presentation
 
-- Prepare thesis figures and text from the reviewed initial comparison in
-  `pipeline/runs/e0_e2_s4016_findings.md`, preserving its paired statistics,
-  measured costs and single-seed limitations.
+- Prepare thesis figures and text from the reviewed comparisons in
+  `pipeline/runs/e0_e2_s4016_findings.md` and
+  `pipeline/runs/inbox_s4021_c4096_findings.md`, preserving their paired
+  statistics, measured costs, behavior changes and single-seed limitations.
 
 ## Subsequent studies
 
