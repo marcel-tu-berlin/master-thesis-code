@@ -1,0 +1,51 @@
+{
+  "integrity": "pass",
+  "analysis": "offline descriptive figures; no new experiment or endpoint selection",
+  "sealed_input_count": 95,
+  "inputs_sha256": {
+    "pipeline/runs/e0-email-inbox-noscroll-s4021-c4096/review.json": "68cae1904430f2b6bb6f7a87637c85296ced7d2c0979f9472524cba85536d08d",
+    "pipeline/runs/e0-email-inbox-noscroll-s4021-c4096/episodes_held_out_inbox.jsonl": "23fe4009d266e650b88c41d3a42e2f76c122f2213b04ff68ee09b3ada9556f19",
+    "pipeline/runs/e0-email-inbox-noscroll-s4021-c4096/eval_report.json": "adeb22db6bab80133a0d3e8e94f7a9b10587c9e109fc0fdd3bb2d1599fc0553e",
+    "pipeline/runs/e1-email-inbox-noscroll-s4021-c4096/review.json": "176c98232b047cfc0b7b0ae7f78c71ebc00bf4e82f0151029c9245d066523038",
+    "pipeline/runs/e1-email-inbox-noscroll-s4021-c4096/checkpoint-evals/checkpoint-100/episodes_held_out_inbox.jsonl": "371943b3797eaca0de9d17e474a614438fcea455839d019af5dfe6fc773a3d2a",
+    "pipeline/runs/e1-email-inbox-noscroll-s4021-c4096/checkpoint-evals/checkpoint-100/eval_report.json": "0a7dba4210c35fd366ca651b513f1cc1606769686f0361b1a02cffc849e03ad3",
+    "pipeline/runs/e1-email-inbox-noscroll-s4021-c4096/checkpoint-evals/checkpoint-200/episodes_held_out_inbox.jsonl": "4a5199a266c7c4d7bae89d38202c10d0b6916db637777f62ff9b8f82863e095a",
+    "pipeline/runs/e1-email-inbox-noscroll-s4021-c4096/checkpoint-evals/checkpoint-200/eval_report.json": "7da602296a9b32930152ec3d446b37beba7b506ffe493afe5969921e00923071",
+    "pipeline/runs/e1-email-inbox-noscroll-s4021-c4096/episodes_held_out_inbox.jsonl": "9b68244a29651a13162ac4a340271ca956ec3652598dd6ef023d4c345cd5794a",
+    "pipeline/runs/e1-email-inbox-noscroll-s4021-c4096/eval_report.json": "3befb3d94f433eab40fe697cd94316055f2b7f80a966b66c77dafaf6a79de170",
+    "pipeline/runs/e1-email-inbox-noscroll-s4021-c4096/technical_review.json": "3681d8a33e76de04447ccde5f3c262cd06ce92a05e0821b6ccba8db52e7f3acb",
+    "pipeline/runs/e1-email-inbox-noscroll-s4021-c4096/train_log.json": "aea5d513fc25dedaaa4a520b62d3406d70f811078f00a1748a37134da4f48b75",
+    "pipeline/runs/e2-email-inbox-noscroll-s4021-c4096/review.json": "82d42f93fae2e5c8c24af8377e12a5662b1954d68155f3808aea56570076cde5",
+    "pipeline/runs/e2-email-inbox-noscroll-s4021-c4096/checkpoint-evals/checkpoint-100/episodes_held_out_inbox.jsonl": "69b043d2fedf1359d1c755a647ecd0ecfe79dd59f7dcc9f4c4d4b4990b90a54e",
+    "pipeline/runs/e2-email-inbox-noscroll-s4021-c4096/checkpoint-evals/checkpoint-100/eval_report.json": "60a1f522565fa292f0ab552c1a1d14929e95bceee06e7138b40514c24ce8c218",
+    "pipeline/runs/e2-email-inbox-noscroll-s4021-c4096/checkpoint-evals/checkpoint-200/episodes_held_out_inbox.jsonl": "3bb37bdaacc5c70cc8c841a6df1a99a3797335a734bb302ccaa5a36fa12ba5dd",
+    "pipeline/runs/e2-email-inbox-noscroll-s4021-c4096/checkpoint-evals/checkpoint-200/eval_report.json": "c19c792138c64eb5e7045ce4536e1d7e589a81e30fca351d82fd150ff035237d",
+    "pipeline/runs/e2-email-inbox-noscroll-s4021-c4096/episodes_held_out_inbox.jsonl": "49b2bc3d9107b0f514cffb2bc26980e3661c98eabca88d38ce84b1edbdd1034b",
+    "pipeline/runs/e2-email-inbox-noscroll-s4021-c4096/eval_report.json": "bde93dc4da3f708e749dc4c4019f479b969a71c66b0b35b6b142370c6cab3e41",
+    "pipeline/runs/e2-email-inbox-noscroll-s4021-c4096/technical_review.json": "f7fb81bd5073d6092af5622119e37bc4a90db4749930d701c10a901658c3656b",
+    "pipeline/runs/e2-email-inbox-noscroll-s4021-c4096/train_log.json": "0d94a1a0b3ecefb37609aa400e04d43566503dfe9b656ed0979b023f0c2610dd",
+    "pipeline/runs/e2-email-inbox-noscroll-s4021-c4096/initial_comparison.json": "717191db1f558650bd388c96d44e33cf9da5aa8077664102e81515dd2e14d26e",
+    "pipeline/runs/e2-email-inbox-noscroll-s4021-c4096/behavior_review.json": "f5711c7912fa2a4b6a38fd3d5516ddda78bffe1b1f248f8eeb412ccef63ab4c6",
+    "pipeline/runs/inbox-campaign-s4021-c4096-ops/deep-review-20261005/analyze.py": "e4d58d0aaae573a8ced75a7f80645456b05f2863d1f361cc6adfc5371030ea57",
+    "pipeline/eval/plot_style.py": "0e0d4ae2bcba392f3bdbe93a8fbe00db7ebdcfb3f506bc6266b8ce0345c96773"
+  },
+  "outputs_sha256": {
+    "01_learning_and_behavior.pdf": "9a19ca791f4fb2540cdff168a62697077124520c07349d1d4496cf76df6f946c",
+    "01_learning_and_behavior.png": "1ea5ce4da8ef3bfd565d36f90febc114283570b3534b7a5c09d4043c095f1ba9",
+    "02_tokens_actions_and_turns.pdf": "e897238d675d1702ba815c49ca62a3b242647d079fdf57fe461c38d0d21a9357",
+    "02_tokens_actions_and_turns.png": "117d3d82c76f274211c42b90e51fa4f76e3b66cbd4adb80f29d364d80afdbeb8",
+    "03_operation_breakdown.pdf": "8d40a8bdb732aff40e21d089f60b38ea93318fbde1fd6521fbcbac097a56536a",
+    "03_operation_breakdown.png": "48190fa1e5259206b8adfc405bccebed2ac60e98fcea29c390b568a85f66060d",
+    "04_same_task_different_strategy.pdf": "83c898b3950d7c056925b95f69b42c3eb3f9ddaddace6a160ace2bc2438c7831",
+    "04_same_task_different_strategy.png": "460cf41a602eb14d20f12f0d7f18f32fe74c4f53c36fbede6b4b9ad8fbb7cc09",
+    "05_training_signal.pdf": "a8f7664952624d5cd7ac298d481f9ec3118d449f2b531f915f88f7b0d031138c",
+    "05_training_signal.png": "32e5a43555d1779aa5a9cac5db9f7c7fe55cc10155dc1dc2645c0b71337601f8",
+    "diagnostics.json": "10a071838334d1a2184f8f7ecf105c318f47632af55df3204f9fff245bad9cb0",
+    "inbox_e1_e2_behavior.pdf": "ab19e99c4631a6c01c7e80abfd542ece968e085ddec4f736faf882a757689d47"
+  },
+  "versions": {
+    "python": "3.12.6 (v3.12.6:a4a2d2b0d85, Sep  6 2024, 16:08:03) [Clang 13.0.0 (clang-1300.0.29.30)]",
+    "matplotlib": "3.11.0",
+    "numpy": "2.4.6"
+  }
+}
