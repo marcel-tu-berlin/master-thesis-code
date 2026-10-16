@@ -13,6 +13,15 @@ current [campaign declaration](docs/plans/e0-e2-campaign.md).
   token-truncate checks do not qualify a quantized trainer/vLLM pair.
 - **Alternative lineage:** an optional Llama replication needs independent
   task/template qualification, its own E0 and a separately declared comparison.
+- **Controlled off-target probes (former option 3b):** a separate, optional
+  research direction could introduce matched situations that require checking
+  feedback, recovering from a planted error, or adapting to remapped element
+  identifiers. Compare behavior with and without the intervention to distinguish
+  observed shortcuts from sensitivity to a specific mechanism. This needs new
+  trajectories, task qualification and a separately approved protocol. It is not
+  part of the retrospective thesis analysis, a prerequisite for interpreting the
+  completed experiments, or authorized follow-up work. The current approach uses
+  narrow events from saved traces plus independent human/LLM semantic review.
 
 Current recipe decisions already settle Liger, vLLM sleep, optimizer geometry,
 budgets and reward composition. Their rejected alternatives are documented in
