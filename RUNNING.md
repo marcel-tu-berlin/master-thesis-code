@@ -1,7 +1,7 @@
 # Running
 
-What is executing on gpu-l4.
+What is executing on the experiment hosts.
 
-Updated: 2026-10-04T22:56:43.469914+00:00 (box time)
+Updated: gpu-l4: 2026-10-17T20:00:54.680735+00:00 (box time); last verified, check failed; omarchy-home: 2026-10-18T06:11:05.958502+00:00 (box time)
 
 Nothing running.

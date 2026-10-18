@@ -40,3 +40,5 @@ Decision 0025 restores the original budgets and authorizes its complete restart.
 | [0023](0023-review-one-seed-before-expansion.md) | Run E0/E1/E2 at weight 0.1 and seed 4016, then stop for review before expansion | 2026-09-24 |
 | [0024](0024-qualify-stateful-families-before-expansion.md) | Qualify stateful families and prepare the next batch, then wait for approval | 2026-09-29 |
 | [0025](0025-preserve-agent-budgets-across-families.md) | Preserve agent budgets across families and restart the inbox trio | 2026-09-29 |
+| [0026](0026-qualify-flight-before-fallback-or-hardware-request.md) | Qualify flight booking and justify resources before any user-approved fallback | 2026-10-06 |
+| [0027](0027-bounded-flight-budget-diagnostic.md) | Authorize the bounded flight budget diagnostic on GPU 1 | 2026-10-06 |

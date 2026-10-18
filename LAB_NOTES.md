@@ -32,6 +32,70 @@ do not follow old launch commands as the current protocol.
 - Then the narrative record, newest first, from the poly cosine re-run through the
   batch_size root cause, the e27 baseline saga, and the two e28 kills.
 
+## TU VPN route without an interface address, 2026-10-14
+
+Repeated SSH checks returned `Can't assign requested address`, including outside
+the sandbox. DNS resolved normally. The route to the GPU host still used the
+TU network via utun9, but that interface had neither IPv4 nor IPv6 addresses.
+A direct TCP check to the GPU failed with errno 49 while the Internet control
+at 1.1.1.1:443 connected. A present tunnel route alone therefore does not prove
+that the VPN works. Request a TU VPN reconnect; do not infer a GPU crash or
+restart experiments. Preserve the last box-verified RUNNING.md until SSH returns.
+Evidence: `pipeline/runs/click-checkboxes-soft-campaign-s4232-ops/monitor-check-20261014T061720Z.json`.
+
+## Parallel family deployment, 2026-10-13
+
+The training and evaluation entry points hard-code physical GPU 1, so setting
+CUDA_VISIBLE_DEVICES=0 only in a launcher does not select GPU 0. For the explicitly
+authorized checkbox concurrency, use the complete isolated deployment described
+in `docs/plans/click-checkboxes-soft-family-extension.md`. Its two entry-point
+GPU assignments differ; source hashes and the exact patch are frozen in its ops
+directory. Never sync a new source tree into a live campaign's frozen deployment.
+The pinned TRL respects a supplied MASTER_PORT; vLLM chooses free network ports
+and unique IPC paths. This campaign reserves a separate environment port,
+MASTER_PORT and IPC directory, sharing the pinned dependencies and static HTML.
+
+Two single-campaign mirrors each replacing RUNNING.md would hide the other run.
+The per-campaign mirrors now save local snapshots; the checkbox operations
+`monitor_parallel.py` harvests both and atomically publishes the combined local
+file. Each isolated remote RUNNING.md describes only its own deployment.
+The one hourly app heartbeat monitors both independent controllers. Separate
+GPUs prevent GPU-memory contention; shared host resources can still affect costs.
+
+Read-only GPU history findings are retained in
+`pipeline/runs/click-checkboxes-soft-campaign-s4232-ops/gpu0-usage-evidence.json`.
+Existing thesis cost ledgers establish earlier GPU-0 use, but neither directory
+modification times nor absent accounting establish when another developer used it.
+
+## NVIDIA update during a campaign, 2026-10-11
+
+Ubuntu unattended-upgrade changed the GPU host's NVIDIA packages during E1.
+The loaded kernel module stayed old until reboot. Existing training completed,
+and fresh PyTorch CUDA computation still worked, but a fresh vLLM process could
+not detect its GPU platform because NVML rejected the version mismatch.
+Do not equate a successful PyTorch tensor test with working vLLM startup, or
+bypass the GPU preflight based on that test. Coordinate driver maintenance and
+reboots with the host administrator between campaigns. The Python lockfile and
+environment stamp do not freeze host driver packages. Evidence and the exact
+timeline are in `pipeline/runs/tic_tac_toe_s4230_e1_findings.md`.
+
+The user rebooted the host on 2026-10-11. Driver 580.178.04 and kernel
+6.8.0-146 then passed fresh CUDA and vLLM checks. E2 continues under a separately
+bound post-reboot manifest; E0/E1 retain their original proofs. Record the host
+driver/kernel difference when interpreting E1 versus E2. The Python packages,
+pipeline source, model, recipe and budgets did not change. Restarting the pinned
+MiniWoB static server was required after reboot.
+
+## Campaign notification checks, 2026-10-12
+
+The tic-tac-toe LaunchAgent repeated the earlier inbox notification failure:
+it remained loaded and scheduled while its SSH checks returned exit 255.
+Direct SSH from the active research session worked. A loaded notifier is not
+proof of successful monitoring; check the timestamp of its last successful
+remote snapshot and its delivery receipt. The precise legacy connection-failure
+cause remains unverified. The replacement monitoring owner and retirement
+receipt are recorded in the tic-tac-toe operations HANDOFF.
+
 ## Corrected inbox campaign, 2026-09-29
 
 The corrected trio is harvested and reviewed; its comparison is in
@@ -64,6 +128,82 @@ memory-failure status. Unloading alone had not persisted retirement. Retire a
 LaunchAgent with `launchctl disable gui/<uid>/<label>` and then `bootout`;
 verify both the disabled override and the absence of a loaded service. The old
 inbox watcher is now disabled and unloaded; the corrected watcher remains active.
+
+## Native capture budget endings, 2026-10-07
+
+The pinned `env_done_or_budget_v1` loop removes newly appended tool feedback if
+it would exceed the continuation budget. The tools have already executed, but
+the model never receives that removed feedback. Consequently a budget-ended
+capture can retain substantially fewer than 4,096 trajectory IDs. Counting only
+`len(completion_ids) >= cap` undercounts these endings. For this loop, a
+nonterminal capture ending in an assistant tool call without retained tool
+responses identifies that rollback branch; the final-turn boundary retains its
+responses instead. Preserve the original counts and add a separate audit label.
+Do not infer that dropped feedback was seen or ignored. No training or reward
+measurement was changed during the catalog qualification.
+
+## BrowserGym additional interactions, 2026-10-07
+
+The catalog screen required opt-in key presses, native select options, hover,
+coordinate clicks and drags. BrowserGym 0.14.3 defaults to bid actions and rejects
+`mouse_click`; the coordinate opt-in must also configure the native action set.
+OpenEnv passes additional constructor keywords directly to `gym.make`, so pass
+`action_mapping` directly, not inside another `gym_kwargs` mapping. The installed
+single-move drag does not reorder jQuery sortable; intermediate pointer moves
+make the drag observable. All five primitives passed live adapter controls after
+these corrections. Existing task schemas, observations and reward definitions
+remain unchanged when the new opt-ins are absent. Qualification evidence lives
+under `pipeline/runs/catalog-qualification-s4026-ops/`.
+
+The additional feedback-search screen used a sixth primitive, native
+`mouse_move` without clicking. Its full pipeline copy ran separately at
+`/workspace/master-thesis-code-catalog-extra`; the first sweep retained its
+original five-primitive code until completion. Each capture froze source hashes.
+SVG children have native shape attributes but may lack individual bids/boxes;
+coordinate controls must use the displayed SVG geometry. A scripted path that
+misses a sortable insertion point is an interface-control failure, not evidence
+that the policy cannot learn the task.
+
+The isolated third interface version adds SVG child boxes from the native CDP
+layout. BrowserGym scales action/screenshot coordinates by 1.5 in this stack;
+CDP layout bounds remain in page coordinates. The marked SVG root supplies the
+mapping, so the renderer needs no task-specific geometry or hidden answers.
+The original GPU sweep retained its initial renderer. Additional SVG policy
+screens used the new renderer after native controls; `right-angle` received a
+paired interface diagnostic on the same original questions. Those results stay
+separate. The completed screen and recommendation are in
+`pipeline/runs/catalog_s4026_qualification_findings.md`.
+
+A repeat-controller exit check used an older initial-result snapshot and missed
+results that arrived while it was working. Require complete consumption of the
+producer's results before exiting, then independently verify every required run
+against the declared admission rules. The corrected controller resumed only the
+missing captures on their reserved seed blocks. Original evidence was preserved.
+
+## BrowserGym scrolling, 2026-10-06
+
+The pinned OpenEnv harness emits `scroll('down')`, but installed BrowserGym
+expects numeric horizontal and vertical deltas. The opt-in adapter bridges with
+`hover(bid)` followed by `scroll(0, +/-120)` in one native action. Use a visible
+scroll container: hovering a clipped child can itself reposition the viewport.
+Do not change the upstream pin or expose hidden DOM IDs to solve clipping.
+
+Invalid model-supplied scroll values must return action-error feedback. Raising
+inside a tool aborts both active loops as an infrastructure failure. Native
+checks and the complete flight-path measurements are in
+`pipeline/runs/flight_s4022_scroll_findings.md`.
+
+The model and native resource diagnostic is recorded in
+`pipeline/runs/flight_s4023_budget_findings.md`. Its handoff exposed an executable
+path alias in stack stamps (`pipeline/../.venv` versus `.venv`). Resolve that
+path when comparing stamps; still compare all package and protocol fields.
+
+The same lexical comparison recurred in the tic-tac-toe campaign reviewer on
+2026-10-08, after E0 completed normally. Normalize only the executable path in
+both compared stamps and test that package, interpreter and protocol changes
+still fail. Preserve the launch manifest and failed reviewer, bind a versioned
+correction, and continue only unstarted arms after full artifact verification.
+Evidence is in `pipeline/runs/tic_tac_toe_s4230_e0_findings.md`.
 
 ## Visible BrowserGym controls, 2026-09-29
 
@@ -1747,3 +1887,63 @@ a 20-episode browsergym estimate has moved by more than a tenth.
 Full analysis, including why the pooled per-split token median is an artifact of
 the bimodal mix and must not be reported, is in
 `pipeline/runs/e27_e1_baseline_findings.md`.
+
+## Within-batch action-budget boundary, 2026-10-13
+
+The tic-tac-toe review exposed an execution-boundary assumption that configured
+caps and retained-token checks do not verify. The evaluator charges feedback
+between actions but tests exhaustion only before the next model turn. The
+pinned native training wrapper also executes a precommitted batch before its
+continuation-length check, with terminal feedback retained for audit and
+oversized continuation feedback rolled back after tool side effects. A model
+can therefore obtain additional environment actions after feedback exhausts the
+allowance, without another model generation. Distinguish this from a single
+last feedback overshoot and from GPU model-input length.
+
+The measured impact, original comparison, and explicitly exploratory saved-prefix
+sensitivity belong in `pipeline/runs/tic_tac_toe_s4230_findings.md`. A CPU-only
+reproduction and pinned-tokenizer recount are saved in the campaign's
+`final-analysis-20261013/` directory. No pipeline source was changed. Resolve the
+intended batch/continuation versus per-action boundary explicitly before changing
+training/evaluation semantics; do not silently reinterpret old results or fix only
+one side. Earlier campaigns share the path but have not been recounted for this
+issue. Their scope of impact remains unassessed.
+
+After reviewing this evidence on 2026-10-13, the user accepted the implemented
+batch/continuation semantics for tic-tac-toe. The interpretation and sensitivity
+are recorded in its findings; the earlier report is preserved in the campaign's
+`interpretation-20261013/` directory. This resolves the campaign interpretation
+blocker without changing training/evaluation semantics or replacing native scores.
+
+## Checkbox E2 moved to the personal RTX 4090 host (2026-10-16)
+
+The user authorized continuing the interrupted checkbox experiment on
+`omarchy-home`. Work lives in `~/experiments/master-thesis`, with an immutable
+pipeline snapshot in `code/` and user-owned runtime, model cache and browser
+installation alongside it. No system package, driver or permanent power-setting
+change was needed. The original GPU 0 deployment on gpu-l4 remains stopped.
+
+The old E2 had no checkpoint, so the new `-home` ID starts fresh at seed 4232.
+The source was copied from the frozen checkbox deployment and matched all 42
+manifest hashes. The E2 config changes only its run ID and OpenEnv path. All 42
+E0/E1 harvested artifact hashes were checked before transfer. Frozen-source CPU
+tests passed (515 passed, seven skipped); all 16 native control records matched
+the originals exactly on the new host. The new manifest preserves strict stack,
+source, baseline and GPU checks. Runtime details and comparison qualifications
+are in `pipeline/runs/click-checkboxes-soft-home-s4232-ops/CONTINUATION.md`.
+
+Arch is not an officially supported Playwright host; the pinned installer used
+its Ubuntu 20.04 Chromium build. Native adapter checks passed unchanged. The
+Python/package versions match the L4 run, but the GPU, kernel, libc and driver
+do not. Preserve this as a comparison confound, including for timing claims.
+
+A direct SSH session could acquire an idle inhibitor but not a sleep inhibitor
+without interactive authentication. The authorized run uses a transient user
+service with no restart policy and a scoped idle inhibitor. Explicit suspend,
+logout, reboot or power-off can still interrupt it. Do not automatically restart
+a failed experiment.
+
+Monitoring now combines tabs on gpu-l4 and checkbox on omarchy-home through
+`click-checkboxes-soft-home-s4232-ops/monitor_hosts.py`. Each host retains its
+own verified timestamp and snapshot when unreachable. A one-host mirror must
+not replace the combined root RUNNING.md.

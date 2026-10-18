@@ -8,10 +8,19 @@ in the decision records or history, not here.
 
 - Prepare thesis figures and text from the reviewed comparisons in
   `pipeline/runs/e0_e2_s4016_findings.md` and
-  `pipeline/runs/inbox_s4021_c4096_findings.md`, preserving their paired
+  `pipeline/runs/inbox_s4021_c4096_findings.md`, plus the reviewed tic-tac-toe
+  comparison in `pipeline/runs/tic_tac_toe_s4230_findings.md` and the completed
+  `pipeline/runs/click_tab_2_s4231_findings.md` and
+  `pipeline/runs/click_checkboxes_soft_s4232_findings.md` comparisons, preserving their paired
   statistics, measured costs, behavior changes and single-seed limitations.
 
 ## Subsequent studies
+
+- Deferred: revisit `social-media-all` qualification after choosing a revised
+  observation interface or base model. Keep the existing budgets unless a change
+  is explicitly approved. Evidence: `pipeline/runs/social_s4024_qualification_findings.md`.
+- Deferred: revisit `social-media-some` qualification under the same constraints.
+  Evidence: `pipeline/runs/social_s4024_qualification_findings.md`.
 
 - After reviewing the initial E0/E1/E2 result with the user, decide whether the
   setup warrants further doses, a separate placebo and seed replication, or

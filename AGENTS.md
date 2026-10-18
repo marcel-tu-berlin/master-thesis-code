@@ -11,6 +11,68 @@ the environment, not by grading an answer string. The pipeline is agentic-only.
 
 ## Current campaign
 
+The completed click-tab-2 E0 -> E1 -> E2 campaign was approved on
+2026-10-13 after brief native checks, at seed 4231 on GPU 1. Its protocol is
+`docs/plans/click-tab-2-family-extension.md`; configs are `e{0,1,2}-click-tab-2.yaml`
+and operations are in `pipeline/runs/click-tab-2-campaign-s4231-ops/`. Retain the
+4096 trajectory / 4096 prompt / 8192 context / 8-turn limits and existing
+batch/continuation semantics. The GPU controller owns automatic advancement;
+stop after the trio or a runtime/integrity failure, without retries or overwrites.
+The user also authorized a parallel click-checkboxes-soft E0 -> E1 -> E2 trio
+on GPU 0, seed 4232, with the same budgets. Its protocol is
+`docs/plans/click-checkboxes-soft-family-extension.md`; operations are in
+`pipeline/runs/click-checkboxes-soft-campaign-s4232-ops/`. Its isolated deployment
+is `/workspace/master-thesis-code-checkboxes-soft`; never sync it over the live
+GPU 1 checkout. On 2026-10-15 the user requested GPU 0 back for a colleague and
+explicitly authorized aborting checkbox E2 without a checkpoint. Its controller
+is stopped; E0/E1 and the interrupted E2 evidence are preserved. GPU 0 on gpu-l4
+remains excluded. On 2026-10-16 the user authorized continuing checkbox on the
+personal RTX 4090 host `ssh omarchy-home`, under `~/experiments/master-thesis`.
+Only E2 restarted fresh, as `e2-click-checkboxes-soft-s4232-c4096-home`; retain
+the original E0/E1. Read `click-checkboxes-soft-home-s4232-ops/CONTINUATION.md`
+under `pipeline/runs/`. Its E2-only controller owns training, checkpoint
+evaluations and technical review. Record the L4/Ubuntu to 4090/Arch host change
+as a comparison confound. The frozen pipeline and recipe remain unchanged.
+Monitor both hosts using `click-checkboxes-soft-home-s4232-ops/monitor_hosts.py`
+under `pipeline/runs/`. It combines individual snapshots with each box timestamp.
+Do not use the old `monitor_parallel.py` or copy a single-host snapshot over the
+combined RUNNING.md. Retire the heartbeat after both scientific reviews,
+reports and task completions, or reported blockers leave no actionable monitoring.
+Both campaigns require scientific review and a user report before their tasks close.
+
+Checkbox completed on 2026-10-17: artifacts harvested and hash-verified,
+scientific analysis reported, and its task closed. Findings are in
+`pipeline/runs/click_checkboxes_soft_s4232_findings.md`. Independent counterpart
+review passed after reporting corrections on 2026-10-18; comparison limitations
+remain explicit. Do not repeat that
+analysis or restart checkbox. The tab campaign is also complete as recorded below.
+
+Tab review completed on 2026-10-18 after the user authorized an audit-only repair.
+The original auditor mistook a rejected call for a terminal click; the corrected
+copy and passing technical receipt preserve all frozen source and raw results.
+Scientific findings are in `pipeline/runs/click_tab_2_s4231_findings.md`.
+Independent counterpart review passed after reporting corrections on 2026-10-18.
+The analysis was reported and
+task UUID 031cfdc7-cc9c-46ac-b603-407591d32e8b completed. Both campaigns and their
+scientific reviews are complete; monitoring is retired. Do not restart runs or
+controllers, repeat completed analysis, or infer permission for another campaign.
+
+The tic-tac-toe trio is complete, harvested and reviewed. The user accepted its
+implemented batch/continuation semantics on 2026-10-13: retain native outcomes
+as primary and the stricter saved-prefix cutoff as sensitivity. This is not a
+hard per-action transcript cap. Read
+`pipeline/runs/tic_tac_toe_s4230_findings.md` before any continuation. Do not
+restart the completed arms or silently change the protocol. The user approved
+tic-tac-toe E0 -> E1 -> E2 on 2026-10-07, with a brief native
+logic check and automatic advancement at seed 4230 on GPU 1. The protocol is
+`docs/plans/tic-tac-toe-family-extension.md`; configs are
+`e0-tic-tac-toe.yaml`, `e1-tic-tac-toe.yaml`, and `e2-tic-tac-toe.yaml`.
+The GPU-side controller and receipts live in
+`pipeline/runs/tic-tac-toe-campaign-s4230-ops/`. Stop on runtime/integrity failure
+and after this trio. Its click-tab-2 and click-checkboxes-soft follow-ups were
+separately authorized and are now complete as recorded above. The mixed-inbox trio below is
+complete; its results are in `pipeline/runs/inbox_s4021_c4096_findings.md`.
+
 The initial seed-4016 E0/E1/E2 trio is complete and retained as first evidence.
 Decisions 0021/0022/0023 and `docs/plans/e0-e2-campaign.md` define that comparison;
 its results are in `pipeline/runs/e0_e2_s4016_findings.md`.
