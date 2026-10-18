@@ -1,4 +1,6 @@
-from training.config_schema import resolve_observation_format
+import math
+
+from training.config_schema import resolve_interaction_tools, resolve_observation_format
 
 # The two MiniWoB families the feasibility probe selected (see
 # pipeline/runs/browsergym_feasibility_findings.md). click-option supplies
@@ -48,13 +50,13 @@ class BrowserGymEnvAdapter:
     clicking radios/checkboxes and then Submit - and a tool that cannot affect the
     task would only add a hallucination target. `noop` is kept deliberately: it is
     a literal do-nothing action, so stalling becomes a tool call we can count
-    rather than an absence we have to infer. The opt-in fill adapter below adds
-    typing without changing the tool schema of existing experiments.
+    rather than an absence we have to infer. The opt-in adapters below add typing
+    and scrolling without changing existing experiments' tool schemas.
 
     The action bridge is upstream: browsergym takes a string DSL
     (`click("13")`), and `harness.build_browsergym_action_str(name, args)`
-    translates a tool call into it, so this adapter does not parse or format
-    actions itself.
+    translates the original tools. Scrolling uses the installed BrowserGym
+    primitives directly because the pinned harness has an incompatible signature.
 
     No server patch is needed, which is the bar the deleted finqa env failed:
     reset(seed=N) is deterministic (verified - the same seed reproduces goal and
@@ -69,6 +71,18 @@ class BrowserGymEnvAdapter:
     def __init__(self, base_url, env_config=None, client=None):
         self._env_config = dict(env_config or {})
         self._observation_format = resolve_observation_format(self._env_config)
+        self._interaction_tools = resolve_interaction_tools(self._env_config)
+        if (
+            any(name.startswith("mouse_") for name in self._interaction_tools)
+            and self._observation_format != "visible_html"
+        ):
+            raise ValueError(
+                "Coordinate interaction_tools require visible_html observations"
+            )
+        # Bind only selected methods: TRL discovers public instance methods, so
+        # disabled tools must be absent rather than returning an error on use.
+        for name in self._interaction_tools:
+            setattr(self, name, getattr(_InteractionTools, name).__get__(self))
         # An ABSENT `tasks` takes the default mix; an explicitly EMPTY one is a
         # config error. Collapsing the two would silently train the default mix
         # under a config that says otherwise.
@@ -102,9 +116,49 @@ class BrowserGymEnvAdapter:
         run without browsergym installed.
         """
         from browsergym_env import BrowserGymAction
+
+        if tool in self._interaction_tools:
+            if tool == "mouse_drag":
+                fx, fy = arguments["from_x"], arguments["from_y"]
+                tx, ty = arguments["to_x"], arguments["to_y"]
+                # jQuery sortable needs movement after the drag-start event;
+                # BrowserGym's single-move drag silently leaves it unchanged.
+                actions = [f"mouse_down({fx!r}, {fy!r})"]
+                for fraction in (0.25, 0.5, 0.75, 1):
+                    actions.append(
+                        f"mouse_move({fx + (tx - fx) * fraction!r}, {fy + (ty - fy) * fraction!r})"
+                    )
+                actions.append(f"mouse_up({tx!r}, {ty!r})")
+                return BrowserGymAction(action_str="\n".join(actions))
+            native = {
+                "select_options": "select_option",
+            }.get(tool, tool)
+            if tool == "press":
+                arguments = {"bid": arguments["bid"], "key_comb": arguments["key"]}
+            args = ", ".join(f"{key}={value!r}" for key, value in arguments.items())
+            return BrowserGymAction(action_str=f"{native}({args})")
         from browsergym_env.harness import build_browsergym_action_str
 
         return BrowserGymAction(action_str=build_browsergym_action_str(tool, arguments))
+
+    def _interact(self, tool, **arguments):
+        if not self.done:
+            for key, value in arguments.items():
+                if key == "options":
+                    valid = isinstance(value, list) and all(
+                        isinstance(v, str) for v in value
+                    )
+                elif key in {"x", "y", "from_x", "from_y", "to_x", "to_y"}:
+                    valid = (
+                        type(value) in (int, float)
+                        and math.isfinite(value)
+                        and value >= 0
+                    )
+                else:
+                    valid = isinstance(value, str) and bool(value.strip())
+                if not valid:
+                    return f"Action error: invalid {tool} argument {key}"
+        return self._act(tool, **arguments)
 
     def _act(self, tool, **arguments) -> str:
         """Send one action and return the resulting page, or the env's error."""
@@ -187,3 +241,102 @@ class _BrowserGymFillEnvAdapter(BrowserGymEnvAdapter):
             text: The complete value to enter in the field.
         """
         return self._act("fill", bid=str(bid), text=str(text))
+
+
+class _BrowserGymScrollEnvAdapter(BrowserGymEnvAdapter):
+    """Opt-in scrolling, targeted at a visible element in the scroll area."""
+
+    def _make_action(self, tool, arguments):
+        if tool != "scroll":
+            return super()._make_action(tool, arguments)
+        from browsergym_env import BrowserGymAction
+
+        # BrowserGym 0.14.3 accepts hover + wheel in one native action. The pinned
+        # OpenEnv harness instead emits scroll('down'), which BrowserGym rejects.
+        delta = 120 if arguments["direction"] == "down" else -120
+        return BrowserGymAction(
+            action_str=f"hover({arguments['bid']!r})\nscroll(0, {delta})"
+        )
+
+    def scroll(self, bid: str, direction: str) -> str:
+        """Move the pointer to an element, scroll 120 pixels, and see the page.
+
+        Args:
+            bid: The HTML bid of a visible scroll area or an element inside it.
+            direction: The vertical direction, either "up" or "down".
+        """
+        if not self.done:
+            # Malformed model arguments are recoverable action feedback. Raising
+            # here would abort both production loops as an infrastructure error.
+            if not isinstance(bid, str) or not bid.strip():
+                return "Action error: scroll bid must be a nonempty string"
+            if direction not in ("up", "down"):
+                return "Action error: scroll direction must be 'up' or 'down'"
+        return self._act("scroll", bid=bid, direction=direction)
+
+
+class _BrowserGymFillScrollEnvAdapter(
+    _BrowserGymFillEnvAdapter, _BrowserGymScrollEnvAdapter
+):
+    """Both opt-ins; the inherited tools retain their original schemas."""
+
+
+class _InteractionTools(BrowserGymEnvAdapter):
+    """Native primitives bound individually to an adapter only when configured."""
+
+    def press(self, bid: str, key: str) -> str:
+        """Focus an element and press a key or key combination; see the result.
+
+        Args:
+            bid: The element's bid.
+            key: A key such as ArrowRight, Home, Enter, or Control+a.
+        """
+        return self._interact("press", bid=bid, key=key)
+
+    def select_options(self, bid: str, options: list[str]) -> str:
+        """Set the selected options of a native select element; see the result.
+
+        Args:
+            bid: The select element's bid.
+            options: The complete list of option values to select.
+        """
+        return self._interact("select_options", bid=bid, options=options)
+
+    def hover(self, bid: str) -> str:
+        """Move the pointer over an element and see the resulting page.
+
+        Args:
+            bid: The element's bid.
+        """
+        return self._interact("hover", bid=bid)
+
+    def mouse_click(self, x: float, y: float) -> str:
+        """Click a page position in pixels and see the result.
+
+        Args:
+            x: Horizontal position from the viewport's left edge. HTML box attributes give (left, top, right, bottom) in pixels.
+            y: Vertical position from the viewport's top edge.
+        """
+        return self._interact("mouse_click", x=x, y=y)
+
+    def mouse_move(self, x: float, y: float) -> str:
+        """Move the pointer to a page position without clicking; see the result.
+
+        Args:
+            x: Horizontal position from the viewport's left edge. HTML box attributes give (left, top, right, bottom) in pixels.
+            y: Vertical position from the viewport's top edge.
+        """
+        return self._interact("mouse_move", x=x, y=y)
+
+    def mouse_drag(self, from_x: float, from_y: float, to_x: float, to_y: float) -> str:
+        """Drag between two page positions in pixels and see the result.
+
+        Args:
+            from_x: Starting horizontal position. HTML box attributes give (left, top, right, bottom) in pixels.
+            from_y: Starting vertical position.
+            to_x: Destination horizontal position.
+            to_y: Destination vertical position.
+        """
+        return self._interact(
+            "mouse_drag", from_x=from_x, from_y=from_y, to_x=to_x, to_y=to_y
+        )

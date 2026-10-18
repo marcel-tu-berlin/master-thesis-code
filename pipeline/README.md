@@ -187,7 +187,7 @@ duplicate run roots are rejected. Historical e30-e36 configs and results are
 unchanged, and their missing intermediate checkpoints cannot be reconstructed.
 See [decision 0009](../docs/decisions/0009-planned-checkpoint-thirds.md).
 
-### BrowserGym typing tasks
+### BrowserGym typing and scrolling
 
 Set `training.env_config.enable_fill: true` for tasks that require text entry.
 This adds `fill(bid, text)` to both training and evaluation. It replaces the
@@ -195,9 +195,24 @@ field value through the existing OpenEnv action bridge. Omitted or false keeps
 the original `click` and `noop` tools, including their existing schemas.
 Evaluation splits inherit the flag unless explicitly overridden.
 
+Set `training.env_config.enable_scroll: true` to add `scroll(bid, direction)`.
+It hovers over the supplied element and sends a 120-pixel vertical wheel event;
+target a visible scroll container to inspect clipped content with overlapping
+views. Direction is `up` or `down`. Both opt-ins default to false and compose.
+
 Changing the flag changes the policy's tool context; qualify the new interface
 and keep it fixed across compared arms. It does not change observations, rewards,
 budgets or termination. A typing task still needs its own oracle and model screen.
+
+`training.env_config.interaction_tools` adds selected native controls: `press`,
+`select_options`, `hover`, `mouse_click`, `mouse_move`, and `mouse_drag`. It defaults
+to an empty list. Training and evaluation expose the same selected methods. Coordinate tools
+require `visible_html`; that opt-in adds visible element bounding boxes in viewport
+pixels and enables BrowserGym's coordinate action set. SVG children without bids
+receive boxes from the native layout snapshot, mapped through the SVG root to the
+same coordinate system. Dragging uses intermediate
+pointer moves so jQuery sortable receives movement after the drag starts. These
+controls change the interface and require qualification before a new comparison.
 
 ### BrowserGym observation formats
 

@@ -1,6 +1,16 @@
-from domains.browsergym.adapter import BrowserGymEnvAdapter, _BrowserGymFillEnvAdapter
+from domains.browsergym.adapter import (
+    BrowserGymEnvAdapter,
+    _BrowserGymFillEnvAdapter,
+    _BrowserGymFillScrollEnvAdapter,
+    _BrowserGymScrollEnvAdapter,
+)
 from domains.env_base import EnvDomain
-from training.config_schema import resolve_enable_fill, resolve_observation_format
+from training.config_schema import (
+    resolve_enable_fill,
+    resolve_enable_scroll,
+    resolve_interaction_tools,
+    resolve_observation_format,
+)
 
 # Brief task framing prepended to each prompt's user message. The tool spec is
 # injected by the model's native tool-calling template (tools=...); this only
@@ -58,6 +68,12 @@ class BrowserGymDomain(EnvDomain):
             if resolve_enable_fill(env_config)
             else BrowserGymEnvAdapter
         )
+        if resolve_enable_scroll(env_config):
+            adapter = (
+                _BrowserGymFillScrollEnvAdapter
+                if resolve_enable_fill(env_config)
+                else _BrowserGymScrollEnvAdapter
+            )
         if client_factory is None:
             return lambda: adapter(base_url, env_config)
         # Test/injection path: build the adapter around a supplied client.
@@ -84,10 +100,15 @@ class BrowserGymDomain(EnvDomain):
         return [{"role": "user", "content": _LEAD_IN + str(observation)}]
 
     def eval_tools(self, env):
-        """Match the adapter's training tools, including fill only when enabled."""
+        """Match the adapter's training tools, including only enabled opt-ins."""
+        tools = [env.click]
         if isinstance(env, _BrowserGymFillEnvAdapter):
-            return [env.click, env.fill, env.noop]
-        return [env.click, env.noop]
+            tools.append(env.fill)
+        tools.append(env.noop)
+        if isinstance(env, _BrowserGymScrollEnvAdapter):
+            tools.append(env.scroll)
+        tools.extend(getattr(env, name) for name in env._interaction_tools)
+        return sorted(tools, key=lambda tool: tool.__name__)
 
     def server_env(self, env_config=None):
         # The browsergym server is configured entirely by process env vars.
@@ -108,6 +129,11 @@ class BrowserGymDomain(EnvDomain):
             "BROWSERGYM_TASK_NAME": str(tasks[0]),
             "BROWSERGYM_HEADLESS": "true",
             "BROWSERGYM_OBSERVATION_FORMAT": resolve_observation_format(cfg),
+            "BROWSERGYM_COORDINATES": str(
+                any(
+                    name.startswith("mouse_") for name in resolve_interaction_tools(cfg)
+                )
+            ).lower(),
         }
         # MiniWoB's HTML is not shipped with browsergym-miniwob; it is served from
         # a clone of miniwob-plusplus. Without this the env raises at the first

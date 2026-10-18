@@ -7,6 +7,7 @@ surviving any tool call the model makes after the episode ends.
 """
 
 import inspect
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -310,3 +311,147 @@ def test_fill_opt_in_preserves_training_eval_tool_parity(enabled):
 def test_fill_factory_rejects_truthy_non_boolean():
     with pytest.raises(ValueError, match=r"enable_fill.*bool"):
         BrowserGymDomain().make_env_factory("http://x", {"enable_fill": "false"})
+
+
+@pytest.mark.parametrize("fill", [False, True])
+@pytest.mark.parametrize("scroll", [False, True])
+def test_scroll_opt_in_tool_parity_and_native_action(fill, scroll, monkeypatch):
+    monkeypatch.setitem(
+        sys.modules, "browsergym_env", SimpleNamespace(BrowserGymAction=SimpleNamespace)
+    )
+    client = _FakeClient(
+        steps=[
+            _Result(_Obs(axtree_txt="lower page")),
+            _Result(_Obs(), reward=1.0, done=True),
+        ]
+    )
+    domain = BrowserGymDomain()
+    env = domain.make_env_factory(
+        "http://x",
+        {"enable_fill": fill, "enable_scroll": scroll},
+        client_factory=lambda: client,
+    )()
+    expected = {"click", "noop"} | ({"fill"} if fill else set())
+    expected |= {"scroll"} if scroll else set()
+    assert (
+        {
+            name
+            for name, _ in inspect.getmembers(env, inspect.ismethod)
+            if not name.startswith("_") and name != "reset"
+        }
+        == {tool.__name__ for tool in domain.eval_tools(env)}
+        == expected
+    )
+    if scroll:
+        tool = next(
+            tool for tool in domain.eval_tools(env) if tool.__name__ == "scroll"
+        )
+        assert tool(bid="15", direction="down") == "Page now:\nlower page"
+        assert client.actions[-1].action_str == "hover('15')\nscroll(0, 120)"
+        assert tool(bid="15", direction="sideways").startswith("Action error:")
+        assert tool(bid="", direction="down").startswith("Action error:")
+        assert len(client.actions) == 1
+        bid = "15'); noop(); #"
+        tool(bid=bid, direction="up")
+        assert client.actions[-1].action_str == f"hover({bid!r})\nscroll(0, -120)"
+        assert env.done and env.reward == 1.0
+        assert "already finished" in tool(bid="15", direction="down")
+        assert "already finished" in tool(bid="", direction="sideways")
+        assert len(client.actions) == 2 and env.reward == 1.0
+
+
+def test_scroll_factory_rejects_truthy_non_boolean():
+    with pytest.raises(ValueError, match=r"enable_scroll.*bool"):
+        BrowserGymDomain().make_env_factory("http://x", {"enable_scroll": "false"})
+
+
+@pytest.mark.parametrize(
+    "name,arguments,native",
+    [
+        (
+            "press",
+            {"bid": "12", "key": "ArrowRight"},
+            "press(bid='12', key_comb='ArrowRight')",
+        ),
+        (
+            "select_options",
+            {"bid": "12", "options": ["a", "b"]},
+            "select_option(bid='12', options=['a', 'b'])",
+        ),
+        ("hover", {"bid": "12"}, "hover(bid='12')"),
+        ("mouse_click", {"x": 24, "y": 80}, "mouse_click(x=24, y=80)"),
+        ("mouse_move", {"x": 24, "y": 80}, "mouse_move(x=24, y=80)"),
+        (
+            "mouse_drag",
+            {"from_x": 24, "from_y": 80, "to_x": 60, "to_y": 80},
+            "mouse_down(24, 80)\nmouse_move(33.0, 80.0)\nmouse_move(42.0, 80.0)\nmouse_move(51.0, 80.0)\nmouse_move(60, 80)\nmouse_up(60, 80)",
+        ),
+    ],
+)
+def test_selected_interactions_share_native_actions_and_terminal_guard(
+    name, arguments, native, monkeypatch
+):
+    monkeypatch.setitem(
+        sys.modules, "browsergym_env", SimpleNamespace(BrowserGymAction=SimpleNamespace)
+    )
+    client = _FakeClient(
+        steps=[
+            _Result(SimpleNamespace(pruned_html="page")),
+            _Result(SimpleNamespace(pruned_html="page"), reward=1.0, done=True),
+        ]
+    )
+    domain = BrowserGymDomain()
+    cfg = {"interaction_tools": [name], "observation_format": "visible_html"}
+    env = domain.make_env_factory("http://x", cfg, client_factory=lambda: client)()
+    expected = {"click", "noop", name}
+    assert {
+        n
+        for n, _ in inspect.getmembers(env, inspect.ismethod)
+        if not n.startswith("_") and n != "reset"
+    } == expected
+    assert {t.__name__ for t in domain.eval_tools(env)} == expected
+    tool = getattr(env, name)
+    assert tool(**arguments) == "Page now:\npage"
+    assert client.actions[-1].action_str == native
+    invalid = {**arguments, next(iter(arguments)): None}
+    assert tool(**invalid).startswith("Action error:")
+    assert len(client.actions) == 1
+    tool(**arguments)
+    assert "already finished" in tool(**invalid)
+    assert env.reward == 1.0 and len(client.actions) == 2
+    assert domain.server_env(cfg).get("BROWSERGYM_COORDINATES") == (
+        "true" if name.startswith("mouse_") else "false"
+    )
+
+
+@pytest.mark.parametrize("value", ["press", ["unknown"], ["press", "press"], [None]])
+def test_interaction_tool_names_are_validated(value):
+    with pytest.raises(ValueError, match="interaction_tools"):
+        BrowserGymDomain().make_env_factory("http://x", {"interaction_tools": value})()
+
+
+def test_interaction_arguments_cannot_inject_native_actions(monkeypatch):
+    monkeypatch.setitem(
+        sys.modules, "browsergym_env", SimpleNamespace(BrowserGymAction=SimpleNamespace)
+    )
+    client = _FakeClient()
+    env = BrowserGymEnvAdapter(
+        "http://x",
+        {
+            "interaction_tools": ["press", "mouse_click"],
+            "observation_format": "visible_html",
+        },
+        client=client,
+    )
+    value = "12'); noop(); #"
+    assert (
+        env._make_action("press", {"bid": value, "key": "Enter"}).action_str
+        == f"press(bid={value!r}, key_comb='Enter')"
+    )
+    for value in [float("nan"), float("inf"), -1, True, "4"]:
+        assert env.mouse_click(x=value, y=0).startswith("Action error:")
+    assert not client.actions
+    with pytest.raises(ValueError, match="require visible_html"):
+        BrowserGymEnvAdapter(
+            "http://x", {"interaction_tools": ["mouse_click"]}, client=client
+        )

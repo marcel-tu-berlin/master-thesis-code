@@ -73,10 +73,11 @@ def test_build_domain_rejects_unknown_env():
 
 
 @pytest.mark.parametrize("split", [False, True])
-def test_enable_fill_is_an_explicit_boolean_in_training_and_splits(split):
+@pytest.mark.parametrize("key", ["enable_fill", "enable_scroll"])
+def test_tool_opt_in_is_an_explicit_boolean_in_training_and_splits(split, key):
     cfg = _agentic()
     cfg["training"]["env"] = "browsergym"
-    env_cfg = {"enable_fill": True}
+    env_cfg = {key: True}
     if split:
         cfg["eval"] = {
             "agentic": {
@@ -86,8 +87,27 @@ def test_enable_fill_is_an_explicit_boolean_in_training_and_splits(split):
     else:
         cfg["training"]["env_config"] = env_cfg
     validate_config(cfg)
-    env_cfg["enable_fill"] = "false"
-    with pytest.raises(ValueError, match=r"enable_fill.*bool"):
+    env_cfg[key] = "false"
+    with pytest.raises(ValueError, match=rf"{key}.*bool"):
+        validate_config(cfg)
+
+
+@pytest.mark.parametrize("split", [False, True])
+def test_interaction_tools_are_validated_in_training_and_splits(split):
+    cfg = _agentic()
+    cfg["training"]["env"] = "browsergym"
+    env_cfg = {"interaction_tools": ["press", "select_options"]}
+    if split:
+        cfg["eval"] = {
+            "agentic": {
+                "splits": [{"name": "keys", "n_episodes": 3, "env_config": env_cfg}]
+            }
+        }
+    else:
+        cfg["training"]["env_config"] = env_cfg
+    validate_config(cfg)
+    env_cfg["interaction_tools"] = ["press", "press"]
+    with pytest.raises(ValueError, match="interaction_tools"):
         validate_config(cfg)
 
 
