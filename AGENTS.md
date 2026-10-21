@@ -11,6 +11,30 @@ the environment, not by grading an answer string. The pipeline is agentic-only.
 
 ## Current campaign
 
+On 2026-10-18 the user authorized all five completed families' placebos at the
+matching dose 0.1, with one worker on L4 GPU 1 and one on the home RTX 4090.
+Read `docs/plans/placebo-l010-campaign.md` and decision 0028. L4 runs table then
+inbox then tabs; home runs checkboxes then tic-tac-toe. L4 remains the primary
+GPU host; the home desktop is auxiliary. Host differences are
+accepted and remain explicit comparison limitations. Each controller advances
+only after complete training/evaluation and technical checks; stop on unexpected
+failure, with no retry or overwrite. Check health hourly and harvest/review each
+completed placebo. Operations: `pipeline/runs/placebo-l010-20261018-ops/`.
+The older no-further-run statements below describe their original trios; this
+separate authorization admits only the five new placebo IDs. GPU 0 on L4 remains
+excluded. No replication, dose sweep or E3 is authorized.
+
+On 2026-10-21 the user authorized stopping the completed home queue's HTTP
+service so the desktop can be shut down. Monitoring now contacts L4 only.
+After all five placebo findings and reviews are complete, report the combined
+conclusions and recommend next steps; recommendations do not authorize runs.
+
+On 2026-10-21 the user approved an audit-only recovery for the completed inbox
+placebo and conditional tabs-only continuation after checks and counterpart
+review pass. Do not rerun inbox or restart the old controller. Read the approved
+recovery section in decision 0028 and the campaign plan. Restore hourly L4-only
+monitoring before tabs starts; preserve the frozen inbox artifacts unchanged.
+
 The completed click-tab-2 E0 -> E1 -> E2 campaign was approved on
 2026-10-13 after brief native checks, at seed 4231 on GPU 1. Its protocol is
 `docs/plans/click-tab-2-family-extension.md`; configs are `e{0,1,2}-click-tab-2.yaml`

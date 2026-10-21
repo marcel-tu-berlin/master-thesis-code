@@ -22,9 +22,8 @@ in the decision records or history, not here.
 - Deferred: revisit `social-media-some` qualification under the same constraints.
   Evidence: `pipeline/runs/social_s4024_qualification_findings.md`.
 
-- After reviewing the initial E0/E1/E2 result with the user, decide whether the
-  setup warrants further doses, a separate placebo and seed replication, or
-  whether it needs to be reconsidered. None is automatically authorized.
+- After the authorized matched-placebo campaign, decide seed replication and
+  further doses. Neither follows automatically from the placebo results.
 
 - After E0-E2 are complete and reviewed, declare E3 separately.
 - Optional larger-model and alternate-lineage work remains deferred. Open

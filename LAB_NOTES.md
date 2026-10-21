@@ -43,6 +43,12 @@ that the VPN works. Request a TU VPN reconnect; do not infer a GPU crash or
 restart experiments. Preserve the last box-verified RUNNING.md until SSH returns.
 Evidence: `pipeline/runs/click-checkboxes-soft-campaign-s4232-ops/monitor-check-20261014T061720Z.json`.
 
+The same condition recurred on 2026-10-19 during placebo monitoring: the GPU
+route selected utun9, but that interface had no IPv4 or IPv6 address. Home
+remained reachable. Requested a TU VPN reconnect and retained the last verified
+L4 snapshot; no experiment was restarted. Evidence:
+`pipeline/runs/placebo-l010-20261018-ops/monitor-check-20261019T194139Z.json`.
+
 ## Parallel family deployment, 2026-10-13
 
 The training and evaluation entry points hard-code physical GPU 1, so setting
@@ -1947,3 +1953,24 @@ Monitoring now combines tabs on gpu-l4 and checkbox on omarchy-home through
 `click-checkboxes-soft-home-s4232-ops/monitor_hosts.py`. Each host retains its
 own verified timestamp and snapshot when unreachable. A one-host mirror must
 not replace the combined root RUNNING.md.
+
+## Matched placebo deployment, 2026-10-18
+
+Decision 0028 and `docs/plans/placebo-l010-campaign.md` own the five-family
+weight-0.1 placebo protocol. L4 remains the primary training host; the private
+home desktop is auxiliary. The final queues contain three L4 cells and two home
+cells. A home inbox native-reset preflight changed the initial HTML for one of
+three reference seeds despite matching pinned packages and sources. No inbox
+training began there; retain the failed preflight under the placebo operations
+directory and execute inbox on L4. Host acceptance does not replace observation
+checks.
+
+The first L4 controller exited at a port bind before creating a run directory.
+Both required ports later bound successfully; the prelaunch evidence is retained
+in `prelaunch-port-failure-20261018T080000/` on L4. No training was retried.
+The allocation correction arrived while checkbox was running. Its original
+queue supervisor held the old three-cell plan in memory. Replacing queue.json
+alone would not change that plan. Only that supervisor was stopped with SIGSTOP;
+a replacement supervisor tracks the unchanged checkbox wrapper by PID/start
+time, validates its exit and receipt, and then runs tic-tac-toe. The operational
+handoff records service identities and cleanup. Do not resume the old supervisor.
