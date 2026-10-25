@@ -1,5 +1,11 @@
 # Matched placebo campaign
 
+Completed and reported 2026-10-25: all five runs, artifact harvests, scientific
+analyses and independent counterpart reviews are verified. Thesis task 9 is
+complete and monitoring is retired. Combined findings and recommendations:
+`pipeline/runs/placebo_l010_campaign_findings.md`. The protocol below is retained
+as history; it does not authorize another launch or repeated analysis.
+
 Authorized 2026-10-18 after review of the five completed family comparisons.
 Decision 0028 records the scope. Each host runs its own fixed queue. Stop after
 these five cells or an unexpected runtime/integrity/audit failure; no retries.

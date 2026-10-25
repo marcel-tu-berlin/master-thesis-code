@@ -11,6 +11,14 @@ the environment, not by grading an answer string. The pipeline is agentic-only.
 
 ## Current campaign
 
+The five-family matched-placebo campaign is complete and reviewed as of
+2026-10-25. All artifacts are harvested, all scientific/counterpart reviews
+passed, task 9 is complete and the heartbeat is deleted. Read
+`pipeline/runs/placebo_l010_campaign_findings.md` for combined findings and
+next steps. The queue instructions below are historical: do not repeat these
+analyses, restart any cell/controller or contact the retired home host.
+Further experiments require separate authorization.
+
 On 2026-10-18 the user authorized all five completed families' placebos at the
 matching dose 0.1, with one worker on L4 GPU 1 and one on the home RTX 4090.
 Read `docs/plans/placebo-l010-campaign.md` and decision 0028. L4 runs table then
