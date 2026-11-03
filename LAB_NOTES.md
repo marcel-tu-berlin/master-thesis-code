@@ -32,6 +32,23 @@ do not follow old launch commands as the current protocol.
 - Then the narrative record, newest first, from the poly cosine re-run through the
   batch_size root cause, the e27 baseline saga, and the two e28 kills.
 
+## Five-family seed replication, 2026-10-25
+
+Decision [0029](docs/decisions/0029-five-family-seed-replication.md) records the
+new authorization. The plan in `docs/plans/seed-replication-20261025.md` fixes
+40 cells on L4 GPU 1, automatic advancement, and desktop exclusion. Separate
+family snapshots preserve historical runtime semantics; no old run is restarted.
+
+The first controller bootstrap on 2026-10-26 stopped at the port check before
+creating any experiment directory or starting computation. Native-reset preflight
+can leave TCP TIME_WAIT sockets; a plain bind mistakes those for an active server.
+The operations checker now sets SO_REUSEADDR, matching the Linux server bind,
+while still rejecting a live listener. The regression failed before and passed
+after on both Mac and L4. The failed bootstrap is preserved in
+`pipeline/runs/seed-replication-20261025-ops/bootstrap-attempt-1/` and its remote
+counterpart. All 40 run directories were absent, the controller was dead and
+GPU 1 was empty before archiving its startup markers for a fresh launch.
+
 ## TU VPN route without an interface address, 2026-10-14
 
 Repeated SSH checks returned `Can't assign requested address`, including outside

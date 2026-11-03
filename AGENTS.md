@@ -11,6 +11,16 @@ the environment, not by grading an answer string. The pipeline is agentic-only.
 
 ## Current campaign
 
+The user authorized seed replication on 2026-10-25 and confirmed all five
+completed families, two additional seeds each, and all four conditions (fresh
+E0, E1, E2 at 0.1, matched 0.1 placebo). Read decision 0029 and
+`docs/plans/seed-replication-20261025.md`. The fixed 40-cell queue runs only on
+gpu-l4 GPU 1 with automatic technical advancement. Do not contact or use the
+desktop until the user explicitly releases it; L4 GPU 0 remains excluded.
+Operations: `pipeline/runs/seed-replication-20261025-ops/`. Stop on unexpected
+runtime/integrity/audit failure with no retry, overwrite or restart. Earlier
+no-further-run statements below remain historical outside these new cells.
+
 The five-family matched-placebo campaign is complete and reviewed as of
 2026-10-25. All artifacts are harvested, all scientific/counterpart reviews
 passed, task 9 is complete and the heartbeat is deleted. Read

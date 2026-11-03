@@ -43,3 +43,4 @@ Decision 0025 restores the original budgets and authorizes its complete restart.
 | [0026](0026-qualify-flight-before-fallback-or-hardware-request.md) | Qualify flight booking and justify resources before any user-approved fallback | 2026-10-06 |
 | [0027](0027-bounded-flight-budget-diagnostic.md) | Authorize the bounded flight budget diagnostic on GPU 1 | 2026-10-06 |
 | [0028](0028-matched-placebos-across-completed-families.md) | Run five dose-matched placebos on L4 and home with bounded automatic advancement | 2026-10-18 |
+| [0029](0029-five-family-seed-replication.md) | Replicate five families at two new seeds on L4 GPU 1 with automatic advancement | 2026-10-25 |
