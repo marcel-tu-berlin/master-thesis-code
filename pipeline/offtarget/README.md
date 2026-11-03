@@ -14,7 +14,7 @@ From `pipeline/`, using the existing CPU test environment:
   --family read-table-2 \
   --baseline runs/e1-read-table-2-s4016/episodes_held_out_table.jsonl \
   --treatment runs/e2-read-table-2-s4016/episodes_held_out_table.jsonl \
-  --output runs/offtarget-table-e2-vs-e1-v1
+  --output runs/offtarget-table-e2-vs-e1-v2
 ```
 
 Use E1 as baseline and E2 as treatment for shaping drift. Run E0 versus E1
@@ -47,7 +47,15 @@ feedback format produces unknown measurements with reasons; inspect coverage.
 The tool does not certify the training protocol or the completeness of a partial
 run. Check the frozen configs and existing scientific review first.
 
-## Definitions, version 1
+## Definitions, version 2
+
+Version 2 extends `occupied_cell_at_decision` to later batched clicks using the
+board visible at commitment, and `repeat_after_error_feedback` to every answered
+call after a turn containing error feedback. Their counts and opportunities are
+not directly comparable with version 1. Recompute both arms into a new output
+directory for a version 2 comparison. Historical reports and their version 1
+validation remain unchanged; training, native evaluation and all other event
+definitions are unchanged.
 
 These implement the distinction in thesis Sections 4.5 and 5.4: an observable
 event is not automatically harmful under-verification or a causal explanation.
@@ -62,12 +70,12 @@ proxies. The original reports and their names remain unchanged.
 | `first_action_termination` | Completion after one dispatched action | Completed episodes with step counts |
 | `action_error` | Recorded adapter or dispatcher error | Answered calls with recognized feedback |
 | `adjacent_duplicate_dispatch` | Consecutive dispatched calls with identical names and arguments | Dispatched calls; first call is negative |
-| `repeat_after_error_feedback` | The first answered call of a later turn repeats the immediately preceding error-producing call | A new decision immediately after error feedback |
+| `repeat_after_error_feedback` | An answered call repeats any error-producing call from the immediately preceding assistant turn | Every answered call in a turn following a turn with error feedback |
 | `precommitted_action_after_error` | Another answered call follows an error within the same turn | Same-turn successors of error feedback; descriptive count |
 | `table_fill_mismatch` | A successful fill call supplies a value different from the displayed table value for that field | Fills of identified form fields |
 | `table_submit_mismatch` | At submission, observed form values differ from the displayed table | Identified submissions |
 | `inbox_commit_mismatch` | A send, star or delete action conflicts with the requested operation, sender, recipient or exact text | Identified send/star/delete actions |
-| `occupied_cell_at_decision` | First action of a turn clicks a cell already marked on the observed board | First-action board-cell clicks |
+| `occupied_cell_at_decision` | A click targets a cell already marked on the board visible when its turn was planned | Answered non-error board-cell clicks with a known commitment board and stable cell identifiers |
 | `missed_immediate_win` | A first-action legal cell click misses an available immediate win | Those clicks when a winning cell is available |
 | `unblocked_single_threat` | A first-action legal cell click leaves the opponent's sole immediate threat unblocked, with no own immediate win | Those clicks with exactly one threat and no own win |
 | `precommitted_opponent_collision` | A later batched click hits a cell empty at commitment and occupied by the opponent at execution | Later board-cell clicks with both states available |
@@ -83,6 +91,14 @@ Inbox commits include wrong nonterminal star/delete actions. Forwarding uses the
 last full opened message in the same trace; an unseen source cannot be invented.
 Known wrong recipients or sources can establish a mismatch even if another
 component is unavailable. Otherwise missing source content is unknown.
+
+Error repetition compares names and arguments exactly. All feedback from the
+immediately preceding turn is available before the next batch is chosen. A
+confirmed match remains positive despite other missing or unrecognized feedback;
+without a match, such gaps produce unknown rather than a negative. Older turns
+are outside this rule. A repeat may be a justified retry and is not a semantic
+judgment of ignored feedback. Current-turn errors never establish feedback use
+by another action in that same turn.
 
 The table parser supports the simple AXTree format actually saved in the first
 campaign. It resolves the displayed labels and identifiers rather than hardcoding
@@ -108,7 +124,9 @@ feedback was available. State immediately before execution may support a wrong
 submission or collision event. It cannot establish that the model saw and ignored
 that state. Tactical and tab-decision checks therefore use only the first
 answered action of each turn. Later actions are excluded from these checks;
-their recorded outcomes still contribute to other applicable events.
+their recorded outcomes still contribute to other applicable events. Occupied-cell
+checks also assess later clicks against the board at batch commitment. They do
+not attribute cells occupied only during execution to the model's prior knowledge.
 
 This restriction matters: a policy batching a whole game can have zero tactical
 decision opportunities after its first move. A lower missed-win rate can reflect
@@ -180,19 +198,25 @@ Run the CPU controls with:
 ../.venv-test/bin/python -m pytest tests/test_offtarget_analysis.py -q
 ```
 
-The fixed 2026-10-15 saved-data regression check is reproducible with:
+The current definitions can be checked against the fixed 2026-10-15 corpus with:
 
 ```bash
 ../.venv-test/bin/python -m offtarget.reconcile_saved \
-  --output runs/offtarget-reconciliation-new
+  --output runs/offtarget-reconciliation-v2-new
 ```
 
 It requires the 13 original local evaluation archives and seven prior audit
-files named in `reconcile_saved.py`. It checks per-metric agreement, records
+files named in `reconcile_saved.py`. The historical occupied-cell audit covers
+first actions only, so that comparison is explicitly named
+`occupied_cell_at_decision_first_action_vs_v1` and checks only that subset.
+The expanded batch rules have separate positive, negative and unknown CPU tests;
+agreement with the old audit does not validate the newly covered cases.
+The command checks per-metric agreement, records
 compared/agreed/disagreed counts and unknown coverage, and writes the five paired
 reports plus the three additional E0 single-arm reports. It fails on missing
 archives, disagreements or coverage regressions. The source script and the
 `offtarget_v1_validation_findings.md` write-up are eligible for version control.
 Generated reports, receipts, validation JSON and original trajectories follow
-the repository's existing local run-archive policy; their hashes are anchored in
-that write-up. Reproduction on another checkout requires those archives.
+the repository's existing local run-archive policy. The version 1 hashes are
+anchored in that historical write-up; new receipts bind version 2 outputs.
+Reproduction on another checkout requires those archives.

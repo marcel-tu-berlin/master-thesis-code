@@ -402,6 +402,11 @@ def detect(family, goal, page, decision_page, call, position, opened, correct, a
             if decision_bids.get(bid) != i:
                 raise UnknownState("Board identifier changed within batch")
             add(
+                "occupied_cell_at_decision",
+                decision[i] != 0,
+                {"board": decision, "cell": i},
+            )
+            add(
                 "precommitted_opponent_collision",
                 decision[i] == 0 and values[i] == -1,
                 {

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from eval.checkpoints import experiment_root
 from eval.paired import load_config, split_tasks
+from offtarget import DEFINITION_VERSION
 from offtarget.analysis import analyze, compare, load, summarize
 from offtarget.tasks import TASK_METRICS
 
@@ -21,7 +22,7 @@ def markdown(report):
     lines = [
         "# Offline off-target measurements",
         "",
-        f"Family: `{report['family']}`. Definition version: 1.",
+        f"Family: `{report['family']}`. Definition version: {report['definition_version']}.",
         "",
         "Exploratory state-grounded events. These are not automatic labels of harmful behavior or reward-bias substitution.",
         "",
@@ -122,7 +123,7 @@ def run(baseline, treatment, family, output):
         for arm, rows in episodes.items()
     }
     report = {
-        "definition_version": 1,
+        "definition_version": DEFINITION_VERSION,
         "family": family,
         "inputs": {arm: str(p) for arm, p in paths.items()},
         "arms": {arm: summarize(rows) for arm, rows in records.items()},
@@ -148,7 +149,7 @@ def run(baseline, treatment, family, output):
     )
     (output / "report.md").write_text(markdown(report))
     receipt = {
-        "definition_version": 1,
+        "definition_version": DEFINITION_VERSION,
         "runtime": {
             "python": platform.python_version(),
             "numpy": version("numpy"),

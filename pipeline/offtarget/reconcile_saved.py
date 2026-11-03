@@ -1,4 +1,4 @@
-"""Reproduce the fixed 2026-10-15 implementation check from local run archives.
+"""Check current definitions against the fixed 2026-10-15 local run archives.
 
 Run from pipeline/: python -m offtarget.reconcile_saved --output runs/<new-folder>
 This is a regression check of 13 archived evaluations, not another experiment.
@@ -8,6 +8,7 @@ import argparse
 import json
 from pathlib import Path
 
+from offtarget import DEFINITION_VERSION
 from offtarget.__main__ import digest, run
 from offtarget.analysis import analyze, load, summarize
 
@@ -47,8 +48,17 @@ def reference_checks(family, episodes, records, audit):
         if family in AUDITS:
             prior = audit[seed]
             for name, old_name in AUDITS[family][1].items():
-                comparisons[name] = (
-                    measured[name]["events"],
+                actual = measured[name]["events"]
+                check_name = name
+                if name == "occupied_cell_at_decision":
+                    # The historical auditor assessed only the first action of each turn.
+                    actual = sum(
+                        o["occurred"] is True and o["action"] == 0
+                        for o in measured[name]["observations"]
+                    )
+                    check_name += "_first_action_vs_v1"
+                comparisons[check_name] = (
+                    actual,
                     sum(e[old_name] for e in prior["events"]),
                 )
             if family == "click-checkboxes-soft":
@@ -116,7 +126,11 @@ def reconcile(output):
             if family in AUDITS:
                 sources.add(root / AUDITS[family][0])
     hashes = {str(p.relative_to(pipeline)): digest(p) for p in sorted(sources)}
-    validation = {"definition_version": 1, "source_sha256": hashes, "runs": {}}
+    validation = {
+        "definition_version": DEFINITION_VERSION,
+        "source_sha256": hashes,
+        "runs": {},
+    }
     failed = False
     for (family, arm), path in paths.items():
         episodes = load(path)

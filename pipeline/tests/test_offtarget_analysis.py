@@ -162,6 +162,64 @@ def test_unknown_tool_does_not_count_as_dispatched_duplicate():
     assert not measurement(e, "generic", "adjacent_duplicate_dispatch")["present"]
 
 
+@pytest.mark.parametrize("error_position", [0, 1])
+@pytest.mark.parametrize("repeat_position", [0, 1])
+def test_error_repetition_checks_every_position_across_batches(
+    error_position, repeat_position
+):
+    bad = call(bid="bad")
+    failed = (bad, "Action error: unknown id")
+    good = (call("noop"), "Page now:\npage")
+    before, after = [good], [good]
+    before.insert(error_position, failed)
+    after.insert(repeat_position, failed)
+    e = episode("goal", "page", [turn(*before), turn(*after)])
+    measured = measurement(e, "generic", "repeat_after_error_feedback")
+    assert measured["events"] == 1 and measured["opportunities"] == 2
+    positive = next(o for o in measured["observations"] if o["occurred"])
+    assert (positive["turn"], positive["action"]) == (1, repeat_position)
+    assert positive["evidence"]["previous_turn"] == 0
+    assert positive["evidence"]["previous_error_actions"] == [error_position]
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_previous_batch_unknowns_preserve_positive_repeats(missing):
+    bad = call(bid="bad")
+    prior = turn(
+        (bad, "Action error: unknown id"),
+        (call(bid="uncertain"), "unrecognized feedback"),
+    )
+    if missing:
+        prior["tool_results"].pop()
+    e = episode(
+        "goal",
+        "page",
+        [
+            prior,
+            turn((call("noop"), "Page now:\npage"), (bad, "Action error: unknown id")),
+        ],
+    )
+    measured = measurement(e, "generic", "repeat_after_error_feedback")
+    current = [o for o in measured["observations"] if o["turn"] == 1]
+    assert [o["occurred"] for o in current] == [None, True]
+    assert measured["present"] is True and measured["unknown_observations"] > 0
+
+
+def test_error_repetition_does_not_reuse_older_turns():
+    bad = call(bid="bad")
+    e = episode(
+        "goal",
+        "page",
+        [
+            turn((bad, "Action error: unknown id")),
+            turn((call("noop"), "Page now:\npage")),
+            turn((bad, "Action error: unknown id")),
+        ],
+    )
+    measured = measurement(e, "generic", "repeat_after_error_feedback")
+    assert measured["present"] is False and measured["opportunities"] == 1
+
+
 def test_unknown_dispatch_does_not_establish_a_negative_repeat():
     c = call(bid="1")
     e = episode(
@@ -298,6 +356,44 @@ def test_tactics_on_later_batch_actions_are_not_attributed_to_feedback_use():
         ],
     )
     assert measurement(e, "tic-tac-toe", "missed_immediate_win")["opportunities"] == 0
+
+
+@pytest.mark.parametrize("mark", [-1, 1])
+def test_later_batch_click_uses_occupancy_at_commitment(mark):
+    seen = [mark, 0, 0, 0, 1, 0, 0, 0, 0]
+    after = [mark, -1, 0, 0, 1, 0, 0, 0, 1]
+    e = episode(
+        TIC_GOAL,
+        board(seen),
+        [
+            turn(
+                (call(bid="8"), "Page now:\n" + board(after)),
+                (call(bid="0"), "Page now:\n" + board(after)),
+            )
+        ],
+    )
+    record = analyze(e, "tic-tac-toe")
+    occupied = record["measurements"]["occupied_cell_at_decision"]
+    assert occupied["events"] == 1 and occupied["opportunities"] == 2
+    assert occupied["observations"][-1]["action"] == 1
+    assert occupied["observations"][-1]["evidence"]["board"] == seen
+    assert not record["measurements"]["precommitted_opponent_collision"]["present"]
+    audit = {
+        e["seed"]: {
+            "events": [
+                {
+                    "known_occupied_cell_click": False,
+                    "missed_available_win": False,
+                    "missed_unique_block": False,
+                }
+            ]
+        }
+    }
+    checks, differences = reference_checks(
+        "tic-tac-toe", {e["seed"]: e}, {e["seed"]: record}, audit
+    )
+    assert differences == []
+    assert checks["occupied_cell_at_decision_first_action_vs_v1"]["agreed"] == 1
 
 
 def test_tic_identifier_change_within_batch_is_unknown():
@@ -546,6 +642,9 @@ def test_cli_is_reproducible_preserves_inputs_and_refuses_overwrite(tmp_path):
         p.name: p.read_bytes() for p in second.iterdir()
     }
     receipt = json.loads((first / "receipt.json").read_text())
+    assert receipt["definition_version"] == 2
+    assert json.loads((first / "report.json").read_text())["definition_version"] == 2
+    assert "Definition version: 2." in (first / "report.md").read_text()
     assert receipt["source_sha256"][str(source)] == hashlib.sha256(before).hexdigest()
     with pytest.raises(FileExistsError):
         run(source, None, "read-table-2", first)

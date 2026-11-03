@@ -32,6 +32,25 @@ do not follow old launch commands as the current protocol.
 - Then the narrative record, newest first, from the poly cosine re-run through the
   batch_size root cause, the e27 baseline saga, and the two e28 kills.
 
+## Offline off-target definition version 2, 2026-11-03
+
+The bounded code review found two batch-related coverage gaps. The offline
+module now checks later tic-tac-toe clicks against the board already visible
+at batch commitment, and compares every answered action with all errors from
+the immediately preceding turn. Same-turn actions still cannot use same-turn
+feedback. Missing feedback remains unknown unless a recorded match proves an
+event. The exact definitions and denominators live in `pipeline/offtarget/README.md`.
+
+This changes the counts and opportunities of `occupied_cell_at_decision` and
+`repeat_after_error_feedback`; outputs carry definition version 2. Version 1
+reports under `pipeline/runs/offtarget-v1-20261015-reconciled/` remain valid only
+under their original definitions and cannot supply version 2 comparisons.
+Recompute both arms into a new directory before using the expanded metrics.
+No training result, native evaluation, campaign audit or raw trajectory is
+invalidated or changed. The saved-corpus check compares occupied-cell events
+with its historical auditor only on the explicitly named first-action subset;
+regression tests cover the additional batch positions and unknown feedback.
+
 ## Five-family seed replication, 2026-10-25
 
 Decision [0029](docs/decisions/0029-five-family-seed-replication.md) records the

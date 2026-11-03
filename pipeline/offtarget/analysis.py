@@ -155,6 +155,8 @@ def analyze(episode, family):
     answered = dispatched = errors = repeats = 0
     precommitted = 0
     complete_trace = True
+    previous_errors = []
+    previous_feedback_unknown = False
     if turns is None or (
         terminated is True and not any(t.get("tool_results") for t in turns)
     ):
@@ -170,6 +172,8 @@ def analyze(episode, family):
         postterminal_suffix = (
             reason == "env_done" and turn_index == len(turns) - 1 and bool(results)
         )
+        current_errors = []
+        current_feedback_unknown = len(results) < len(calls) and not postterminal_suffix
         if len(results) < len(calls):
             unanswered += len(calls) - len(results)
             if not postterminal_suffix:
@@ -190,30 +194,28 @@ def analyze(episode, family):
                 errors += error
             else:
                 complete_trace = False
-            if previous is not None:
-                prior_call, prior_error, prior_turn, prior_position = previous
-                if prior_error is True:
-                    if prior_turn == turn_index:
-                        add(
-                            "precommitted_action_after_error",
-                            True,
-                            {"previous_action": prior_position},
-                        )
-                    else:
-                        add(
-                            "repeat_after_error_feedback",
-                            call == prior_call,
-                            {
-                                "previous_turn": prior_turn,
-                                "previous_action": prior_position,
-                            },
-                        )
-                elif prior_error is None:
+            if previous_errors or previous_feedback_unknown:
+                matches = [i for i, prior_call in previous_errors if call == prior_call]
+                add(
+                    "repeat_after_error_feedback",
+                    True if matches else None if previous_feedback_unknown else False,
+                    {
+                        "previous_turn": turn_index - 1,
+                        "previous_error_actions": matches,
+                        "previous_feedback_unknown": previous_feedback_unknown,
+                    },
+                )
+            if error is True:
+                current_errors.append((position, call))
+            elif error is None:
+                current_feedback_unknown = True
+            if previous is not None and previous[2] == turn_index:
+                _, prior_error, _, prior_position = previous
+                if prior_error is not False:
                     add(
-                        "repeat_after_error_feedback"
-                        if prior_turn != turn_index
-                        else "precommitted_action_after_error",
-                        None,
+                        "precommitted_action_after_error",
+                        prior_error,
+                        {"previous_action": prior_position},
                     )
             if dispatch is True:
                 dispatched += 1
@@ -257,6 +259,8 @@ def analyze(episode, family):
                 page = None
                 opened = None
             previous = call, error, turn_index, position
+        previous_errors = current_errors
+        previous_feedback_unknown = current_feedback_unknown
         if len(results) < len(calls) and not postterminal_suffix:
             page = None
             previous = last_dispatch = opened = None
