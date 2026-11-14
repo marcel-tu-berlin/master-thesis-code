@@ -2010,3 +2010,20 @@ alone would not change that plan. Only that supervisor was stopped with SIGSTOP;
 a replacement supervisor tracks the unchanged checkbox wrapper by PID/start
 time, validates its exit and receipt, and then runs tic-tac-toe. The operational
 handoff records service identities and cleanup. Do not resume the old supervisor.
+
+## Empty compact tool-call evidence, 2026-11-14
+
+The commit review found that `trajectory_review.batch_evidence.check` could
+discard an empty-quote evidence issue: the empty string is a substring of every
+compact JSON call. Require a non-whitespace quote before accepting that alternate
+serialization. The regression fails before the guard and passes afterward for
+both empty and whitespace-only quotes.
+
+Changing this validator also changes the hash in derived `checked.json` files.
+Those files and imported/consolidated historical results remain immutable; do
+not overwrite them or rerun model requests. A versioned recheck, original
+validator snapshot and hashes are retained under
+`pipeline/runs/trajectory-review-empty-quote-audit-20261114/`. Its scientific
+impact is recorded in the 14 November validation addendum to
+`pipeline/runs/offtarget_sample100_20261104_findings.md`. No experiment runtime,
+training/evaluation metric or frozen corpus was changed.

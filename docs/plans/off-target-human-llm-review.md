@@ -4,6 +4,54 @@ Status: retrospective analysis plan, separate from training, native evaluation
 and the deterministic `pipeline/offtarget` module. No new model runs, task
 interventions or automatic external judge calls are authorized by this document.
 
+User authorization on 2026-11-03 separately permits Claude and Codex to review
+every trajectory in the frozen 27-evaluation corpus, followed by consolidated
+interpretation and a fresh deterministic analysis. The primary E1/E2 comparison
+includes every matching test question, regardless of success or token change.
+Both-success, E1-only-success, E2-only-success and both-failure groups are
+secondary views; shorter shared successes are supplementary only. Both judges
+review all 5,400 trajectories independently, including E0 and available placebo
+controls. The implementation and repeat/resume procedure are documented in
+[`pipeline/trajectory_review/README.md`](../../pipeline/trajectory_review/README.md).
+This authorization does not permit new training, task interventions or changes
+to the running seed campaign. Human adjudication remains a subsequent step.
+
+On 2026-11-04 the user replaced fresh contexts per trajectory with small review
+packages and requested approximately one hour of runtime with lower usage. The
+original queues were stopped; existing completed reviews remain intact. Batch
+version 2 uses up to 16 complete trajectories per request, exact lossless input
+deduplication and no repeated rationales for negative labels. Models, xhigh
+effort, six construct definitions and positive/unknown evidence requirements
+remain unchanged. This supersedes the single-episode context procedure below.
+The shared one-hour window includes the pilot. Inspect measured feasibility
+before launching the remaining packages; do not silently reduce corpus coverage
+or continue across quota windows. Retain annotation mode in every result and
+report it in consolidation, because shared context and shorter elicitation may
+affect judgments. These changes do not establish full review coverage.
+
+After the measured pilot (approximately four minutes for Claude and six for
+Codex per 16 episodes), the user explicitly prioritized time and usage over full
+LLM coverage. The authorized semantic scope is now 100 paired E1/E2 tasks across
+all families and available native-outcome groups, reusing existing reviews.
+The deterministic analysis still covers the complete frozen corpus, including
+E0 and placebo. `trajectory_review.sample` selects 14 or 15 pairs per family/seed
+stratum, balances the four available outcome groups with rare-cell saturation,
+and samples uniformly within each cell with seed 20261104. Selection does not
+read LLM labels, annotation availability, token change or detector events.
+The 100 pairs contain 46 shared successes, 28 E1-only successes, 13 E2-only
+successes and 13 shared failures. These intentionally unequal sampling fractions
+require descriptive, explicitly sample-bound semantic conclusions. All previous
+reviews outside the sample remain preserved as supplemental material.
+
+The revised machine stage completed on 2026-11-04: 200 Codex evaluations,
+118 Claude evaluations and 82 explicit unavailable Claude records. Semantic
+consolidation was followed by the full 5,400-trajectory deterministic rerun,
+which reproduced earlier measurements unchanged. Results, limitations and human
+review cases are in
+[`offtarget_sample100_20261104_findings.md`](../../pipeline/runs/offtarget_sample100_20261104_findings.md).
+All model queues are stopped. Human validation remains open; the procedural
+sections below do not authorize additional requests.
+
 ## Question and evidence boundary
 
 For thesis RQ2, ask whether E2's efficiency change relative to E1 accompanies a
