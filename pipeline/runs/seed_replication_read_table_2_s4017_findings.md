@@ -3,14 +3,16 @@
 Analyzed 2026-10-31. The four-condition seed group completed on 2026-10-31
 at 03:09 UTC. All four runs passed technical admission and their non-weight
 artifacts were harvested and hash-verified. Update 300 remains primary.
-Independent counterpart review is pending. The required Claude Opus 5.5/xhigh
-attempt returned no verdict because its OAuth login expired. The findings are
-provisional until that review completes; the technical queue remains active.
+Independent counterpart review completed on 2026-11-09 with Claude Opus
+5.5/xhigh after reporting and provenance corrections. The final correction
+passed review; all earlier verdicts, the original authentication failure and
+exact reviewed versions remain preserved. The technical queue remains active.
 
 ## Result
 
-Successful-response compression replicates strongly, but the full original
-endpoint result does not. E2 solves 192/200 questions versus E1's 197/200 and
+The direction of successful-response compression and clearance of the declared
+10% criterion repeat, but the full original endpoint result does not.
+E2 solves 192/200 questions versus E1's 197/200 and
 placebo's 191/200. On joint successes, E2 uses a median 92.01% fewer assistant
 tokens than E1 and 89.32% fewer than placebo. Every joint-success pair is
 shorter in both contrasts.
@@ -29,7 +31,22 @@ behavior criteria. This second seed supports compression across both observed
 table seeds, while qualifying the original preservation/behavior result.
 Seed 4018 is still queued. No three-seed robustness claim or cross-family
 pooled verdict is available. Question-level intervals below condition on one
-trained seed and do not estimate variation across trained models.
+trained seed and do not estimate variation across trained models. These are
+exploratory replications declared after the original outcomes, not confirmation.
+Checkpoints are repeated observations of the same training run, not independent
+replications. Apart from the four adjusted off-target bounds, the nominal
+intervals do not provide simultaneous coverage across endpoints, contrasts or
+checkpoints. The seed changes training randomness and the train/eval question
+block together; this is not optimizer-seed uncertainty alone.
+
+Compression magnitude is not stable across the two observed seeds. E2 versus
+E1 changes from -44.93% at seed 4016 to -92.01% here. Unpaired E1 mean success
+tokens change from 463.95 to 1772.18 (about 3.8 times), while E2 changes from
+228.68 to 138.51. E1 versus E0 paired compression changes from -77.83%
+[-81.38%, -70.36%] to -11.98% [-19.14%, +2.94%]. Placebo versus E1 changes
+from +156.76% to -22.41%; here placebo clears the compression criterion but
+fails preservation. These are descriptive control-arm and placebo shifts,
+not evidence that any one factor caused the cross-seed difference.
 
 ## Design and verification
 
@@ -53,20 +70,24 @@ receipts, reruns the retained native table audit on all 2000 new episodes,
 checks all 900 optimizer records and replays the reward arithmetic for all
 1248 captured training rollouts. It checks paired training question/group/slot
 identities and complete cost ledgers. The remote technical receipts additionally
-cover tokenizer recounts, checkpoint adapter identity, metric recomputation,
-frozen runtime/stack and native resets. Weights remain on L4; no local weight
+cover tokenizer recounts of captured training assistant completions, checkpoint
+adapter identity, metric recomputation, frozen runtime/stack and native resets.
+Held-out token checks verify recorded counts and limits, without an independent
+re-tokenization of held-out traces. Weights remain on L4; no local weight
 recount is claimed. The placebo changed 342 of 416 captured assignments.
 
 All new conditions use L4 GPU 1 and the same recorded Python/package/OpenEnv
 stack, Linux 6.8.0-146 and glibc 2.39. This is the host-consistent replication
-subset. The original E1/E2 kernel was 6.8.0-139 and original placebo used
-6.8.0-146; run-date, driver and kernel differences remain cross-seed timing
+subset. The current recorded driver is 580.178.04; historical driver equality
+is not established here. The original E1/E2 kernel was 6.8.0-139 and original
+placebo used 6.8.0-146; run-date, possible driver and kernel differences remain cross-seed timing
 and reproducibility limitations. Other families' original home-host confounds
 are unchanged. Neither fresh seeds nor matched current hosts erase them.
 
 ## All checkpoints
 
-E0 solves 69/200, with 1987.43 mean tokens on successful questions.
+E0 solves 69/200 (34.5%, Wilson 95% CI [28.26%, 41.32%]), with 1987.43
+mean tokens on successful questions.
 
 | Update | E1 correct | E2 correct | Placebo correct | E1 / E2 / placebo mean success tokens |
 |---|---:|---:|---:|---:|
@@ -76,6 +97,12 @@ E0 solves 69/200, with 1987.43 mean tokens on successful questions.
 
 All counts are out of 200. These means describe different successful subsets;
 the paired compression estimates use only joint successes.
+
+| Update | E1 Wilson 95% CI | E2 Wilson 95% CI | Placebo Wilson 95% CI |
+|---|---:|---:|---:|
+| 100 | [78.84%, 88.86%] | [92.31%, 97.96%] | [68.04%, 80.04%] |
+| 200 | [96.43%, 99.73%] | [94.97%, 99.22%] | [92.31%, 97.96%] |
+| 300 | [95.68%, 99.49%] | [92.31%, 97.96%] | [91.67%, 97.61%] |
 
 | Contrast | Update | Gains / regressions | Joint successes | Median paired token change, 95% CI |
 |---|---:|---:|---:|---:|
@@ -136,12 +163,52 @@ repeated-action episodes: each upper bound 2.17%, passing. Against placebo,
 six invalid-action and 32 repeated-action episodes resolve. Placebo versus E1
 fails the invalid-action and repeated-action bounds (6.96% and 22.69%).
 
-The retained native auditor and compact executed-action traces cover every
-new episode, including all intermediate regressions. This is task-grounded
-validation of the declared observable events. It is not independent semantic
-label validation, and no new blinded/manual-sample agreement is claimed.
+The retained native auditor covers every new episode. On 2026-11-09, inspection
+of all 75 distinct failed-arm compact traces covered all 82 paired regressions
+across the listed contrasts and checkpoints, including E1 versus E0. Expected
+and submitted fields, action arguments/errors and stop reasons were visible;
+the extractor separately asserts that each paired reference submits both
+expected values on the same seed. The saved per-case judgments distinguish:
+
+| Contrast/update | Inspected regression causes |
+|---|---|
+| E2/E1 100 | Four label-as-value submissions; one correct fill without submission before a no-tool stop. |
+| E2/E1 200 | One wrong value; two invalid fills then empty submission (143); field 36 overwritten while 33 stays empty (153). |
+| E2/E1 300 | Three label-as-value and three other wrong-value submissions, as detailed above. |
+| E2/placebo 100 | One label-as-value and one other wrong-value submission. |
+| E2/placebo 200 | Two wrong-value submissions plus the empty/missing-field cases 143 and 153. |
+| E2/placebo 300 | Four wrong-value submissions, as detailed above. |
+| Placebo/E1 100 | 29 label-as-value submissions, two incomplete submissions after invalid fills, nine budget stops and one no-tool stop. |
+| Placebo/E1 200 | Three wrong values, one missing field, two budget stops and two no-tool stops. |
+| Placebo/E1 300 | Three wrong submissions and five budget stops; three of these stops include an invalid extra fill after correct fields. |
+| E1/E0 300 | One budget stop without an executed action. |
+
+The original seed-17 stratified sampling logic was also applied to this new
+pool: six budget cases, all four voluntary stops, six invalid/repeated-action
+cases and six efficient correct cases (success-token lower quartile 563.5).
+All 22 compact traces were inspected before opening the arm/step/index key.
+The six efficient cases show two correct fills and submission without invalid
+or repeated actions. All four voluntary cases filled the correct values but
+did not submit. The invalid/repeated sample shows later-turn repeated fills
+and occasional rejected fills into the submit button, followed by correct
+submission. Budget cases include no-action exhaustion and correct fills without
+submission. The judgments and revealed sample key are retained.
+
+This is task-grounded inspection, not independent semantic label validation.
+Outcomes, token counts and native audit fields were visible; aggregates and
+regression cases were already known, and several sampled cases were recognized.
+No independent blinded agreement estimate is claimed.
 Unknown or unmeasured behavioral categories remain outside coverage; task 8
 remains separate. Passing any selected bound would not prove full equivalence.
+
+Transitions run from comparator to treatment. All omitted transition cells are zero.
+
+| Contrast | env_done to env_done | env_done to budget stop | budget stop to env_done | no-tool stop to env_done |
+|---|---:|---:|---:|---:|
+| E2 minus E1 | 199 | 0 | 1 | 0 |
+| E2 minus placebo | 195 | 0 | 5 | 0 |
+| Placebo minus E1 | 194 | 5 | 1 | 0 |
+| E1 minus E0 | 96 | 1 | 91 | 12 |
 
 ## Training activity and costs
 
@@ -178,6 +245,33 @@ savings are 66.17 [63.21, 69.21] and 51.54 [48.78, 54.40] seconds. These are
 descriptive timing differences on the measured hosts/runs, not universal
 deployment guarantees; error tradeoffs remain part of the result.
 
+All-question mean inference / total episode times are E0 63.04 / 67.76 seconds,
+E1 73.50 / 77.67, E2 5.75 / 10.05 and placebo 58.98 / 63.38. The paired
+inference savings and their joint-success sensitivities are reported above.
+Full E2 training cost amortizes in about 1223 questions versus E1 or 1556 versus
+placebo using all-question mean inference savings. Joint-success sensitivities
+are about 1252 and 1608, respectively. E2 training costs 5.374 fewer GPU-hours
+than E1 and 6.702 fewer than placebo, so there is no positive incremental
+training-cost deficit to recover in either comparison. These descriptive
+ratios exclude evaluation costs and do not value errors. All-question figures
+include failed and budget-stopped episodes; joint-success ratios are conditional
+sensitivities, not predictions of required attempted deployments.
+Their timing interpretation remains conditional on hardware, kernel, load and
+run date. Against E0, full E2 training amortizes in about 1446 questions using
+the measured all-question mean inference saving of 57.30 seconds, with the same
+run-conditional and error-valuation limitations.
+
+In these measured evaluation runs, E1 has no finite inference-time break-even
+against E0: its
+paired mean inference saving is negative, -10.46 seconds [-15.13, -5.74] over
+all questions and -23.41 [-29.48, -17.39] over joint successes. Higher success
+and a lower point-estimate joint-success token count (median paired change
+-11.98% [-19.14%, +2.94%], interval includes zero) do not imply lower measured
+latency. The sign is conditional on hardware, serving configuration, load and
+run date; these results do not attribute it to specialization. The original
+seed-4016 report estimated about 2118 episodes for E1 versus E0; that contrast
+does not establish why the timing sign changed.
+
 ## Evidence
 
 `pipeline/runs/seed-replication-20261025-ops/table-s4017-analysis-20261031/`
@@ -186,8 +280,16 @@ validation. Regeneration reproduced both outputs byte-for-byte and all 30
 paired-statistic tests passed; actual logs and exit codes are retained.
 `counterpart-review-output.txt` and `counterpart-review-receipt.json` preserve
 the authentication failure and the explicit reviewer/model settings. The
-review prompt and pre-review report are saved alongside them.
-The script imports the existing table paired-statistic and
+review prompt and pre-review report are saved alongside them. The substantive
+2026-11-09 review and its input hashes are preserved there too. Supplemental
+case extraction, seed-17 sampling, inspection judgments, reporting corrections,
+validation and re-review evidence are in
+`pipeline/runs/seed-replication-20261025-ops/table-s4017-review-20261109/`.
+The original numerical analysis was not rerun or changed during these corrections.
+The supplemental validator, exact command, actual execution log and exit code
+are retained as validate_evidence.py and validation-v2.json/log. The earlier
+validation.json lacked this retained execution record and is preserved.
+`analyze.py` imports the existing table paired-statistic and
 case-extraction helpers without executing the old analysis. New outputs are
 exclusive and refuse changed regeneration. Historical findings and raw runs
 remain unchanged. The ongoing campaign still requires the remaining seeds,
