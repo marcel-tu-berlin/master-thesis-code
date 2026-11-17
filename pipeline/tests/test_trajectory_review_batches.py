@@ -64,6 +64,21 @@ def test_pack_is_lossless_and_reduces_repeated_text():
         batches.pack([{"text_ref": "original source value"}])
 
 
+def test_one_questions_trajectories_never_share_a_package():
+    rows = [
+        {"episode_id": f"{arm}-{seed}", "stratum": "family", "seed": seed}
+        for seed in range(20)
+        for arm in ("e1", "e2")
+    ]
+    packages = batches.split(rows, 16)
+    assert sorted(r["episode_id"] for package in packages for r in package) == sorted(
+        r["episode_id"] for r in rows
+    )
+    for package in packages:
+        assert len(package) <= 16
+        assert len({r["seed"] for r in package}) == len(package)
+
+
 def test_normalization_preserves_judgments_and_marks_unelicited_rationales():
     data = batches.normalize(response(), [episode()])["test"]
     assert data["evidence_issues"] == []
@@ -153,7 +168,14 @@ def test_prepare_reuses_existing_refusals_without_resubmission(tmp_path, monkeyp
     write(source / "manifest.json", {})
     write(
         source / "coordinator_key.json",
-        [{"episode_id": "test", "packet_sha256": digest(p)}],
+        [
+            {
+                "episode_id": "test",
+                "packet_sha256": digest(p),
+                "stratum": "family",
+                "seed": 0,
+            }
+        ],
     )
     job = source / "reviews/claude/test"
     job.mkdir(parents=True)

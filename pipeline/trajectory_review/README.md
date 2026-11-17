@@ -69,6 +69,17 @@ those files and use a new output path for a retrospective check. The versioned
 recheck and its impact are recorded in the
 [validation addendum](../runs/offtarget_sample100_20261104_findings.md#evidence-validation-addendum-14-november-2026).
 
+The 17 November packager change keeps the trajectories of one question (same
+stratum and seed) out of a shared package. Earlier packages were cut from the
+key in order, and the sample key lists both arms of a pair next to each other,
+so many pairs shared a package. The counts are in the
+[package-composition addendum](../runs/offtarget_sample100_20261104_findings.md#package-composition-addendum-17-november-2026).
+The change alters the `batches.py` hash. `verify_batch`, and with it batch
+import and `batch_evidence`, now refuses both existing batch roots, which pin
+the packager of commit `20393b1`. Their packages, responses and imported
+results are unchanged; reproduce their checks with that file version. A new
+review needs a new batch root.
+
 ## Superseded full-corpus batching pilot
 
 The user changed the execution protocol on 4 November to small packages, lower

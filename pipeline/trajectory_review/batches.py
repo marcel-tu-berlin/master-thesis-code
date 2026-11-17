@@ -178,6 +178,22 @@ def normalize(response, episodes):
     return results
 
 
+def split(rows, size):
+    """Fill packages in order without two trajectories of one question in any."""
+    packages = []
+    for row in rows:
+        question = (row["stratum"], row["seed"])
+        for package in packages:
+            if len(package) < size and all(
+                (r["stratum"], r["seed"]) != question for r in package
+            ):
+                package.append(row)
+                break
+        else:
+            packages.append([row])
+    return packages
+
+
 def prepare(source, output, size):
     verify(source)
     rows = read(source / "coordinator_key.json")
@@ -213,8 +229,7 @@ def prepare(source, output, size):
         folder = output / reviewer
         folder.mkdir()
         jobs = []
-        for offset in range(0, len(pending), size):
-            selected = pending[offset : offset + size]
+        for index, selected in enumerate(split(pending, size)):
             episodes = []
             for row in selected:
                 path = source / "packets" / f"{row['episode_id']}.json"
@@ -225,7 +240,7 @@ def prepare(source, output, size):
             packet = pack(episodes)
             if unpack(packet) != episodes:
                 raise ValueError("Lossy batch encoding")
-            path = folder / f"{offset // size:04}.json"
+            path = folder / f"{index:04}.json"
             write(path, packet)
             sources[str(path)] = digest(path)
             jobs.append(

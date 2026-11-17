@@ -278,3 +278,26 @@ No original `checked.json`, imported review, consolidation or frozen response
 was overwritten, and no model request was made. The
 [audit script](trajectory-review-empty-quote-audit-20261114/audit.py) retains the
 comparison and immutable-output checks. The technical trap is in `LAB_NOTES.md`.
+
+## Package-composition addendum, 17 November 2026
+
+A code review found that the package reviews were not blind to the pairing.
+The sample key lists the E1 and E2 trajectory of each question next to each
+other, in random arm order, and packages were cut from that list in order.
+Claude received both arms of 53 of the 100 pairs in one package. It evaluated
+both arms in 23 of them and returned no review for either arm in the other 30.
+Codex received and evaluated both arms of 42 pairs in one package. Every other
+pair had its two arms in different requests.
+
+Inside a shared package the reviewer sees both trajectories of the task. They
+have the same goal and start page, which the repeated-text reference makes
+explicit, and the arms often differ visibly in length. The rubric asks for
+separate judgments and arm labels stayed in the coordinator key, but contrast
+between the two arms cannot be ruled out for these annotations.
+
+No label, count or conclusion in this report changes. Read paired E1/E2 label
+differences from package reviews as not blind to the pairing, in addition to
+the declared shared-context limit of the package mode. The packager now keeps
+the trajectories of one question in separate packages (see the
+[review README](../trajectory_review/README.md)). The existing batch roots,
+responses and imports are untouched, and no model request was made.
