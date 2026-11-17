@@ -2027,3 +2027,28 @@ validator snapshot and hashes are retained under
 impact is recorded in the 14 November validation addendum to
 `pipeline/runs/offtarget_sample100_20261104_findings.md`. No experiment runtime,
 training/evaluation metric or frozen corpus was changed.
+
+## Selective thesis backup, 2026-11-15
+
+The verified NAS snapshot is under the SSH account's
+`~/backups/master-thesis/20261115T133027Z/`. The Mac copy, exact source allowlist,
+manifests and verification receipts are in
+`pipeline/runs/thesis-backup-20261115T133027Z-ops/`; `payload/COMPLETE.json`
+records the verified scope. This is a dated backup, not an automatic schedule.
+
+The 16.47 GiB payload contains 32 completed L4 runs, including all four saved
+checkpoint directories for 23 trained runs. The Mac archive includes non-weight
+evidence for all 20 original four-condition runs and the 15 completed replication
+cells, plus source, frozen runtimes, reviews and analysis. Git history is retained
+in a bundle. Independent NAS-side SHA-256 verification passed for all 1,701
+payload files, and all 38,048 files inside the Mac archive were checked. A final
+checkpoint and evaluation trace were restored from the NAS and matched the L4
+source hashes; no model execution was performed for this restore check.
+
+Three original home-trained checkpoint sets remain excluded because home access
+is still restricted: checkbox E2, checkbox placebo and tic-tac-toe placebo. Their
+harvested non-weight evidence is included. The active tic-tac-toe placebo has only
+a partial log/config/state snapshot; later outputs and queued cells require a
+later backup. Public base-model weights are excluded, with their exact revision
+retained for recovery. Obsolete training runs were excluded and no source files
+were deleted. Training continued on L4 GPU 1 throughout the copy.
