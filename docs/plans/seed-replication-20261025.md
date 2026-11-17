@@ -72,8 +72,14 @@ hashes and updates local RUNNING.md with box time. Preserve the last verified
 state if SSH fails. Notify on meaningful changes, completion, failure or a
 required user decision; stay quiet on healthy unchanged checks. The remote
 queue continues independently of the Mac. Monitoring/harvest needs this app,
-an awake Mac and a working TU VPN connection. Retire monitoring after all
-harvests, scientific reviews and the report, or a reported non-actionable blocker.
+an awake Mac and a working TU VPN connection. On 2026-11-15 the user explicitly
+renewed ongoing monitoring: VPN/SSH outages must never pause or retire the
+heartbeat, regardless of duration. Preserve the last verified state and retry
+the read-only check on the next scheduled heartbeat. Keep the schedule active
+during reported blockers without changing execution. After all harvests,
+scientific reviews and the report, retain the ongoing health/status monitor
+without starting new experiments or repeating analyses. Pause or retire it only
+on an explicit user request.
 
 ## Analysis fixed before launch
 
