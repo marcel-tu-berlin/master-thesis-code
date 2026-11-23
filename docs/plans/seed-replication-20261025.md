@@ -1,15 +1,22 @@
 # Five-family seed replication
 
-Authorized 2026-10-25. The user confirmed all five families and all four
-conditions, with two additional seeds per family: 30 fresh training runs and
-10 E0 evaluations. Automatic advancement is authorized. Only gpu-l4 physical
+Completed 2026-11-22. All 20 retained cells passed verification, and the
+controller stopped at the withdrawal boundary. The
+[final report](../../pipeline/runs/seed_replication_five_family_findings.md)
+compares both seeds for each family.
+
+Amended 2026-11-18. The user withdrew the entire second replication round
+before any of its cells started. Each family now has two seeds in total:
+its original seed and its first replication seed. The retained round has
+20 new cells, comprising 15 training runs and five fresh E0 evaluations.
+Automatic advancement within this round is authorized. Only gpu-l4 physical
 GPU 1 may be used. The desktop and L4 GPU 0 are excluded. A later desktop
 release requires a separate allocation decision before any queue is moved.
 Decision 0029 records this scope.
 
 ## Declared allocation
 
-| Family | Existing seed | Round 1 | Round 2 |
+| Family | Existing seed | Retained replication | Withdrawn before launch |
 |---|---:|---:|---:|
 | read-table-2 | 4016 | 4017 | 4018 |
 | email-inbox-noscroll | 4021 | 4240 | 4241 |
@@ -17,8 +24,8 @@ Decision 0029 records this scope.
 | tic-tac-toe | 4230 | 4244 | 4245 |
 | click-tab-2 | 4231 | 4246 | 4247 |
 
-One serial worker completes round 1 in this table order, then round 2 in the
-same order. For each family and seed: E0 -> E1 -> E2 -> matched placebo.
+One serial worker completes round 1 in this table order and stops after the
+tabs placebo at seed 4246. Within each seed: E0 -> E1 -> E2 -> matched placebo.
 E0 evaluates the unchanged base. E1, E2 and placebo each start independently
 from the original pinned Qwen3-1.7B with fresh LoRA. E2 and placebo use weight
 0.1. No additional dose, model, environment or E3 is included.
@@ -36,12 +43,14 @@ naive_sum, scale_rewards none, 4096 trajectory tokens including tool feedback,
 4096 prompt tokens, 8192 context and eight turns. Keep native accepted
 batch/continuation behavior. Trained conditions each have 200-question
 checkpoint evaluations at updates 100/200/300; update 300 is primary.
-Total new evaluation work is 100 evaluations, or 20000 episodes.
+The retained round includes 50 evaluations, or 10000 episodes.
 
 ## Deployment and advancement
 
 Operations: pipeline/runs/seed-replication-20261025-ops/.
-The exact 40 run IDs and order are in queue.json. Each family has a full,
+The frozen launch queue retains the original 40 IDs for provenance. Only
+its first 20 are authorized. The stop on L4 is independent of the Mac and
+VPN; the operations handoff documents how to verify it. Each family has a full,
 separate runtime snapshot under /workspace/master-thesis-seeds-20261025/.
 Historical runtime hashes determine the sources. Checkbox's original L4
 GPU 0 routing changes to GPU 1; no experiment semantics change. Table and
@@ -76,10 +85,11 @@ an awake Mac and a working TU VPN connection. On 2026-11-15 the user explicitly
 renewed ongoing monitoring: VPN/SSH outages must never pause or retire the
 heartbeat, regardless of duration. Preserve the last verified state and retry
 the read-only check on the next scheduled heartbeat. Keep the schedule active
-during reported blockers without changing execution. After all harvests,
-scientific reviews and the report, retain the ongoing health/status monitor
-without starting new experiments or repeating analyses. Pause or retire it only
-on an explicit user request.
+during reported blockers without changing execution. On 2026-11-22 the user
+requested that work stop after the final evaluation, process checks, reviewed
+report and verified repository and NAS backup. Retire monitoring after reporting
+the archive location and remaining desktop checkpoint gaps and closing the
+replication task. The separate Matrix session owns the cross-family evaluation.
 
 ## Analysis fixed before launch
 
@@ -90,8 +100,10 @@ Primary contrasts are E2 versus E1 and E2 versus matched placebo, per seed.
 Placebo versus E1 and E0 versus E1 describe mechanism and specialization.
 Report each seed and its joint-success coverage before family-level summaries.
 Use equal seed weight when summarizing across seeds; do not treat all episodes
-or checkpoints as independent training replications. With only three seeds,
-training-seed uncertainty remains weakly estimated. These are exploratory
+or checkpoints as independent training replications. Describe agreement and
+disagreement between the two observed seeds, including the scope reduction
+after round 1 was partly observed. Two seeds cannot establish population-level
+robustness. These are exploratory
 replications declared after the original family outcomes, not retrospective
 confirmation or selection of favorable seeds. No cross-family pooled verdict.
 
@@ -99,14 +111,15 @@ Native checkbox success and exact completion remain separate. Tic-tac-toe
 native outcomes remain primary, with saved-prefix cutoff sensitivity retained.
 Older checkbox E2/placebo and tic-tac-toe placebo ran on home hardware; the
 new matched conditions all run on L4. Original kernel/driver differences also
-remain explicit. Report new L4 seeds separately as a host-consistent subset;
-adding seeds does not erase the original host confounds. Unknown action labels
+remain explicit. Identify each family's replication as its comparison with
+all four conditions on L4. The original host confounds still apply. Unknown action labels
 remain unknown, and task 8's independent label validation stays separate.
 
-## Rough scheduling allowance
+## Final reporting
 
-Allow roughly 3-6 hours for each E0 and 1-3 days for each trained arm including
-its three evaluations. Plan around 8-12 days per family for both new seeds,
-with longer allowances for tic-tac-toe and tabs. The entire serial L4 queue
-is approximately 6-9 weeks before interruptions or review blockers. These are
-planning ranges from prior runs, not measured predictions or a deadline.
+After the tabs quartet is harvested and independently reviewed, produce
+the five-family report from the original findings and the five first-round
+comparisons. Verify all 20 retained harvests and the L4 stop. Obtain independent
+Claude Opus 5.5 review at xhigh of the final synthesis, report the conclusions
+and limitations to the user, then close the replication task. The planned
+cross-family evaluation follows as a separate task.

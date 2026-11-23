@@ -12,7 +12,8 @@ in the decision records or history, not here.
   comparison in `pipeline/runs/tic_tac_toe_s4230_findings.md` and the completed
   `pipeline/runs/click_tab_2_s4231_findings.md` and
   `pipeline/runs/click_checkboxes_soft_s4232_findings.md` comparisons, preserving their paired
-  statistics, measured costs, behavior changes and single-seed limitations.
+  statistics, measured costs and behavior changes. The two-seed evidence
+  and its limits are in `pipeline/runs/seed_replication_five_family_findings.md`.
 
 ## Subsequent studies
 
@@ -22,8 +23,7 @@ in the decision records or history, not here.
 - Deferred: revisit `social-media-some` qualification under the same constraints.
   Evidence: `pipeline/runs/social_s4024_qualification_findings.md`.
 
-- Further doses remain deferred. The separately authorized two-seed replication
-  campaign is tracked in taskwarrior and its declared plan.
+- Further doses remain deferred.
 
 - After E0-E2 are complete and reviewed, declare E3 separately.
 - Optional larger-model and alternate-lineage work remains deferred. Open

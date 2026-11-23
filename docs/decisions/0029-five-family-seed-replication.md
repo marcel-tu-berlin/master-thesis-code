@@ -1,4 +1,13 @@
-# Replicate all five completed families at two new seeds
+# Five-family seed replication
+
+Amended 2026-11-18 by user request. Retain the original seed and the first
+additional seed for every family. The second additional seed was withdrawn
+for all five families before any round-2 launch. Finish the 20 round-1 cells
+(five E0, five E1, five E2 and five matched placebos), then report all five
+original/replication pairs with their original endpoints and limitations.
+This decision was made after some first-round outcomes had been reviewed.
+
+## Original authorization
 
 Decided 2026-10-25 by explicit user request and scope confirmation.
 
