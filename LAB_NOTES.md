@@ -442,6 +442,19 @@ symlinks resolve to the original training run, so the existing checkpoint-step
 resolver would not identify them as the new evaluation run's planned thirds.
 No runtime change or extra E1 training is needed.
 
+## Inbox timestamp click and fill timeouts in transfer evaluation
+
+The pinned email-inbox-noscroll task includes empty `.email-time` elements in
+the observation. A CPU check in the campaign Chromium measured zero height
+on all three timestamps in the list, alongside 12-pixel trash icons. The
+browser resolves the timestamp's bid and then rejects actions on it as invisible.
+The transfer auditor previously treated any bid present in the observation
+as potentially actionable. The recovery audit recognizes only this specific
+empty element when the saved locator, action and visibility error agree.
+It preserves the native action rejection, token counts, feedback and score.
+Other ambiguous timeouts still trigger inspection. The original and repaired
+audits were checked on the same saved 200-episode trace.
+
 ## Before any browsergym launch
 
 1. **MiniWoB static server must be up on :8080.** It does not survive a box
