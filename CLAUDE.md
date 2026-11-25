@@ -118,9 +118,8 @@ drops you onto any branch other than `master`, stop and move the work back onto
 | `LAB_NOTES.md` | What was learned: box operations, launch checklists, traps, run history. |
 | `docs/decisions/` | Decision records: one numbered file per standing decision broad enough to shape the pipeline or the thesis (environment selection included). |
 | `pipeline/runs/*_findings.md` | Per-run and per-pair numbers, with the statistics and the caveats attached. |
-| `BACKLOG.md` | Work that is still open and not started. Finished and abandoned items get deleted, not annotated. |
+| `BACKLOG.md` | Open work and what comes next. Finished and abandoned items get deleted, not annotated. |
 | `pipeline/CODE_REVIEW.md`, `pipeline/FIX_PLAN.md` | The 2026-08-03 review and how each finding was closed. |
-| taskwarrior (`project:thesis`) | Open work and what comes next. |
 
 Each fact belongs in exactly one of these. The failure mode is not hypothetical:
 `RUNNING.md` once grew to 950 lines of rules and history, which buried the single
@@ -175,42 +174,12 @@ owns that fact before deleting - `docs/decisions/` for standing decisions
 `pipeline/runs/*_findings.md` for numbers. Git holds whatever nobody moved, so a
 deletion loses nothing.
 
-### Task tracking (taskwarrior)
-
-Pipeline work is tracked in taskwarrior under the `thesis` context (`project:thesis`).
-`RUNNING.md` says what the GPU is doing right now; taskwarrior says what work is
-open and what comes next. Do not duplicate a run's live state into a task.
-
-Always pass the context explicitly, so the command is correct no matter which
-context happens to be active:
-
-```bash
-task rc.context=thesis add "run seed 43/44 replication of e24/e25"   # add
-task rc.context=thesis list                                          # read open work
-task rc.context=thesis <id> annotate "bootstrap CI crosses zero"     # record a finding
-task rc.context=thesis <id> modify +blocked                          # retag / re-scope
-task rc.context=thesis <id> done                                     # finished
-task rc.context=thesis rc.confirmation=off <id> delete               # obsolete, never done
-```
-
-`delete` prompts for confirmation, which hangs a non-interactive shell - hence
-`rc.confirmation=off`. Only ever pass it to `delete`.
-
-When to touch it:
-
-- **Add** when work is agreed but not started - a planned experiment, a fix that
-  is out of scope for the current turn, a harvest that has to wait for a run.
-  One task per unit of work someone could pick up cold.
-- **Annotate** when a task's outcome or blocker becomes known but the task is not
-  finished. Findings belong on the task; the numbers stay in `runs/`.
-- **Done** as soon as the work lands and is verified, not when the code is
-  written. A launched run is not a done task.
-- **Delete** when a task is obsolete (premise refuted, superseded by another
-  task). `delete` is not `done` - do not close abandoned work as completed.
-
-Read the open list before proposing next steps, and reconcile it when a run is
-harvested. A stale task list misdirects the next session exactly like a stale
-`RUNNING.md` does.
+Add an item when work is agreed but not started - a planned experiment, a fix
+that is out of scope for the current turn, a harvest that has to wait for a run.
+One item per unit of work someone could pick up cold. Do not duplicate a run's
+live state into the backlog, `RUNNING.md` owns it. Read the backlog before
+proposing next steps, and reconcile it when a run is harvested. A stale backlog
+misdirects the next session exactly like a stale `RUNNING.md` does.
 
 ## Where code runs
 

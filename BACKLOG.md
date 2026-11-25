@@ -1,8 +1,17 @@
 # Backlog
 
-Open code/research work only. Taskwarrior (`project:thesis`) tracks execution;
-RUNNING.md tracks live GPU phases. Finished work and rejected alternatives belong
-in the decision records or history, not here.
+Open code/research work only. RUNNING.md tracks live GPU phases. Thesis writing
+and submission tasks are tracked in the thesis vault's BACKLOG.md. Finished work
+and rejected alternatives belong in the decision records or history, not here.
+
+## Cross-family evaluation
+
+- Close out the transfer evaluation once all 60 cells are verified: hash-verify
+  the outputs, write the findings and get them reviewed, as described under
+  "Results and completion" in
+  `docs/plans/cross-family-evaluation-20261114.md`. Live state is in
+  RUNNING.md, the operations record in
+  `pipeline/runs/cross-family-one-seed-20261122-ops/`.
 
 ## Subsequent studies
 
