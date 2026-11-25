@@ -4,17 +4,6 @@ Open code/research work only. Taskwarrior (`project:thesis`) tracks execution;
 RUNNING.md tracks live GPU phases. Finished work and rejected alternatives belong
 in the decision records or history, not here.
 
-## Thesis presentation
-
-- Prepare thesis figures and text from the reviewed comparisons in
-  `pipeline/runs/e0_e2_s4016_findings.md` and
-  `pipeline/runs/inbox_s4021_c4096_findings.md`, plus the reviewed tic-tac-toe
-  comparison in `pipeline/runs/tic_tac_toe_s4230_findings.md` and the completed
-  `pipeline/runs/click_tab_2_s4231_findings.md` and
-  `pipeline/runs/click_checkboxes_soft_s4232_findings.md` comparisons, preserving their paired
-  statistics, measured costs and behavior changes. The two-seed evidence
-  and its limits are in `pipeline/runs/seed_replication_five_family_findings.md`.
-
 ## Subsequent studies
 
 - Deferred: revisit `social-media-all` qualification after choosing a revised
@@ -25,7 +14,6 @@ in the decision records or history, not here.
 
 - Further doses remain deferred.
 
-- After E0-E2 are complete and reviewed, declare E3 separately.
 - Optional larger-model and alternate-lineage work remains deferred. Open
   constraints are in [IMPROVEMENTS.md](IMPROVEMENTS.md). Competent-policy
   continuation remains a separate design option in LAB_NOTES.md.

@@ -20,8 +20,9 @@ current [campaign declaration](docs/plans/e0-e2-campaign.md).
   observed shortcuts from sensitivity to a specific mechanism. This needs new
   trajectories, task qualification and a separately approved protocol. It is not
   part of the retrospective thesis analysis, a prerequisite for interpreting the
-  completed experiments, or authorized follow-up work. The current approach uses
-  narrow events from saved traces plus independent human/LLM semantic review.
+  completed experiments, or authorized follow-up work. The thesis evaluation uses
+  only events that the environment or the evaluation loop records. The
+  human/LLM semantic review is not used as evidence since 2026-11-17.
 
 Current recipe decisions already settle Liger, vLLM sleep, optimizer geometry,
 budgets and reward composition. Their rejected alternatives are documented in

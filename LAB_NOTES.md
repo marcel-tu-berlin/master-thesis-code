@@ -1739,6 +1739,10 @@ tokens.
 
 ## Queued
 
+Note of 2026-11-25: this queue is run history from 2026-08-05. It belongs to
+the development campaign archived under
+`pipeline/runs/archive/development-2026-09-24/` and is not open work.
+
 All 16 review fixes are applied and verified (`pipeline/FIX_PLAN.md`), and the
 paired probe above clears them. Both the eval loop and the training path changed,
 so nothing measured before today is comparable to anything measured after. Three
